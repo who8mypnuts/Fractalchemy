@@ -24,7 +24,7 @@
      </rect>
     </property>
    </widget>
-   <widget class="QPushButton" name="btnLoadGradient">
+<widget class="QPushButton" name="btnLoadGradient">
     <property name="geometry">
      <rect>
       <x>90</x>
@@ -34,10 +34,10 @@
      </rect>
     </property>
     <property name="text">
-     <string>PushButton</string>
+     <string>Load Gradient</string>
     </property>
    </widget>
-  </widget>
+</widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
     <rect>
