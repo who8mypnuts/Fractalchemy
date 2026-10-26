@@ -9,7 +9,7 @@ from PySide6.QtCore import QMimeData, QUrl
 
 from .items import Kind, LibraryItem
 
-MIME_TYPE = "application/x-hueclid-items"
+MIME_TYPE = "application/x-fractalchemy-items"
 
 
 def to_mime(items: list[LibraryItem]) -> QMimeData:

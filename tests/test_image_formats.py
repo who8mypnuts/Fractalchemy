@@ -3,8 +3,8 @@
 import pytest
 from PIL import Image
 
-from hueclid.formats import load_gradient
-from hueclid.imaging import supported_image_extensions
+from fractalchemy.formats import load_gradient
+from fractalchemy.imaging import supported_image_extensions
 
 SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">'

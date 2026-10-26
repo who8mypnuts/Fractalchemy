@@ -4,8 +4,8 @@ import shutil
 
 import pytest
 
-from hueclid.formats import entry_names, format_for, load_gradients, save_gradient
-from hueclid.model import Gradient
+from fractalchemy.formats import entry_names, format_for, load_gradients, save_gradient
+from fractalchemy.model import Gradient
 
 RED_BLUE = Gradient.from_colors("red-blue", [(255, 0, 0), (0, 0, 255)])
 

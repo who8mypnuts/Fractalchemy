@@ -1,6 +1,7 @@
-# HueClid
+# Fractalchemy
 A fractal gradient editor and browser with aspirations. Perhaps one day it will be a full fractal editor.
-For now, HueClid aims to be a gradient library and browser with the ability to edit, save, and convert gradient formats to a variety of fractal programs.
+For now, Fractalchemy aims to be a gradient library and browser with the ability to edit, save, and convert gradient formats to a variety of fractal programs.
+(Fractalchemy was previously called HueClid; the library folders saved under that name are picked up automatically on first run.)
 
 ## Running
 
@@ -17,7 +18,22 @@ python -m pytest
 
 ## What it does today
 
-### Library (left pane)
+### Main window
+* Menu bar: *File* (Exit), *Edit* (Edit Library…), *View* (Toolbar / Status Bar), *Windows*, *Help*
+  (About Fractalchemy, About Qt).
+* A toolbar across the top for the frequently used tools. Today it holds the **Gradient Library**
+  button (hover for its tooltip); fractal tools will join it as they arrive.
+* *Windows ▸ Gradient Library* (`F6`) or the toolbar button opens the **Gradient Library** window —
+  everything below lives there. It is a tool window that stays above the main window; closing it
+  only hides it, so the gradient you are editing (and any unsaved edits) stay put until you reopen it.
+  Quitting the application asks about unsaved edits first.
+
+### Gradient Library window
+Its own *File* (Open, Save, Save As, Close Window), *Edit* (Edit Library…) and *View* (Show/Hide
+Library, Refresh Library) menus, so the shortcuts below work whenever that window is active. The
+title shows the gradient's name and a `*` while it has unsaved edits.
+
+#### Library (left pane)
 * Add folders with **+** (or *Edit ▸ Edit Library…* / the ✎ button, which lists every folder
   with its path, supported-file count and a ✕ to remove it). Folders persist between runs.
 * The tree shows folders, supported files, and — for `.flame` / `.ugr` files holding several
@@ -32,7 +48,7 @@ python -m pytest
 * The arrow in the middle of the divider (or *View ▸ Show/Hide Library*, `Ctrl+L`) collapses the pane.
 * Scanning, loading and every file operation run on a thread pool; the UI never blocks.
 
-### Editor
+#### Editor
 * **Whole gradient** box: *Position* rotates the gradient (−200…200 = one full turn in 1/400 steps,
   nodes wrap around the ends); *Hue / Saturation / Luminance* shift every colour. Sliders and spin
   boxes are linked; values are always applied to the gradient as it was when you started adjusting,
@@ -88,16 +104,22 @@ python -m pytest
 
 ```
 main.py                 entry point only
-ui/main_window.ui       Qt Designer layout (GradientEditor is a promoted custom widget)
-hueclid/
-  config.py             tunables: node counts, simplify tolerance, sizes
+ui/main_window.ui       Qt Designer layout of the shell: menus, toolbar, status bar
+ui/gradient_library_window.ui
+                        Qt Designer layout of the Gradient Library window (GradientEditor etc. are promoted custom widgets)
+fractalchemy/
+  config.py             tunables: app name/version, node counts, simplify tolerance, sizes
+  settings.py           QSettings identity + one-time migration of HueClid settings
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              roots (QSettings), scanner, model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
-  widgets/              GradientStrip, NodeBar, GradientEditor, position mapping
-  ui/                   .ui loader, GradientDocument (state + signals), background tasks, file actions, MainWindow
+  widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons
+  ui/                   .ui loader, GradientDocument (state + signals), background tasks, file actions,
+                        GradientLibraryWindow (the editor tool window), MainWindow (the shell)
 tests/                  pytest suite
+samples/                sample flames / gradients / images used by the tests, plus
+samples/aposource/      the Apophysis 7x source and plugin code, kept for reference (not scanned by the tests)
 ```
 
 ### Notes for tuning

@@ -3,14 +3,14 @@
 import random
 
 
-from hueclid.model import Gradient
-from hueclid.model.adjust import Adjustments, apply_adjustments, rotate_stops, shift_hsl
-from hueclid.model.operations import (
+from fractalchemy.model import Gradient
+from fractalchemy.model.adjust import Adjustments, apply_adjustments, rotate_stops, shift_hsl
+from fractalchemy.model.operations import (
     MAX_NODES, MIN_NODES, REROLL_NODES, add_nodes, randomize_colors, randomize_positions, remove_nodes, reroll, smooth,
 )
-from hueclid.model.color import distance
-from hueclid.ui.document import GradientDocument
-from hueclid.ui.main_window import MainWindow
+from fractalchemy.model.color import distance
+from fractalchemy.ui.document import GradientDocument
+from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
 
 RGB3 = [(0, 0, 0), (255, 0, 0), (255, 255, 255)]
 
@@ -85,7 +85,7 @@ def test_remove_nodes_keeps_at_least_two():
 
 
 def test_smooth_reduces_nodes_and_softens_changes(samples):
-    from hueclid.formats import load_gradient
+    from fractalchemy.formats import load_gradient
 
     g = load_gradient(samples / "sample flames" / "candy.flame")
     out = Gradient("s", smooth(g))
@@ -113,7 +113,7 @@ def test_document_adjust_then_edit_commits_and_resets(qapp):
 
 
 def test_panel_drives_document_and_follows_resets(qapp):
-    window = MainWindow()
+    window = GradientLibraryWindow()
     window.document.replace(Gradient.from_colors("g", RGB3))
     panel = window.wholeGradientPanel
     assert panel.isEnabled()

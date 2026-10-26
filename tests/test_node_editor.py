@@ -5,9 +5,9 @@ import random
 import pytest
 from PySide6.QtCore import QPointF
 
-from hueclid.model import Gradient
-from hueclid.model.node_ops import MIN_NODES, inserted_after, perturbed_color, position_after, random_color, without
-from hueclid.ui.main_window import MainWindow
+from fractalchemy.model import Gradient
+from fractalchemy.model.node_ops import MIN_NODES, inserted_after, perturbed_color, position_after, random_color, without
+from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
 
 RGB3 = [(0, 0, 0), (255, 0, 0), (255, 255, 255)]
 
@@ -43,7 +43,7 @@ def test_random_and_perturbed_colours_are_valid_and_different():
 # --- panel ----------------------------------------------------------------------
 @pytest.fixture
 def window(qapp):
-    win = MainWindow()
+    win = GradientLibraryWindow()
     win.document.replace(Gradient.from_colors("g", RGB3))
     win.show()
     yield win
@@ -109,7 +109,7 @@ def test_add_add_random_randomize_delete(window):
 
 
 def test_node_edits_commit_pending_whole_gradient_adjustments(window):
-    from hueclid.model.adjust import Adjustments
+    from fractalchemy.model.adjust import Adjustments
 
     doc = window.document
     doc.set_adjustments(Adjustments(luminance=-100))

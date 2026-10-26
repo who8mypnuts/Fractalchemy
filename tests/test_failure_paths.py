@@ -5,12 +5,12 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
-from hueclid.library import operations as ops
-from hueclid.library.items import Kind, LibraryItem
-from hueclid.library.roots import LibraryRoots
-from hueclid.model import Gradient
-from hueclid.ui import file_actions
-from hueclid.ui.main_window import MainWindow
+from fractalchemy.library import operations as ops
+from fractalchemy.library.items import Kind, LibraryItem
+from fractalchemy.library.roots import LibraryRoots
+from fractalchemy.model import Gradient
+from fractalchemy.ui import file_actions
+from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
 from tests.conftest import wait_until
 
 RGB3 = [(0, 0, 0), (255, 0, 0), (255, 255, 255)]
@@ -21,7 +21,7 @@ def window(qapp, tmp_path, monkeypatch):
     from PySide6.QtCore import QSettings
 
     monkeypatch.setattr(file_actions.QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok)
-    win = MainWindow(LibraryRoots(QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)))
+    win = GradientLibraryWindow(LibraryRoots(QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)))
     win.show()
     yield win
     win.close()
@@ -54,7 +54,7 @@ def test_cancelling_the_unsaved_prompt_aborts_the_open(window, tmp_path, samples
 
 
 def test_library_operation_failure_is_reported_not_raised(window, tmp_path, monkeypatch):
-    monkeypatch.setattr("hueclid.ui.main_window.QMessageBox.warning", lambda *a, **k: None)
+    monkeypatch.setattr("fractalchemy.ui.gradient_library_window.QMessageBox.warning", lambda *a, **k: None)
     (tmp_path / "a.ugr").write_text("a {\ngradient:\n index=0 color=0\n}\n")
     (tmp_path / "b.ugr").write_text("b {\ngradient:\n index=0 color=0\n}\n")
     errors = []
@@ -85,7 +85,7 @@ def test_roots_reject_files_and_missing_folders(tmp_path):
 
 
 def test_document_refuses_to_drop_below_two_nodes(qapp):
-    from hueclid.ui.document import GradientDocument
+    from fractalchemy.ui.document import GradientDocument
 
     doc = GradientDocument()
     doc.replace(Gradient.from_colors("g", RGB3[:2]))

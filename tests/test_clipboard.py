@@ -2,9 +2,9 @@
 
 from PySide6.QtGui import QGuiApplication
 
-from hueclid.formats.clipboard import gradient_to_text, text_to_gradient
-from hueclid.model import Gradient
-from hueclid.ui.main_window import MainWindow
+from fractalchemy.formats.clipboard import gradient_to_text, text_to_gradient
+from fractalchemy.model import Gradient
+from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
 
 RGB3 = [(0, 0, 0), (255, 0, 0), (255, 255, 255)]
 
@@ -39,7 +39,7 @@ def test_paste_accepts_other_programs_text():
 
 
 def test_buttons_copy_and_paste_through_the_clipboard(qapp):
-    window = MainWindow()
+    window = GradientLibraryWindow()
     window.show()
     panel = window.wholeGradientPanel
     clipboard = QGuiApplication.clipboard()

@@ -1,11 +1,11 @@
-"""HueClid entry point."""
+"""Fractalchemy entry point."""
 
 import sys
 
 from PySide6.QtWidgets import QApplication
 
-from hueclid.config import APP_NAME
-from hueclid.ui.main_window import MainWindow
+from fractalchemy.settings import configure_application, migrate_legacy_settings
+from fractalchemy.ui.main_window import MainWindow
 
 
 def main() -> int:
@@ -15,8 +15,8 @@ def main() -> int:
         The process exit code.
     """
     app = QApplication(sys.argv)
-    app.setOrganizationName(APP_NAME)
-    app.setApplicationName(APP_NAME)
+    configure_application(app)
+    migrate_legacy_settings()  # carry HueClid's library folders over on the first run
     window = MainWindow()
     window.show()
     return app.exec()

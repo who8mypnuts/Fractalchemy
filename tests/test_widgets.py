@@ -1,9 +1,9 @@
 from PySide6.QtCore import QPointF
 
-from hueclid.model import Gradient
+from fractalchemy.model import Gradient
 from tests.conftest import wait_until
-from hueclid.ui.main_window import MainWindow
-from hueclid.widgets.mapping import PositionMapper
+from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
+from fractalchemy.widgets.mapping import PositionMapper
 
 
 def test_mapper_round_trips():
@@ -14,7 +14,7 @@ def test_mapper_round_trips():
 
 
 def test_window_loads_and_nodes_follow_drag(qapp, samples):
-    window = MainWindow()
+    window = GradientLibraryWindow()
     window.resize(800, 300)
     window.show()
     window.files.open_path(samples / "sample gradients" / "saturated rainbox.gradient")
@@ -38,7 +38,7 @@ def test_mouse_drag_moves_node_through_qt_events(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
-    window = MainWindow()
+    window = GradientLibraryWindow()
     window.resize(800, 300)
     window.show()
     window.document.replace(Gradient.from_colors("sparse", [(0, 0, 0), (255, 0, 0), (255, 255, 255)]))
@@ -59,7 +59,7 @@ def test_mouse_drag_past_other_nodes_keeps_them_in_place(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
-    window = MainWindow()
+    window = GradientLibraryWindow()
     window.resize(800, 300)
     window.show()
     colors = [(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 255)]

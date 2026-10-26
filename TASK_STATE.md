@@ -1,19 +1,19 @@
-# TASK_STATE — HueClid review & hardening pass
+# TASK_STATE — Fractalchemy review & hardening pass
 
 Branch: `master` (uncommitted working tree on top of `c366985 baseline`). **Do not commit.**
 
 ## How to resume
 ```bash
-cd /workspace/HueClid
+cd /workspace/Fractalchemy
 pip install -r requirements.txt            # PySide6, Pillow, pillow-heif, pillow-jxl-plugin (+ pytest, pyflakes for dev)
 QT_QPA_PLATFORM=offscreen python3 -m pytest -q   # conftest sets offscreen automatically
-python3 -m pyflakes hueclid tests main.py
+python3 -m pyflakes fractalchemy tests main.py
 ```
 
 ## Last successful commands
 - `python3 -m pytest -q` → **119 passed** (run twice, stable)
-- `python3 -m pyflakes hueclid tests main.py` → clean
-- `python3 -m compileall -q hueclid main.py tests` → ok
+- `python3 -m pyflakes fractalchemy tests main.py` → clean
+- `python3 -m compileall -q fractalchemy main.py tests` → ok
 - docstring audit (`/tmp/doccheck.py`, AST scan of public defs) → 0 / 314 missing
 - offscreen UI smoke test (library + browser + node picker + whole-gradient panel) → renders, status bar correct
 
@@ -56,7 +56,7 @@ Exit gates: total ≥ 90 ✔ · every dimension ≥ 85 % (36/40=90 %, 28/30=93 %
 - Fixed: #1–#12, #14 (tests added: `tests/test_background.py`, empty-flame load, symlink loop). #13 deferred to Cycle 2.
 - Regression check vs baseline: **improved** — all 106 prior tests still pass + 4 new (110). One regression caught and fixed during
   the cycle: eager colour parsing in `ugr.parse_blocks` slowed `names()`/span lookup (made lazy via `ParsedBlock.gradient()`).
-- Commands: `python3 -m pytest -q` → 110 passed; `python3 -m pyflakes hueclid tests main.py` → clean.
+- Commands: `python3 -m pytest -q` → 110 passed; `python3 -m pyflakes fractalchemy tests main.py` → clean.
 - Score: Architecture 33/40 · DRY 27/30 · Docs 10/20 · Tests 8.5/10 → **78.5** (below exit; docs dimension below gate)
 
 ## Cycle 2 — findings & result
@@ -93,3 +93,17 @@ Exit gates: total ≥ 90 ✔ · every dimension ≥ 85 % (36/40=90 %, 28/30=93 %
 Four complete build → critique → diagnose → fix cycles were run. Systemic issues (duplicated colour/UGR parsing,
 crash on empty flame files, destructive Save-As semantics already fixed earlier, lost edits on cancelled save) were
 fixed before polish (docstrings, comment pruning, layout-method splits). No code was committed.
+
+## Rename & window split (HueClid → Fractalchemy)
+- Package `hueclid/` → `fractalchemy/`; `config.APP_NAME = "Fractalchemy"`, `LEGACY_APP_NAME = "HueClid"`;
+  `settings.migrate_legacy_settings()` copies the saved library folders over on first run (tested).
+- `ui/main_window.py` is now the shell (File / Edit / View / **Windows** / **Help**, toolbar, status bar,
+  placeholder centre). The old main window became `ui/gradient_library_window.py: GradientLibraryWindow`
+  (`ui/gradient_library_window.ui`), a child tool window with its own File / Edit / View menus so its
+  shortcuts keep working; closing it hides it. Opened via *Windows ▸ Gradient Library* (`F6`) or the
+  toolbar button (tooltip "Gradient Library"; icon painted at run time in `widgets/icons.py`).
+- Main window `closeEvent` now runs `confirm_discard()` (previously unsaved edits were lost silently on quit).
+- Tests: editor tests target `GradientLibraryWindow`; `tests/test_main_window.py` covers the shell;
+  `conftest.sample_files()` / `copy_samples()` skip `samples/aposource/` (the Apophysis reference source,
+  which had broken `test_every_sample_loads` and the library scan tests).
+- `python -m pytest -q` → 132 passed; pyflakes clean.

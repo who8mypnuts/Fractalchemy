@@ -1,4 +1,4 @@
-from hueclid.model import ColorStop, Gradient, simplify
+from fractalchemy.model import ColorStop, Gradient, simplify
 
 
 def test_from_colors_spaces_evenly():

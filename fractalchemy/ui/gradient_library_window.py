@@ -1,12 +1,17 @@
-"""Top-level window: loads the Designer layout and wires library, editor and file actions."""
+"""The Gradient Library window: library tree, gradient browser strip and editor, with its own File / Edit / View menus.
+
+It is a self-contained tool window (like Apophysis's Editor / Gradient forms): the
+main window shows it from *Windows ▸ Gradient Library* or the toolbar, and closing
+it merely hides it — the loaded gradient and any unsaved edits are kept.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
 
-from .. import config
 from ..library.context_menu import LibraryContextMenu
 from ..library.controller import LibraryController
 from ..library.dialog import EditLibraryDialog
@@ -17,14 +22,16 @@ from ..model import rgb_to_hex
 from ..widgets import GradientEditor
 from ..widgets.collapsible_splitter import CollapsibleSplitter
 from ..widgets.gradient_browser import GradientBrowser
+from ..widgets.icons import gradient_icon
 from ..widgets.node_panel import NodePanel
 from ..widgets.whole_gradient_panel import WholeGradientPanel
 from .document import GradientDocument
 from .file_actions import FileActions
 from .loader import load_ui
 
+WINDOW_TITLE = "Gradient Library"
 SCANNING_MESSAGE = "Scanning library…"
-UI_FILE = Path(__file__).resolve().parents[2] / "ui" / "main_window.ui"
+UI_FILE = Path(__file__).resolve().parents[2] / "ui" / "gradient_library_window.ui"
 CUSTOM_WIDGETS = {
     "GradientBrowser": GradientBrowser,
     "GradientEditor": GradientEditor,
@@ -35,14 +42,20 @@ CUSTOM_WIDGETS = {
 }
 
 
-class MainWindow(QMainWindow):
-    """Application window: library on the left, browser / editor / panels on the right."""
-    def __init__(self, roots: LibraryRoots | None = None):
+class GradientLibraryWindow(QMainWindow):
+    """Gradient tool window: library on the left, browser / editor / panels on the right.
+
+    Works standalone (tests) or as a child window of the main window, in which
+    case it stays above it and is hidden rather than destroyed on close.
+    """
+    def __init__(self, roots: LibraryRoots | None = None, parent: QWidget | None = None):
         """Args:
             roots: Library folders to use; defaults to the persisted list.
+            parent: Owning window; when given this becomes a child top-level window.
         """
-        super().__init__()
+        super().__init__(parent, Qt.WindowType.Window)
         load_ui(self, UI_FILE, CUSTOM_WIDGETS)
+        self.setWindowIcon(gradient_icon())
         self.document = GradientDocument(self)
         self.gradientEditor.bind(self.document)
         self.wholeGradientPanel.bind(self.document)
@@ -64,7 +77,7 @@ class MainWindow(QMainWindow):
         self.actionSaveAsNewEntry.triggered.connect(self.files.save_as_new_entry)
         self.actionSaveAsNewFile.triggered.connect(self.files.save_as_new_file)
         self.actionSaveAsIntoFile.triggered.connect(self.files.save_as_into_file)
-        self.actionExit.triggered.connect(self.close)
+        self.actionClose.triggered.connect(self.close)
         self.actionEditLibrary.triggered.connect(self.edit_library)
         self.actionToggleLibrary.toggled.connect(lambda shown: self.splitter.set_collapsed(not shown))
         self.actionRefreshLibrary.triggered.connect(self.library.rescan_all)
@@ -79,6 +92,8 @@ class MainWindow(QMainWindow):
     def _connect_document(self) -> None:
         self.document.gradient_replaced.connect(self._refresh_header)
         self.document.gradient_changed.connect(self._refresh_header)
+        self.document.stop_changed.connect(self._refresh_header)
+        self.files.entry_saved.connect(self._refresh_header)
         self.document.gradient_replaced.connect(self._refresh_save_targets)
         self.document.stop_changed.connect(self._show_stop)
         self.document.selection_changed.connect(self._show_stop)
@@ -100,6 +115,14 @@ class MainWindow(QMainWindow):
         self.library.failed.connect(self._report_library_error)
         self.library.file_changed_externally.connect(self._on_external_change)
         self.library.scanning.connect(self._show_scanning)
+
+    # --- window management --------------------------------------------------
+    def bring_to_front(self) -> None:
+        """Show the window (restoring it if minimised) and give it focus."""
+        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
     # --- library slots ------------------------------------------------------
     def open_item(self, item: LibraryItem) -> None:
@@ -139,7 +162,8 @@ class MainWindow(QMainWindow):
         gradient = self.document.gradient
         source = self.document.source_path
         self.lblGradientName.setText(f"{gradient.name}  —  {len(gradient)} nodes" + (f"  ({source.name})" if source else ""))
-        self.setWindowTitle(f"{config.APP_NAME} — {gradient.name}" if gradient.stops else config.APP_NAME)
+        self.setWindowTitle(f"{WINDOW_TITLE} — {gradient.name}[*]" if gradient.stops else f"{WINDOW_TITLE}[*]")
+        self.setWindowModified(self.document.modified)
 
     def _refresh_save_targets(self) -> None:
         fmt = self.document.source_format

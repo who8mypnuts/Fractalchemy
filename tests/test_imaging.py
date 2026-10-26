@@ -1,6 +1,6 @@
-from hueclid.imaging import extract_palette, order_colors
-from hueclid.imaging.ordering import by_path
-from hueclid.model.color import luminance
+from fractalchemy.imaging import extract_palette, order_colors
+from fractalchemy.imaging.ordering import by_path
+from fractalchemy.model.color import luminance
 
 
 def test_extract_palette_respects_count(samples):

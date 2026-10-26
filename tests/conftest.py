@@ -6,11 +6,25 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
+NOT_SAMPLES = ("aposource",)  # reference source code kept under samples/, not gradient files
 
 
 @pytest.fixture(scope="session")
 def samples() -> Path:
     return SAMPLES
+
+
+def sample_files(root: Path) -> list[Path]:
+    """Every gradient-bearing sample file under `root`, skipping the reference source trees."""
+    return [p for p in root.rglob("*") if p.is_file() and not set(p.relative_to(root).parts) & set(NOT_SAMPLES)]
+
+
+def copy_samples(root: Path, destination: Path) -> Path:
+    """Copy the sample files (not the reference source trees) to `destination`."""
+    import shutil
+
+    shutil.copytree(root, destination, ignore=shutil.ignore_patterns(*NOT_SAMPLES))
+    return destination
 
 
 @pytest.fixture(scope="session")

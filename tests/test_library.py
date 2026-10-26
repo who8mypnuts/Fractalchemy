@@ -6,19 +6,19 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QModelIndex, QSettings, Qt
 
-from hueclid.formats import entry_names, format_for
-from hueclid.library.items import Kind, LibraryItem
-from hueclid.library.payload import from_mime, to_mime
-from hueclid.library.roots import LibraryRoots
-from hueclid.library.scanner import count_supported_files, scan_directory
-from hueclid.ui.main_window import MainWindow
-from tests.conftest import wait_until
+from fractalchemy.formats import entry_names, format_for
+from fractalchemy.library.items import Kind, LibraryItem
+from fractalchemy.library.payload import from_mime, to_mime
+from fractalchemy.library.roots import LibraryRoots
+from fractalchemy.library.scanner import count_supported_files, scan_directory
+from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
+from tests.conftest import copy_samples, wait_until
 
 
 @pytest.fixture
 def library_dir(samples, tmp_path) -> Path:
     root = tmp_path / "lib"
-    shutil.copytree(samples, root)
+    copy_samples(samples, root)
     (root / "empty").mkdir()
     (root / "notes.txt").write_text("not a gradient")
     return root
@@ -33,7 +33,7 @@ def settings(tmp_path) -> QSettings:
 def window(qapp, settings, library_dir):
     roots = LibraryRoots(settings)
     roots.add(library_dir)
-    win = MainWindow(roots)
+    win = GradientLibraryWindow(roots)
     win.resize(1100, 520)
     win.show()
     wait_until(lambda: win.libraryPanel.model.rowCount() == 1 and not win.library._pending)
@@ -152,7 +152,7 @@ def test_dropping_a_file_onto_a_file_always_copies(window):
 
 
 def test_moving_the_only_entry_is_refused_but_copy_allowed(samples, tmp_path):
-    from hueclid.library import operations as ops
+    from fractalchemy.library import operations as ops
 
     source = shutil.copy(samples / "sample gradients" / "saturated rainbox.gradient", tmp_path / "one.gradient")
     target = shutil.copy(samples / "sample gradients" / "ag6.ugr", tmp_path / "many.ugr")
@@ -218,7 +218,7 @@ def test_expansion_is_restored_after_rescan(window, library_dir):
 
 # --- edit library dialog ----------------------------------------------------
 def test_edit_library_dialog_lists_roots_with_counts_and_removes(window, library_dir, tmp_path):
-    from hueclid.library.dialog import EditLibraryDialog
+    from fractalchemy.library.dialog import EditLibraryDialog
 
     extra = tmp_path / "extra"
     extra.mkdir()

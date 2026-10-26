@@ -4,7 +4,7 @@ import threading
 
 from PySide6.QtCore import QCoreApplication
 
-from hueclid.ui.background import run_in_background
+from fractalchemy.ui.background import run_in_background
 from tests.conftest import wait_until
 
 
@@ -35,6 +35,6 @@ def test_missing_handlers_do_not_crash(qapp):
 
 
 def _still_tracked(task) -> bool:
-    from hueclid.ui import background
+    from fractalchemy.ui import background
 
     return task in background._live_tasks

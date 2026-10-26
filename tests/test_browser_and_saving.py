@@ -5,10 +5,10 @@ import shutil
 import pytest
 from PySide6.QtCore import QSettings
 
-from hueclid.formats import entry_names, load_gradients
-from hueclid.library.roots import LibraryRoots
-from hueclid.ui import file_actions, file_workers
-from hueclid.ui.main_window import MainWindow
+from fractalchemy.formats import entry_names, load_gradients
+from fractalchemy.library.roots import LibraryRoots
+from fractalchemy.ui import file_actions, file_workers
+from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
 from tests.conftest import wait_until
 
 
@@ -23,7 +23,7 @@ def workdir(samples, tmp_path):
 
 @pytest.fixture
 def window(qapp, workdir):
-    win = MainWindow(LibraryRoots(QSettings(str(workdir / "s.ini"), QSettings.Format.IniFormat)))
+    win = GradientLibraryWindow(LibraryRoots(QSettings(str(workdir / "s.ini"), QSettings.Format.IniFormat)))
     win.resize(1100, 600)
     win.show()
     yield win

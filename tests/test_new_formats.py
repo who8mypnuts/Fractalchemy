@@ -6,9 +6,9 @@ import zlib
 
 import pytest
 
-from hueclid.formats import entry_names, format_for, load_gradient, load_gradients, save_gradient
-from hueclid.formats.ufparams import tokens, unquote, wrap_tokens
-from hueclid.model import Gradient
+from fractalchemy.formats import entry_names, format_for, load_gradient, load_gradients, save_gradient
+from fractalchemy.formats.ufparams import tokens, unquote, wrap_tokens
+from fractalchemy.model import Gradient
 
 RED_BLUE = Gradient.from_colors("red-blue", [(255, 0, 0), (0, 0, 255)])
 
@@ -74,7 +74,7 @@ def test_ufr_rename_changes_layer_caption(flames_dir, tmp_path):
 
 
 def test_ufr_rejects_append_and_remove(flames_dir, tmp_path):
-    from hueclid.library import operations as ops
+    from fractalchemy.library import operations as ops
 
     fmt = format_for(flames_dir / "brainfibres.ufr")
     assert fmt.can_save and not fmt.can_append and not fmt.can_remove and not fmt.can_create

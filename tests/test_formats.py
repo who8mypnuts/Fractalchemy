@@ -1,12 +1,13 @@
 import pytest
 
-from hueclid.formats import FORMATS, format_for, load_gradient, load_gradients, save_gradient
-from hueclid.formats.ufparams import pack_color, unpack_color
-from hueclid.model import Gradient
+from fractalchemy.formats import FORMATS, format_for, load_gradient, load_gradients, save_gradient
+from fractalchemy.formats.ufparams import pack_color, unpack_color
+from fractalchemy.model import Gradient
+from tests.conftest import sample_files
 
 
 def test_every_sample_loads(samples):
-    files = [p for p in samples.rglob("*") if p.is_file()]
+    files = sample_files(samples)
     assert files
     for path in files:
         gradient = load_gradient(path)
@@ -75,7 +76,7 @@ def test_no_duplicate_extensions_across_formats():
 
 
 def test_flame_without_palettes_is_reported_not_crashed(tmp_path, qapp):
-    from hueclid.ui.file_workers import load_entries
+    from fractalchemy.ui.file_workers import load_entries
 
     path = tmp_path / "bare.flame"
     path.write_text('<flame name="x"><xform weight="1" coefs="1 0 0 1 0 0"/></flame>')
@@ -85,7 +86,7 @@ def test_flame_without_palettes_is_reported_not_crashed(tmp_path, qapp):
 
 
 def test_scanner_skips_directory_symlink_loops(tmp_path):
-    from hueclid.library.scanner import scan_directory
+    from fractalchemy.library.scanner import scan_directory
 
     (tmp_path / "a").mkdir()
     (tmp_path / "a" / "loop").symlink_to(tmp_path, target_is_directory=True)
