@@ -12,10 +12,14 @@ from .items import Kind, LibraryItem
 MIME_TYPE = "application/x-fractalchemy-items"
 
 
-def to_mime(items: list[LibraryItem]) -> QMimeData:
-    """Package items for drag-and-drop / the clipboard (plus file URLs for files, and plain text)."""
+def to_mime(items: list[LibraryItem], library: str = "") -> QMimeData:
+    """Package items for drag-and-drop / the clipboard (plus file URLs for files, and plain text).
+
+    `library` tags the payload so the gradient and fractal trees ignore each other's entries.
+    """
     data = QMimeData()
-    records = [{"kind": i.kind.value, "path": str(i.path), "index": i.index, "name": i.name} for i in items]
+    records = {"library": library,
+               "items": [{"kind": i.kind.value, "path": str(i.path), "index": i.index, "name": i.name} for i in items]}
     data.setData(MIME_TYPE, json.dumps(records).encode("utf-8"))
     files = [i.path for i in items if i.kind == Kind.FILE]
     if files:
@@ -24,11 +28,17 @@ def to_mime(items: list[LibraryItem]) -> QMimeData:
     return data
 
 
-def from_mime(data: QMimeData) -> list[LibraryItem]:
-    """Decode items from our own MIME type, or from file URLs dropped in from the desktop."""
+def from_mime(data: QMimeData, library: str | None = None) -> list[LibraryItem]:
+    """Decode items from our own MIME type, or from file URLs dropped in from the desktop.
+
+    With `library` given, payloads tagged for another library yield only their plain files.
+    """
     if data.hasFormat(MIME_TYPE):
         records = json.loads(bytes(data.data(MIME_TYPE).data()).decode("utf-8"))
-        return [LibraryItem(Kind(r["kind"]), Path(r["path"]), r["index"], r["name"]) for r in records]
+        items = [LibraryItem(Kind(r["kind"]), Path(r["path"]), r["index"], r["name"]) for r in records["items"]]
+        if library is not None and records.get("library") != library:
+            items = [i for i in items if i.kind == Kind.FILE]
+        return items
     if data.hasUrls():  # files dragged in from the desktop / file manager
         return [LibraryItem(Kind.FILE, Path(u.toLocalFile()), name=Path(u.toLocalFile()).name)
                 for u in data.urls() if u.isLocalFile()]

@@ -11,8 +11,8 @@ class Kind(str, Enum):
     """What a library tree row represents."""
     ROOT = "root"          # a directory the user added to the library
     DIR = "dir"            # a sub-directory
-    FILE = "file"          # a supported file (image / flame / ugr)
-    GRADIENT = "gradient"  # one named entry inside a multi-gradient file
+    FILE = "file"          # a supported file (image / flame / ugr / fa ...)
+    ENTRY = "entry"        # one named entry inside a multi-entry file (a gradient, a flame)
 
 
 @dataclass(frozen=True)
@@ -20,14 +20,14 @@ class LibraryItem:
     """Identity of one tree row, shared by the model, menus, drag payloads and controller.
 
     Attributes:
-        kind: Root folder, sub-folder, file, or a gradient entry inside a file.
+        kind: Root folder, sub-folder, file, or an entry inside a file.
         path: The folder or file on disk.
-        index: Entry index inside the file for GRADIENT rows; 0 otherwise.
+        index: Entry index inside the file for ENTRY rows; 0 otherwise.
         name: Display text.
     """
     kind: Kind
     path: Path
-    index: int = 0          # entry index for GRADIENT, else 0
+    index: int = 0          # entry index for ENTRY, else 0
     name: str = ""
 
     @property
@@ -36,9 +36,9 @@ class LibraryItem:
         return self.kind in (Kind.ROOT, Kind.DIR)
 
     @property
-    def shows_gradient(self) -> bool:
-        """True for rows that load a gradient when chosen (files and entries)."""
-        return self.kind in (Kind.FILE, Kind.GRADIENT)
+    def opens_entry(self) -> bool:
+        """True for rows that load something when chosen (files and entries)."""
+        return self.kind in (Kind.FILE, Kind.ENTRY)
 
     @property
     def directory(self) -> Path:

@@ -1,8 +1,8 @@
-"""Top-level application window: menu bar, toolbar, status bar, and the tool windows it opens.
+"""Top-level application window: Fractal Library on the left, the fractal viewport in the centre.
 
-The main window is the shell that the fractal editor will grow into. Today its
-central area is a placeholder; the real work happens in the Gradient Library
-window, which the *Windows* menu and the toolbar button show.
+Menus (File / Edit / View / Windows / Help), a toolbar, and a status bar showing the
+loaded fractal, render facts, the progressive pass counter and a progress bar. The
+Gradient Library is a separate tool window opened from *Windows* or the toolbar.
 """
 
 from __future__ import annotations
@@ -10,55 +10,197 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QMainWindow, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from .. import config
+from ..fractal.formats import load_flame, open_dialog_filter
+from ..fractal.scene import Flame
+from ..library.catalog import FRACTAL_CATALOG
+from ..library.context_menu import LibraryContextMenu
+from ..library.controller import LibraryController
+from ..library.dialog import EditLibraryDialog
+from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
+from ..render.service import RenderService
+from ..widgets.collapsible_splitter import CollapsibleSplitter
 from ..widgets.icons import gradient_icon
+from .background import run_in_background
+from .fractal_document import FractalDocument
+from .fractal_library_panel import LIST_ICON_SIZE, FractalLibraryPanel
+from .fractal_viewport import FractalViewport
 from .gradient_library_window import GradientLibraryWindow
 from .loader import load_ui
+from .render_status import RenderStatus
+from .thumbnails import ThumbnailProvider
 
 UI_FILE = Path(__file__).resolve().parents[2] / "ui" / "main_window.ui"
+CUSTOM_WIDGETS = {
+    "FractalLibraryPanel": FractalLibraryPanel,
+    "FractalViewport": FractalViewport,
+    "CollapsibleSplitter": CollapsibleSplitter,
+}
+SCANNING_MESSAGE = "Scanning fractal library…"
+LIBRARY_PANE_WIDTH = 300
+MESSAGE_MS = 6000
 ABOUT_TEXT = (
     f"<h3>{config.APP_NAME} {config.APP_VERSION}</h3>"
-    "<p>A fractal gradient editor and library, with aspirations of becoming a full fractal editor.</p>"
-    "<p>Reads and writes gradients for Apophysis / flam3 (<code>.flame</code>), Ultra Fractal "
-    "(<code>.ugr</code>, <code>.gradient</code>, <code>.ufr</code>), Fractint (<code>.map</code>) and "
-    "Chaotica (<code>.chaos</code>), and extracts palettes from images.</p>"
+    "<p>A fractal flame viewer, gradient editor and library, growing into a full fractal editor.</p>"
+    "<p>Reads Apophysis / flam3 (<code>.flame</code>), Chaotica (<code>.chaos</code>) and Fractalchemy "
+    "(<code>.fa</code>) fractals; renders previews on the GPU (OpenGL) with a multithreaded CPU fallback.</p>"
 )
 
 
 class MainWindow(QMainWindow):
-    """Application shell: File / Edit / View / Windows / Help menus, a toolbar, and the Gradient Library window."""
-    def __init__(self, roots: LibraryRoots | None = None):
+    """Application shell: fractal library + viewport, menus, toolbar, status bar, and the Gradient Library window."""
+    def __init__(self, roots: LibraryRoots | None = None, fractal_roots: LibraryRoots | None = None,
+                 prefer_gpu: bool = True):
         """Args:
-            roots: Library folders for the Gradient Library; defaults to the persisted list.
+            roots: Gradient library folders; defaults to the persisted list.
+            fractal_roots: Fractal library folders; defaults to the persisted list.
+            prefer_gpu: Try the OpenGL preview engine first (tests may force the CPU engine).
         """
         super().__init__()
-        load_ui(self, UI_FILE)
+        load_ui(self, UI_FILE, CUSTOM_WIDGETS)
         self.setWindowIcon(gradient_icon())
+        self.render_service = RenderService(self, prefer_gpu=prefer_gpu)
+        self.document = FractalDocument(self)
+        self.status = RenderStatus(self.statusBar())
+        self.viewport.bind(self.document, self.render_service)
+        self.fractal_library = LibraryController(
+            self.fractalLibraryPanel.model, fractal_roots or LibraryRoots(parent=self, key=FRACTAL_CATALOG.roots_key), self)
+        self.fractal_menu = LibraryContextMenu(self.fractal_library, self.open_item, self)
+        self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
         self.gradient_library = GradientLibraryWindow(roots, self)
+        self.splitter.set_first_width(LIBRARY_PANE_WIDTH)
         self._connect_actions()
+        self._connect_document()
+        self._connect_library()
+        self._connect_render()
+        self.render_service.start()
+        self.fractal_library.rescan_all()
 
     # --- wiring -------------------------------------------------------------
     def _connect_actions(self) -> None:
+        self.actionOpenFractal.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_DialogOpenButton))
+        self.actionOpenFractal.triggered.connect(self.open_file)
         self.actionGradientLibrary.setIcon(gradient_icon())
         self.actionGradientLibrary.triggered.connect(self.show_gradient_library)
-        self.actionEditLibrary.triggered.connect(self.gradient_library.edit_library)
+        self.actionEditFractalLibrary.triggered.connect(self.edit_fractal_library)
+        self.actionToggleFractalLibrary.toggled.connect(lambda shown: self.splitter.set_collapsed(not shown))
+        self.actionRefreshFractalLibrary.triggered.connect(self.fractal_library.rescan_all)
+        self.actionThumbnailView.toggled.connect(self.fractalLibraryPanel.set_thumbnail_view)
         self.actionExit.triggered.connect(self.close)
         self.actionAbout.triggered.connect(self.about)
         self.actionAboutQt.triggered.connect(lambda: QMessageBox.aboutQt(self, f"About Qt — {config.APP_NAME}"))
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
+        self.splitter.collapsed_changed.connect(lambda collapsed: self.actionToggleFractalLibrary.setChecked(not collapsed))
 
-    # --- slots --------------------------------------------------------------
+    def _connect_document(self) -> None:
+        self.document.flame_replaced.connect(self._on_flame_replaced)
+        self.document.camera_changed.connect(self._on_camera_changed)
+
+    def _connect_library(self) -> None:
+        panel = self.fractalLibraryPanel
+        panel.add_requested.connect(self.add_fractal_folder)
+        panel.edit_requested.connect(self.edit_fractal_library)
+        panel.item_chosen.connect(self.open_item)
+        panel.menu_requested.connect(lambda item, pos: self.fractal_menu.show(item, panel.tree.selected_items(), pos))
+        panel.view_mode_changed.connect(self._set_thumbnail_view)
+        self.fractal_library.status.connect(self._message)
+        self.fractal_library.failed.connect(self._report_library_error)
+        self.fractal_library.scanning.connect(self._show_scanning)
+        self.fractal_library.file_changed_externally.connect(self._on_external_change)
+
+    def _connect_render(self) -> None:
+        self.render_service.engine_ready.connect(self.status.set_engine)
+        self.viewport.render_progress.connect(self.status.show_progress)
+        self.viewport.render_failed.connect(lambda message: self._message(f"Cannot render: {message}"))
+
+    # --- fractal loading ----------------------------------------------------
+    def open_file(self) -> None:
+        """Prompt for a fractal file and show its first flame."""
+        start = str(self.document.source_path.parent) if self.document.source_path else ""
+        path, _ = QFileDialog.getOpenFileName(self, "Open fractal", start, open_dialog_filter())
+        if path:
+            self.open_path(Path(path), 0)
+
+    def open_item(self, item: LibraryItem) -> None:
+        """Show the flame a library row refers to."""
+        if not self.document.is_showing(item.path, item.index):
+            self.open_path(item.path, item.index)
+
+    def open_path(self, path: Path, index: int = 0) -> None:
+        """Load flame `index` of `path` on a worker thread, then show it."""
+        self._message(f"Loading {path.name}…")
+        run_in_background(load_flame, path, index,
+                          on_done=lambda flame: self._loaded(flame, path, index),
+                          on_error=lambda exc: self._report_error("Could not open fractal", exc))
+
+    def show_flame(self, flame: Flame) -> None:
+        """Show a flame that did not come from a file."""
+        self.document.replace(flame)
+
+    def _loaded(self, flame: Flame, path: Path, index: int) -> None:
+        self.document.replace(flame, path, index)
+        self._message(f"Loaded '{flame.name}' from {path.name}")
+
+    # --- library slots ------------------------------------------------------
+    def add_fractal_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Add folder to the fractal library")
+        if folder and not self.fractal_library.roots.add(Path(folder)):
+            self._message("That folder is already in the fractal library")
+
+    def edit_fractal_library(self) -> None:
+        EditLibraryDialog(self.fractal_library, self.add_fractal_folder, self).exec()
+
+    def _set_thumbnail_view(self, thumbnails: bool) -> None:
+        self.thumbnails.set_enabled(thumbnails)
+        self.fractalLibraryPanel.apply_icon_size(self.thumbnails.size if thumbnails else LIST_ICON_SIZE)
+        if self.actionThumbnailView.isChecked() != thumbnails:
+            self.actionThumbnailView.setChecked(thumbnails)
+
+    def _show_scanning(self, busy: bool) -> None:
+        if busy:
+            self.statusBar().showMessage(SCANNING_MESSAGE)
+        elif self.statusBar().currentMessage() == SCANNING_MESSAGE:
+            self.statusBar().clearMessage()
+
+    def _on_external_change(self, path: Path) -> None:
+        if path == self.document.source_path:
+            self.open_path(path, self.document.source_index)
+
+    # --- other slots --------------------------------------------------------
     def show_gradient_library(self) -> None:
         """Open the Gradient Library window, or bring it to the front if it is already open."""
         self.gradient_library.bring_to_front()
 
     def about(self) -> None:
-        """Show the About box."""
         QMessageBox.about(self, f"About {config.APP_NAME}", ABOUT_TEXT)
+
+    def _on_flame_replaced(self) -> None:
+        flame = self.document.flame
+        source = self.document.source_path.name if self.document.source_path else ""
+        self.status.show_fractal(flame, source)
+        self.status.show_idle()
+        self.setWindowTitle(f"{config.APP_NAME} — {flame.name}" if flame else config.APP_NAME)
+
+    def _on_camera_changed(self) -> None:
+        flame = self.document.flame
+        if flame is not None:
+            cx, cy = flame.camera.center
+            self._message(f"center {cx:.4f}, {cy:.4f}   zoom {flame.camera.zoom:.2f}", 2000)
+
+    def _message(self, text: str, ms: int = MESSAGE_MS) -> None:
+        self.statusBar().showMessage(text, ms)
+
+    def _report_error(self, title: str, exc: Exception) -> None:
+        self._message(f"{title}: {exc}")
+        QMessageBox.warning(self, title, str(exc))
+
+    def _report_library_error(self, message: str) -> None:
+        self._message(message)
+        QMessageBox.warning(self, "Fractal Library", message)
 
     # --- Qt overrides -------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -67,4 +209,5 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.gradient_library.close()
+        self.render_service.stop()
         super().closeEvent(event)

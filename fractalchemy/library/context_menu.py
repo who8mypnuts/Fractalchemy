@@ -36,14 +36,14 @@ class LibraryContextMenu:
     # --- menu composition ---------------------------------------------------
     def _populate(self, menu: QMenu, item: LibraryItem, selection: list[LibraryItem]) -> None:
         ctl = self._controller
-        if item.shows_gradient:
+        if item.opens_entry:
             self._add(menu, "Open", lambda: self._open_item(item))
             menu.addSeparator()
-        if item.kind in (Kind.FILE, Kind.GRADIENT):
+        if item.kind in (Kind.FILE, Kind.ENTRY):
             self._add(menu, "Copy", lambda: ctl.copy_to_clipboard(selection))
-        if item.kind != Kind.GRADIENT:
+        if item.kind != Kind.ENTRY:
             self._add(menu, "Paste", lambda: ctl.paste(item))
-        if item.kind in (Kind.FILE, Kind.GRADIENT):
+        if item.kind in (Kind.FILE, Kind.ENTRY):
             self._add(menu, "Duplicate", lambda: ctl.duplicate(item))
         if item.kind != Kind.ROOT:
             self._add(menu, "Rename…", lambda: self._rename(item))
@@ -64,7 +64,7 @@ class LibraryContextMenu:
 
     # --- prompts ------------------------------------------------------------
     def _rename(self, item: LibraryItem) -> None:
-        label = "Gradient name:" if item.kind == Kind.GRADIENT else "File name:"
+        label = f"{self._controller.catalog.entry_label.capitalize()} name:" if item.kind == Kind.ENTRY else "File name:"
         name, ok = QInputDialog.getText(self._parent, "Rename", label, text=item.name)
         if ok and name.strip() and name.strip() != item.name:
             self._controller.rename(item, name.strip())

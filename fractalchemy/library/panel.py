@@ -6,6 +6,7 @@ from PySide6.QtCore import QPoint, QTimer, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QStyle, QToolButton, QVBoxLayout, QWidget
 
+from .catalog import GRADIENT_CATALOG, Catalog
 from .model import LibraryModel
 from .tree import LibraryTree
 
@@ -27,10 +28,11 @@ class LibraryPanel(QWidget):
     item_chosen = Signal(object)
     menu_requested = Signal(object, QPoint)
 
-    def __init__(self, parent: QWidget | None = None):
-        """Build the search box, tree and buttons; no disk access happens here."""
+    def __init__(self, parent: QWidget | None = None, catalog: Catalog = GRADIENT_CATALOG):
+        """Build the search box, tree and buttons for `catalog`; no disk access happens here."""
         super().__init__(parent)
-        self.model = LibraryModel(self)
+        self.catalog = catalog
+        self.model = LibraryModel(catalog, self)
         self.tree = LibraryTree(self.model, self)
         self.search = QLineEdit(self)
         self.collapse_button = QToolButton(self)
@@ -50,9 +52,9 @@ class LibraryPanel(QWidget):
         top.addWidget(self.search, 1)
         top.addWidget(self.collapse_button)
         self.add_button.setText("+")
-        self.add_button.setToolTip("Add folder to library")
+        self.add_button.setToolTip(f"Add folder to the {self.catalog.title.lower()}")
         self.edit_button.setText("✎")
-        self.edit_button.setToolTip("Edit library")
+        self.edit_button.setToolTip(f"Edit {self.catalog.title.lower()}")
         buttons = QHBoxLayout()
         buttons.addWidget(self.add_button)
         buttons.addWidget(self.edit_button)

@@ -1,4 +1,4 @@
-"""File-system and gradient-entry operations behind the library's menus and drops.
+"""File-system and entry operations behind the library's menus and drops.
 
 Plain functions, no widgets: they run on a worker thread and return a short
 status string. Errors surface as exceptions for the controller to report.
@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QFile
 
-from ..formats import format_for, load_gradients
+from .catalog import Catalog
 from .items import Kind, LibraryItem
 
 
@@ -85,78 +85,83 @@ def move_files(paths: list[Path], dest_dir: Path) -> str:
     return f"Moved {moved} file(s) to {dest_dir.name}"
 
 
-# --- gradient entries -------------------------------------------------------
-def transfer_entry(source: Path, index: int, target: Path, move: bool) -> str:
+# --- entries (gradients / flames, per the catalog) ---------------------------
+def transfer_entry(catalog: Catalog, source: Path, index: int, target: Path, move: bool) -> str:
     """Append entry `index` of `source` to `target`; optionally remove it from source."""
-    src_fmt, dst_fmt = format_for(source), format_for(target)
+    label = catalog.entry_label
+    src_fmt, dst_fmt = catalog.format_for(source), catalog.format_for(target)
     if target.exists() and not dst_fmt.can_append:
-        raise ValueError(f"Gradients cannot be added to existing {dst_fmt.name} files")
-    if not target.exists() and not dst_fmt.can_create:
-        raise ValueError(f"Gradients cannot be saved as new {dst_fmt.name} files")
+        raise ValueError(f"{label.capitalize()}s cannot be added to existing {dst_fmt.name} files")
+    if not target.exists() and not getattr(dst_fmt, "can_create", dst_fmt.can_append):
+        raise ValueError(f"{label.capitalize()}s cannot be saved as new {dst_fmt.name} files")
     if move and not src_fmt.can_remove:
-        raise ValueError(f"Hold Ctrl to copy: gradients can't be removed from {src_fmt.name} files")
+        raise ValueError(f"Hold Ctrl to copy: {label}s can't be removed from {src_fmt.name} files")
     if move and len(src_fmt.names(source)) <= 1:
-        raise ValueError("Hold Ctrl to copy: a file must keep at least one gradient")
+        raise ValueError(f"Hold Ctrl to copy: a file must keep at least one {label}")
     if src_fmt is dst_fmt:
         dst_fmt.copy_entry(source, index, target)
     else:
-        dst_fmt.append(load_gradients(source)[index], target)
+        catalog.cross_copy(source, index, target)
     if move:
         src_fmt.remove(source, index)
-    return f"{'Moved' if move else 'Copied'} gradient to {target.name}"
+    return f"{'Moved' if move else 'Copied'} {label} to {target.name}"
 
 
-def entry_to_new_file(source: Path, index: int, dest_dir: Path, suffix: str) -> str:
-    """Create a new file in `dest_dir` (named after the entry, with `suffix`) holding entry `index` of `source`."""
-    name = format_for(source).names(source)[index] if format_for(source).multi_entry else source.stem
-    target = unique_path(dest_dir / f"{_safe_filename(name)}{suffix}")
-    transfer_entry(source, index, target, move=False)
+def entry_to_new_file(catalog: Catalog, source: Path, index: int, dest_dir: Path) -> str:
+    """Create a new file in `dest_dir` (named after the entry) holding entry `index` of `source`."""
+    fmt = catalog.format_for(source)
+    name = fmt.names(source)[index] if fmt.multi_entry else source.stem
+    target = unique_path(dest_dir / f"{_safe_filename(name, catalog.entry_label)}{catalog.new_file_suffix}")
+    transfer_entry(catalog, source, index, target, move=False)
     return f"Created {target.name}"
 
 
-def duplicate_entry(path: Path, index: int) -> str:
+def duplicate_entry(catalog: Catalog, path: Path, index: int) -> str:
     """Append a verbatim copy of entry `index` to its own file.
 
     Raises:
         ValueError: If the format cannot hold extra entries.
     """
-    fmt = format_for(path)
+    fmt = catalog.format_for(path)
     if not fmt.can_append:
-        raise ValueError(f"{fmt.name} files can't hold extra gradients")
+        raise ValueError(f"{fmt.name} files can't hold extra {catalog.entry_label}s")
     fmt.copy_entry(path, index, path)
-    return "Duplicated gradient"
+    return f"Duplicated {catalog.entry_label}"
 
 
-def delete_entry(path: Path, index: int) -> str:
+def delete_entry(catalog: Catalog, path: Path, index: int) -> str:
     """Remove entry `index` from its file.
 
     Raises:
         ValueError: If the format forbids removal or only one entry would remain.
     """
-    fmt = format_for(path)
+    fmt = catalog.format_for(path)
     if not fmt.can_remove:
-        raise ValueError(f"Gradients can't be removed from {fmt.name} files")
+        raise ValueError(f"{catalog.entry_label.capitalize()}s can't be removed from {fmt.name} files")
     if len(fmt.names(path)) <= 1:
-        raise ValueError("A file must keep at least one gradient; delete the file instead")
+        raise ValueError(f"A file must keep at least one {catalog.entry_label}; delete the file instead")
     fmt.remove(path, index)
-    return "Deleted gradient"
+    return f"Deleted {catalog.entry_label}"
 
 
-def rename_entry(path: Path, index: int, name: str) -> str:
+def rename_entry(catalog: Catalog, path: Path, index: int, name: str) -> str:
     """Rename entry `index` inside its file."""
-    format_for(path).rename(path, index, name)
-    return f"Renamed gradient to {name}"
+    fmt = catalog.format_for(path)
+    if not getattr(fmt, "can_rename", True):
+        raise ValueError(f"{catalog.entry_label.capitalize()}s in {fmt.name} files can't be renamed")
+    fmt.rename(path, index, name)
+    return f"Renamed {catalog.entry_label} to {name}"
 
 
 # --- dispatch helpers for drops / paste ------------------------------------
-def drop_items(items: list[LibraryItem], target: LibraryItem, move: bool, new_file_suffix: str) -> str:
+def drop_items(catalog: Catalog, items: list[LibraryItem], target: LibraryItem, move: bool) -> str:
     """Apply a drag-and-drop of `items` onto `target`.
 
     Args:
+        catalog: Supplies the formats and the extension of files created on folder drops.
         items: What was dragged.
         target: Where it was dropped.
         move: True to remove sources after copying (Ctrl not held).
-        new_file_suffix: Extension for files created when an entry lands on a folder.
 
     Returns:
         A status line summarising what happened.
@@ -164,22 +169,22 @@ def drop_items(items: list[LibraryItem], target: LibraryItem, move: bool, new_fi
     Raises:
         ValueError: For unsupported combinations or refused moves.
     """
-    messages = [_drop_one(item, target, move, new_file_suffix) for item in items]
+    messages = [_drop_one(catalog, item, target, move) for item in items]
     return messages[-1] if len(messages) == 1 else f"{len(messages)} items {'moved' if move else 'copied'}"
 
 
-def _drop_one(item: LibraryItem, target: LibraryItem, move: bool, new_file_suffix: str) -> str:
-    if item.kind == Kind.GRADIENT and target.kind == Kind.FILE:
-        return transfer_entry(item.path, item.index, target.path, move)
-    if item.kind == Kind.GRADIENT and target.is_directory:
-        return entry_to_new_file(item.path, item.index, target.path, new_file_suffix)
+def _drop_one(catalog: Catalog, item: LibraryItem, target: LibraryItem, move: bool) -> str:
+    if item.kind == Kind.ENTRY and target.kind == Kind.FILE:
+        return transfer_entry(catalog, item.path, item.index, target.path, move)
+    if item.kind == Kind.ENTRY and target.is_directory:
+        return entry_to_new_file(catalog, item.path, item.index, target.path)
     if item.kind == Kind.FILE and target.kind == Kind.FILE:
-        return transfer_entry(item.path, 0, target.path, move=False)
+        return transfer_entry(catalog, item.path, 0, target.path, move=False)
     if item.kind == Kind.FILE and target.is_directory:
         return (move_files if move else copy_files)([item.path], target.path)
     raise ValueError(f"Can't drop a {item.kind.value} onto a {target.kind.value}")
 
 
-def _safe_filename(name: str) -> str:
+def _safe_filename(name: str, fallback: str) -> str:
     cleaned = "".join(c if c.isalnum() or c in " -_." else "_" for c in name).strip()
-    return cleaned or "gradient"
+    return cleaned or fallback

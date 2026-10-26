@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..formats import FormatError, entry_names, format_for
-from ..formats.registry import UnsupportedFormatError
+from .catalog import Catalog
 
 
 @dataclass
@@ -15,14 +14,14 @@ class ScannedFile:
 
     Attributes:
         path: The file.
-        names: Gradient names inside it (one entry for single-gradient types).
+        names: Entry names inside it (one entry for single-entry types).
     """
     path: Path
     names: list[str]
 
     @property
     def multi(self) -> bool:
-        """True when the file holds more than one gradient."""
+        """True when the file holds more than one entry."""
         return len(self.names) > 1
 
 
@@ -44,8 +43,8 @@ class ScannedDir:
         return len(self.files) + sum(d.file_count() for d in self.dirs)
 
 
-def scan_directory(root: Path) -> ScannedDir:
-    """Walk `root` and describe every supported file (slow: run on a worker thread).
+def scan_directory(root: Path, catalog: Catalog) -> ScannedDir:
+    """Walk `root` and describe every file `catalog` supports (slow: run on a worker thread).
 
     Hidden entries and directory symlinks are skipped; unreadable folders yield
     an empty node rather than an error.
@@ -59,26 +58,24 @@ def scan_directory(root: Path) -> ScannedDir:
         if child.name.startswith(".") or (child.is_symlink() and child.is_dir()):
             continue  # hidden entries; directory symlinks could loop back into the tree
         if child.is_dir():
-            node.dirs.append(scan_directory(child))
+            node.dirs.append(scan_directory(child, catalog))
         elif child.is_file():
-            scanned = _scan_file(child)
+            scanned = _scan_file(child, catalog)
             if scanned is not None:
                 node.files.append(scanned)
     return node
 
 
-def _scan_file(path: Path) -> ScannedFile | None:
-    try:
-        format_for(path)
-    except UnsupportedFormatError:
+def _scan_file(path: Path, catalog: Catalog) -> ScannedFile | None:
+    if not catalog.matches(path):
         return None
     try:
-        names = entry_names(path)
-    except (FormatError, OSError, ValueError):
+        names = catalog.entry_names(path)
+    except Exception:  # noqa: BLE001 - unreadable or malformed: list nothing rather than abort the scan
         names = []
     return ScannedFile(path, names) if names else None
 
 
-def count_supported_files(root: Path) -> int:
+def count_supported_files(root: Path, catalog: Catalog) -> int:
     """Number of supported files under `root`, recursively."""
-    return scan_directory(root).file_count()
+    return scan_directory(root, catalog).file_count()

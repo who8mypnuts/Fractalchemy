@@ -88,7 +88,7 @@ class LibraryTree(QTreeView):
     # --- slots --------------------------------------------------------------
     def _on_current_changed(self, current: QModelIndex, _previous: QModelIndex) -> None:
         item = self.item_at(current)
-        if item is not None and item.shows_gradient:
+        if item is not None and item.opens_entry:
             self.item_chosen.emit(item)
 
     def _on_menu(self, pos: QPoint) -> None:

@@ -107,3 +107,22 @@ fixed before polish (docstrings, comment pruning, layout-method splits). No code
   `conftest.sample_files()` / `copy_samples()` skip `samples/aposource/` (the Apophysis reference source,
   which had broken `test_every_sample_loads` and the library scan tests).
 - `python -m pytest -q` → 132 passed; pyflakes clean.
+
+## Fractal viewer, dual-engine rendering, Fractal Library
+- `fractalchemy/fractal/`: shared scene (`Flame`/`XForm`/`Camera`/`Coloring`), `variations.py` (≈50 variations, each
+  with numpy + GLSL; aliases for 3D names; z-only variations are no-ops), `formats/` (.flame read/write, .chaos read,
+  .fa JSON read/write + entry ops, registry).
+- `fractalchemy/render/`: `RenderSettings`/`RenderStats`, `CompiledFlame`, `tonemap.py` (Apophysis ImageMaker maths,
+  numpy + GLSL), `cpu_engine.py` (numpy, thread pool), `codegen.py` + `gpu_engine.py` (moderngl: TF iterate → additive
+  point plot → GPU tone map), `service.py` (QThread, priority queue, supersede/cancel, pre-emption of thumbnails).
+- Library generalised with `library/catalog.py` (`GRADIENT_CATALOG`, `FRACTAL_CATALOG`); `Kind.GRADIENT` → `Kind.ENTRY`;
+  model gained lazy thumbnails; payload tagged per library.
+- Main window: `FractalLibraryPanel` (search, collapse, list/thumbnail buttons) | `FractalViewport` (wheel zoom about
+  cursor, drag pan, half-res while interacting, full-res after settle, generation keys) ; status bar via `RenderStatus`
+  (fractal facts · engine/samples/rate · Pass n of N · progress). Edit menu → "Edit Fractal Library…".
+- Tests: `test_variations.py` (numpy ≡ GLSL), `test_fractal_formats.py`, `test_render.py` (tone map numpy ≡ GLSL, engines,
+  service), main-window tests for library/viewport/status/thumbnails. GL tests skip when no context is available.
+- `python -m pytest -q` → 263 passed; pyflakes clean. Mesa/llvmpipe provides GL in the sandbox (slow but exact).
+- Known gaps: Chaotica brightness scale is a heuristic (`BRIGHTNESS_SCALE`); Chaotica xaos direction assumed
+  (column = "weights into iterator"); plugin variations not ported (collideoscope, crackle, bwraps7, …) are ignored;
+  3D camera (pitch/yaw/perspective) ignored; no density-estimation filtering in the preview.

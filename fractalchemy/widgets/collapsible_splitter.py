@@ -45,10 +45,10 @@ class CollapsibleSplitter(QSplitter):
     """
     collapsed_changed = Signal(bool)
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: QWidget | None = None, first_width: int = DEFAULT_FIRST_WIDTH):
         """Create an empty horizontal splitter; add exactly two widgets."""
         super().__init__(Qt.Orientation.Horizontal, parent)
-        self._last_width = DEFAULT_FIRST_WIDTH
+        self._last_width = first_width
         self._initialised = False
         self.setHandleWidth(14)
         self.setChildrenCollapsible(True)
@@ -60,6 +60,12 @@ class CollapsibleSplitter(QSplitter):
         return handle
 
     # --- state --------------------------------------------------------------
+    def set_first_width(self, width: int) -> None:
+        """Width the first pane opens at (applied on show, or immediately if already expanded)."""
+        self._last_width = max(1, width)
+        if self._initialised and not self.is_collapsed():
+            self.setSizes([self._last_width, max(1, self.width() - self._last_width)])
+
     def is_collapsed(self) -> bool:
         """True when the first pane has zero width."""
         sizes = self.sizes()

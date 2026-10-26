@@ -6,6 +6,7 @@ import zlib
 
 import pytest
 
+from fractalchemy.library.catalog import GRADIENT_CATALOG
 from fractalchemy.formats import entry_names, format_for, load_gradient, load_gradients, save_gradient
 from fractalchemy.formats.ufparams import tokens, unquote, wrap_tokens
 from fractalchemy.model import Gradient
@@ -80,9 +81,9 @@ def test_ufr_rejects_append_and_remove(flames_dir, tmp_path):
     assert fmt.can_save and not fmt.can_append and not fmt.can_remove and not fmt.can_create
     path = shutil.copy(flames_dir / "brainfibres.ufr", tmp_path / "b.ufr")
     with pytest.raises(ValueError):
-        ops.delete_entry(path, 0)
+        ops.delete_entry(GRADIENT_CATALOG, path, 0)
     with pytest.raises(ValueError):
-        ops.transfer_entry(flames_dir / "candy.flame", 0, path, move=False)
+        ops.transfer_entry(GRADIENT_CATALOG, flames_dir / "candy.flame", 0, path, move=False)
 
 
 # --- .map ---------------------------------------------------------------------

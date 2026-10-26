@@ -25,3 +25,15 @@ STRIP_MIN_HEIGHT = 80
 NODE_BAR_HEIGHT = 26
 NODE_RADIUS = 6
 NODE_HIT_RADIUS = 9
+
+# --- Preview rendering --------------------------------------------------------
+PREVIEW_PASSES = 6              # progressive passes per viewport render
+PREVIEW_QUALITY = 8.0           # samples per pixel over all passes (Apophysis "quality")
+PREVIEW_POINTS = 1 << 17        # point population iterated in parallel (GPU: per draw; CPU: per thread batch)
+PREVIEW_FUSE = 20               # warm-up iterations before plotting
+INTERACTIVE_SCALE = 0.5         # viewport resolution factor while dragging / zooming
+INTERACTION_SETTLE_MS = 250     # after the last interaction, re-render at full resolution
+THUMBNAIL_SIZE = (120, 75)      # fractal library thumbnails
+THUMBNAIL_QUALITY = 3.0
+THUMBNAIL_PASSES = 1
+CPU_RENDER_THREADS = 0          # 0 = use every core

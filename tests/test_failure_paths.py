@@ -6,6 +6,7 @@ import pytest
 from PySide6.QtWidgets import QMessageBox
 
 from fractalchemy.library import operations as ops
+from fractalchemy.library.catalog import GRADIENT_CATALOG
 from fractalchemy.library.items import Kind, LibraryItem
 from fractalchemy.library.roots import LibraryRoots
 from fractalchemy.model import Gradient
@@ -95,11 +96,11 @@ def test_document_refuses_to_drop_below_two_nodes(qapp):
 
 
 def test_drop_of_unsupported_combination_is_a_clean_error(tmp_path):
-    entry = LibraryItem(Kind.GRADIENT, Path("/x/b.ugr"), 0, "b")
+    entry = LibraryItem(Kind.ENTRY, Path("/x/b.ugr"), 0, "b")
     with pytest.raises(ValueError, match="Can't drop"):
-        ops.drop_items([entry], entry, move=False, new_file_suffix=".ugr")
+        ops.drop_items(GRADIENT_CATALOG, [entry], entry, move=False)
     with pytest.raises(ValueError, match="cannot be saved as new Image"):
-        ops.transfer_entry(Path("/x/b.ugr"), 0, tmp_path / "a.png", move=False)
+        ops.transfer_entry(GRADIENT_CATALOG, Path("/x/b.ugr"), 0, tmp_path / "a.png", move=False)
 
 
 def test_cancelling_the_save_dialog_during_discard_prompt_aborts(window, samples, monkeypatch):

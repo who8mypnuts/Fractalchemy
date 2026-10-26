@@ -7,6 +7,7 @@ import pytest
 from PySide6.QtCore import QModelIndex, QSettings, Qt
 
 from fractalchemy.formats import entry_names, format_for
+from fractalchemy.library.catalog import GRADIENT_CATALOG
 from fractalchemy.library.items import Kind, LibraryItem
 from fractalchemy.library.payload import from_mime, to_mime
 from fractalchemy.library.roots import LibraryRoots
@@ -44,7 +45,7 @@ def window(qapp, settings, library_dir):
 def file_item(win, name: str, index: int | None = None) -> LibraryItem:
     """The FILE row for `name`, or its GRADIENT entry row when `index` is given."""
     model = win.libraryPanel.model
-    wanted = Kind.FILE if index is None else Kind.GRADIENT
+    wanted = Kind.FILE if index is None else Kind.ENTRY
     for item in model._walk(model.invisibleRootItem()):
         data = item.data(Qt.ItemDataRole.UserRole + 1)
         if data.path.name == name and data.kind == wanted and data.index == (index or 0):
@@ -54,7 +55,7 @@ def file_item(win, name: str, index: int | None = None) -> LibraryItem:
 
 # --- scanning & persistence -------------------------------------------------
 def test_scan_lists_only_supported_files_and_all_folders(library_dir):
-    scanned = scan_directory(library_dir)
+    scanned = scan_directory(library_dir, GRADIENT_CATALOG)
     assert {d.path.name for d in scanned.dirs} == {"sample flames", "sample gradients", "sample images", "empty"}
     assert scanned.files == []  # notes.txt ignored
     assert scanned.file_count() == sum(1 for p in library_dir.rglob("*") if p.is_file() and p.suffix != ".txt")
@@ -72,7 +73,7 @@ def test_roots_persist_across_instances(settings, library_dir):
 
 def test_tree_is_built_in_background_and_counts_files(window, library_dir):
     model = window.libraryPanel.model
-    assert model.file_counts() == {window.library.roots.paths()[0]: count_supported_files(library_dir)}
+    assert model.file_counts() == {window.library.roots.paths()[0]: count_supported_files(library_dir, GRADIENT_CATALOG)}
     root = model.item(0)
     assert [root.child(i).text() for i in range(root.rowCount())] == ["empty", "sample flames", "sample gradients", "sample images"]
     assert file_item(window, "candy.flame", 2).name == "rotated"
@@ -104,7 +105,7 @@ def test_choosing_an_entry_loads_it_without_blocking(window):
 
 # --- drag & drop through the model ------------------------------------------
 def test_payload_round_trip():
-    items = [LibraryItem(Kind.GRADIENT, Path("/x/a.ugr"), 3, "three"), LibraryItem(Kind.FILE, Path("/x/b.png"), 0, "b.png")]
+    items = [LibraryItem(Kind.ENTRY, Path("/x/a.ugr"), 3, "three"), LibraryItem(Kind.FILE, Path("/x/b.png"), 0, "b.png")]
     data = to_mime(items)
     assert from_mime(data) == items
     assert [u.toLocalFile() for u in data.urls()] == ["/x/b.png"]
@@ -157,11 +158,11 @@ def test_moving_the_only_entry_is_refused_but_copy_allowed(samples, tmp_path):
     source = shutil.copy(samples / "sample gradients" / "saturated rainbox.gradient", tmp_path / "one.gradient")
     target = shutil.copy(samples / "sample gradients" / "ag6.ugr", tmp_path / "many.ugr")
     with pytest.raises(ValueError, match="Hold Ctrl"):
-        ops.transfer_entry(source, 0, target, move=True)
-    ops.transfer_entry(source, 0, target, move=False)
+        ops.transfer_entry(GRADIENT_CATALOG, source, 0, target, move=True)
+    ops.transfer_entry(GRADIENT_CATALOG, source, 0, target, move=False)
     assert entry_names(target)[-1] == "rainbow" and entry_names(source) == ["rainbow"]
     with pytest.raises(ValueError):
-        ops.delete_entry(source, 0)
+        ops.delete_entry(GRADIENT_CATALOG, source, 0)
 
 
 # --- file operations --------------------------------------------------------
@@ -228,7 +229,7 @@ def test_edit_library_dialog_lists_roots_with_counts_and_removes(window, library
     table = dialog.table
     assert table.topLevelItemCount() == 1
     assert table.topLevelItem(0).text(0) == str(library_dir.resolve())
-    assert table.topLevelItem(0).text(1) == str(count_supported_files(library_dir))
+    assert table.topLevelItem(0).text(1) == str(count_supported_files(library_dir, GRADIENT_CATALOG))
 
     dialog._add_folder()
     assert added == [True] and table.topLevelItemCount() == 2

@@ -86,11 +86,12 @@ def test_flame_without_palettes_is_reported_not_crashed(tmp_path, qapp):
 
 
 def test_scanner_skips_directory_symlink_loops(tmp_path):
+    from fractalchemy.library.catalog import GRADIENT_CATALOG
     from fractalchemy.library.scanner import scan_directory
 
     (tmp_path / "a").mkdir()
     (tmp_path / "a" / "loop").symlink_to(tmp_path, target_is_directory=True)
     (tmp_path / "a" / "g.ugr").write_text('x {\ngradient:\n title="x" smooth=no\n index=0 color=0\n}\n')
-    scanned = scan_directory(tmp_path)
+    scanned = scan_directory(tmp_path, GRADIENT_CATALOG)
     assert scanned.file_count() == 1 and [d.path.name for d in scanned.dirs] == ["a"]
     assert scanned.dirs[0].dirs == []

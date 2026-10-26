@@ -19,13 +19,15 @@ class LibraryRoots(QObject):
     added = Signal(Path)
     removed = Signal(Path)
 
-    def __init__(self, settings: QSettings | None = None, parent: QObject | None = None):
+    def __init__(self, settings: QSettings | None = None, parent: QObject | None = None, key: str = KEY):
         """Args:
             settings: Backing store; defaults to the application's QSettings.
             parent: Qt parent.
+            key: Settings key of the folder list (each library has its own).
         """
         super().__init__(parent)
         self._settings = settings or QSettings()
+        self._key = key
         self._paths: list[Path] = self._load()
 
     def paths(self) -> list[Path]:
@@ -53,11 +55,11 @@ class LibraryRoots(QObject):
         return True
 
     def _load(self) -> list[Path]:
-        stored = self._settings.value(KEY, [])
+        stored = self._settings.value(self._key, [])
         if isinstance(stored, str):  # QSettings collapses a one-item list to a string
             stored = [stored]
         return [Path(p) for p in stored or []]
 
     def _store(self) -> None:
-        self._settings.setValue(KEY, [str(p) for p in self._paths])
+        self._settings.setValue(self._key, [str(p) for p in self._paths])
         self._settings.sync()

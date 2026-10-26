@@ -23,7 +23,7 @@ class EditLibraryDialog(QDialog):
         super().__init__(parent)
         self._controller = controller
         self._add_folder = add_folder  # callable that prompts for and adds a directory
-        self.setWindowTitle("Edit Library")
+        self.setWindowTitle(f"Edit {controller.catalog.title}")
         self.resize(560, 320)
         self.table = QTreeWidget(self)
         self._build()

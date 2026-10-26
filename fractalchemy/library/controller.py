@@ -14,7 +14,6 @@ from typing import Callable
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
-from ..formats import DEFAULT_SAVE_FORMAT
 from ..ui.background import run_in_background
 from . import operations as ops
 from .items import Kind, LibraryItem
@@ -49,6 +48,7 @@ class LibraryController(QObject):
         """
         super().__init__(parent)
         self.model = model
+        self.catalog = model.catalog
         self.roots = roots
         self._generation: dict[Path, int] = defaultdict(int)
         self._pending = 0
@@ -71,7 +71,7 @@ class LibraryController(QObject):
         generation = self._generation[path]
         self._set_pending(+1)
         run_in_background(
-            scan_directory, path,
+            scan_directory, path, self.catalog,
             on_done=lambda scanned: self._apply_scan(scanned, generation),
             on_error=lambda exc: self._scan_failed(path, exc),
         )
@@ -89,27 +89,27 @@ class LibraryController(QObject):
     def drop(self, items: list[LibraryItem], target: LibraryItem, move: bool) -> None:
         """Perform a drag-and-drop (or paste) of `items` onto `target`."""
         affected = [i.path for i in items] + [target.path]
-        self._run(ops.drop_items, items, target, move, DEFAULT_SAVE_FORMAT.extensions[0], affected=affected)
+        self._run(ops.drop_items, self.catalog, items, target, move, affected=affected)
 
     def duplicate(self, item: LibraryItem) -> None:
-        """Copy a file alongside itself, or a gradient entry within its file."""
-        if item.kind == Kind.GRADIENT:
-            self._run(ops.duplicate_entry, item.path, item.index, affected=[item.path])
+        """Copy a file alongside itself, or an entry within its file."""
+        if item.kind == Kind.ENTRY:
+            self._run(ops.duplicate_entry, self.catalog, item.path, item.index, affected=[item.path])
         elif item.kind == Kind.FILE:
             self._run(ops.duplicate_file, item.path, affected=[item.path])
 
     def delete(self, items: list[LibraryItem]) -> None:
-        """Delete files / folders (to the trash when possible) or gradient entries."""
+        """Delete files / folders (to the trash when possible) or entries."""
         for item in items:
-            if item.kind == Kind.GRADIENT:
-                self._run(ops.delete_entry, item.path, item.index, affected=[item.path])
+            if item.kind == Kind.ENTRY:
+                self._run(ops.delete_entry, self.catalog, item.path, item.index, affected=[item.path])
             elif item.kind in (Kind.FILE, Kind.DIR):
                 self._run(ops.delete_path, item.path, affected=[item.path])
 
     def rename(self, item: LibraryItem, new_name: str) -> None:
-        """Rename a file, folder or gradient entry."""
-        if item.kind == Kind.GRADIENT:
-            self._run(ops.rename_entry, item.path, item.index, new_name, affected=[item.path])
+        """Rename a file, folder or entry."""
+        if item.kind == Kind.ENTRY:
+            self._run(ops.rename_entry, self.catalog, item.path, item.index, new_name, affected=[item.path])
         elif item.kind in (Kind.FILE, Kind.DIR):
             self._run(ops.rename_path, item.path, new_name, affected=[item.path])
 
@@ -119,12 +119,12 @@ class LibraryController(QObject):
 
     def copy_to_clipboard(self, items: list[LibraryItem]) -> None:
         """Put `items` on the clipboard for a later `paste`."""
-        QGuiApplication.clipboard().setMimeData(to_mime(items))
+        QGuiApplication.clipboard().setMimeData(to_mime(items, self.catalog.key))
         self.status.emit(f"Copied {len(items)} item(s)")
 
     def paste(self, target: LibraryItem) -> None:
         """Drop whatever is on the clipboard onto `target` as a copy."""
-        items = from_mime(QGuiApplication.clipboard().mimeData())
+        items = from_mime(QGuiApplication.clipboard().mimeData(), self.catalog.key)
         if items and self.model.canDropMimeData(QGuiApplication.clipboard().mimeData(), None, 0, 0, self.model.index_for(target)):
             self.drop(items, target, move=False)
         else:

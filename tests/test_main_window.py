@@ -1,21 +1,23 @@
 """Main window shell: menus, toolbar, the Gradient Library tool window, and settings migration."""
 
 import pytest
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QMessageBox, QToolButton
 
 from fractalchemy import config
 from fractalchemy.library.roots import KEY as ROOTS_KEY, LibraryRoots
 from fractalchemy.model import Gradient
+from fractalchemy.fractal.formats import load_flame
 from fractalchemy.settings import migrate_legacy_settings
 from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
 from fractalchemy.ui.main_window import MainWindow
-from tests.conftest import spin
+from tests.conftest import spin, wait_until
 
 
 @pytest.fixture
 def window(qapp, tmp_path):
-    win = MainWindow(LibraryRoots(QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)))
+    settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+    win = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key="fractal_library/roots"), prefer_gpu=False)
     win.show()
     yield win
     win.gradient_library.document.modified = False  # never prompt on teardown
@@ -37,12 +39,13 @@ def test_menu_bar_has_windows_and_help_menus(window):
     assert menu_titles(window) == ["File", "Edit", "View", "Windows", "Help"]
     assert [a.text() for a in window.menuWindows.actions()] == ["Gradient Library"]
     assert [a.text() for a in window.menuHelp.actions()] == ["About Fractalchemy…", "About Qt…"]
-    assert [a.text() for a in window.menuView.actions()] == ["Toolbar", "Status Bar"]
+    assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
+    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Exit"]
 
 
 def test_toolbar_holds_the_gradient_library_button_with_popup_text(window):
     assert window.toolBar.isVisible()
-    assert window.toolBar.actions() == [window.actionGradientLibrary]
+    assert window.actionGradientLibrary in window.toolBar.actions() and window.actionOpenFractal in window.toolBar.actions()
     button = window.toolBar.widgetForAction(window.actionGradientLibrary)
     assert isinstance(button, QToolButton)
     assert button.toolTip() == "Gradient Library"
@@ -50,7 +53,7 @@ def test_toolbar_holds_the_gradient_library_button_with_popup_text(window):
 
 
 def test_view_menu_toggles_toolbar_and_status_bar(window):
-    toolbar_action, status_action = window.menuView.actions()
+    toolbar_action, status_action = window.menuView.actions()[-2:]
     toolbar_action.trigger()
     assert not window.toolBar.isVisible()
     toolbar_action.trigger()
@@ -104,7 +107,7 @@ def test_gradient_library_title_tracks_gradient_and_modified_state(window):
     assert library.isWindowModified()
 
 
-def test_edit_library_from_main_menu_opens_the_library_dialog(window, monkeypatch):
+def test_edit_fractal_library_from_main_menu_opens_the_fractal_library_dialog(window, monkeypatch):
     opened = []
 
     class FakeDialog:
@@ -114,9 +117,10 @@ def test_edit_library_from_main_menu_opens_the_library_dialog(window, monkeypatc
         def exec(self):
             return 0
 
-    monkeypatch.setattr("fractalchemy.ui.gradient_library_window.EditLibraryDialog", FakeDialog)
-    window.actionEditLibrary.trigger()
-    assert opened == [window.gradient_library.library]
+    monkeypatch.setattr("fractalchemy.ui.main_window.EditLibraryDialog", FakeDialog)
+    window.actionEditFractalLibrary.trigger()
+    assert opened == [window.fractal_library] and window.fractal_library is not window.gradient_library.library
+    assert window.fractal_library.catalog.title == "Fractal Library"
 
 
 def test_quitting_with_unsaved_edits_asks_first(window, monkeypatch):
@@ -150,3 +154,104 @@ def test_migration_is_a_no_op_without_legacy_settings(tmp_path):
     new = QSettings(str(tmp_path / "fractalchemy.ini"), QSettings.Format.IniFormat)
     assert migrate_legacy_settings(old, new) == []
     assert not new.contains(ROOTS_KEY)
+
+
+# --- fractal library, viewport and status bar ----------------------------------
+@pytest.fixture
+def fractal_window(qapp, tmp_path, samples):
+    from fractalchemy.library.catalog import FRACTAL_CATALOG
+    from tests.conftest import copy_samples
+
+    library = copy_samples(samples, tmp_path / "lib")
+    settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+    fractal_roots = LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key)
+    fractal_roots.add(library / "sample flames")
+    win = MainWindow(LibraryRoots(settings), fractal_roots, prefer_gpu=False)
+    win.resize(640, 420)
+    win.show()
+    wait_until(lambda: win.fractalLibraryPanel.model.rowCount() == 1 and not win.fractal_library._pending)
+    yield win
+    win.gradient_library.document.modified = False
+    win.close()
+
+
+def test_fractal_library_lists_flames_and_has_search_collapse_and_view_buttons(fractal_window):
+    panel = fractal_window.fractalLibraryPanel
+    root = panel.model.item(0)
+    names = [root.child(i).text() for i in range(root.rowCount())]
+    assert "candy.flame" in names and "satania_spikobius.chaos" in names and not any(n.endswith(".ugr") for n in names)
+    candy = next(root.child(i) for i in range(root.rowCount()) if root.child(i).text() == "candy.flame")
+    assert [candy.child(i).text() for i in range(candy.rowCount())] == ["original", "outlined", "rotated", "pearl", "obsession"]
+    assert panel.search.placeholderText() and panel.collapse_button.toolTip() == "Collapse All"
+    assert panel.list_button.isChecked() and not panel.thumb_button.isChecked()
+    assert [a.text() for a in fractal_window.menuEdit.actions()] == ["Edit Fractal Library…"]
+    assert fractal_window.actionToggleFractalLibrary.isChecked()
+    fractal_window.actionToggleFractalLibrary.setChecked(False)
+    assert fractal_window.splitter.is_collapsed()
+
+
+def test_opening_a_flame_renders_it_in_the_viewport_with_status(fractal_window, samples):
+    win = fractal_window
+    path = win.fractal_library.roots.paths()[0] / "candy.flame"
+    win.open_path(path, 2)
+    wait_until(lambda: win.document.flame is not None and win.document.flame.name == "rotated")
+    wait_until(lambda: win.viewport.stats is not None and win.viewport.stats.finished
+               and win.viewport.stats.width == win.viewport.width(), timeout_ms=60000)
+    stats = win.viewport.stats
+    assert stats.passes_done == stats.passes_total == win.viewport.settings.passes
+    assert win.viewport.image is not None and win.viewport.image.width() == win.viewport.width()
+    assert "rotated" in win.status.fractal.text() and "6 transforms + final" in win.status.fractal.text()
+    assert "Pass 6 of 6" in win.status.passes.text()
+    assert win.status.progress.value() == win.status.progress.maximum() == 6
+    assert "samples" in win.status.render.text() and win.status.render.text().startswith("CPU")
+    assert win.windowTitle() == "Fractalchemy — rotated"
+
+
+def test_choosing_a_library_row_loads_it(fractal_window):
+    from fractalchemy.library.items import Kind
+
+    win = fractal_window
+    model = win.fractalLibraryPanel.model
+    entry = next(i for i in model.entries() if i.kind == Kind.ENTRY and i.name == "pearl")
+    win.open_item(entry)
+    wait_until(lambda: win.document.flame is not None and win.document.flame.name == "pearl")
+    assert win.document.source_index == 3
+
+
+def test_zoom_keeps_the_point_under_the_cursor_and_rerenders_at_half_size(fractal_window):
+    from PySide6.QtCore import QPointF
+
+    win = fractal_window
+    win.show_flame(load_flame(win.fractal_library.roots.paths()[0] / "candy.flame", 0))
+    submitted = []
+    real_submit = win.render_service.submit
+    win.render_service.submit = lambda key, flame, settings, priority=0: (submitted.append((key, settings)), real_submit(key, flame, settings, priority))
+    before = win.viewport.generation
+    view = win.viewport
+    anchor = view._document.flame.camera.unproject(50, 40, view.width(), view.height())
+    view.zoom_at(QPointF(50, 40), 1.0)
+    after = view._document.flame.camera.unproject(50, 40, view.width(), view.height())
+    assert after == pytest.approx(anchor, abs=1e-9) and view._document.flame.camera.zoom == pytest.approx(-0.544 + 1.0)
+    assert view.generation == before + 1 and view._settle.isActive()
+    assert submitted[-1][1].width == int(view.width() * 0.5)            # interactive: half resolution
+    wait_until(lambda: len(submitted) >= 2 and not view._settle.isActive())
+    assert submitted[-1][1].width == view.width() and submitted[-1][0] != submitted[-2][0]   # settled: full size, new key
+    wait_until(lambda: view.stats is not None and view.stats.width == view.width() and view.stats.finished, timeout_ms=60000)
+
+
+def test_thumbnail_view_renders_icons_for_entries(fractal_window):
+    from fractalchemy.library.items import Kind
+
+    win = fractal_window
+    win.actionThumbnailView.setChecked(True)
+    assert win.fractalLibraryPanel.thumb_button.isChecked() and win.thumbnails.enabled
+    panel = win.fractalLibraryPanel
+    panel.tree.expandAll()
+    entry = next(i for i in panel.model.entries() if i.kind == Kind.ENTRY and i.name == "original")
+    index = panel.model.index_for(entry)
+    panel.model.data(index, Qt.ItemDataRole.DecorationRole)   # what the view does when painting the row
+    wait_until(lambda: win.thumbnails.cached(entry) is not None, timeout_ms=60000)
+    icon = win.thumbnails.cached(entry)
+    assert not icon.isNull() and icon.pixmap(120, 75).width() == 120
+    win.actionThumbnailView.setChecked(False)
+    assert not win.thumbnails.enabled and panel.list_button.isChecked()
