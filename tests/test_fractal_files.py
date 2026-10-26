@@ -157,21 +157,61 @@ def test_save_writes_back_into_the_flames_own_entry(window, workdir):
     assert load_flame(path, 0).camera.zoom == -0.544
 
 
-def test_save_as_defaults_to_fa_and_appends_to_existing_multi_flame_files(window, workdir, monkeypatch):
+def test_save_as_new_file_defaults_to_fa_and_appends_to_existing_multi_flame_files(window, workdir, monkeypatch):
     open_and_wait(window, workdir / "candy.flame", 3)
     target = workdir / "mine.fa"
     monkeypatch.setattr(fractal_file_actions.QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
-    assert window.files.save_as()
+    assert window.files.save_as_new_file()
     wait_until(lambda: window.document.source_path == target)
     assert flame_names(target) == ["pearl"] and window.document.source_index == 0 and not window.document.modified
     wait_until(lambda: window.fractal_library.model.opened_file() == target.resolve())   # the new file is listed at the top
     monkeypatch.setattr(fractal_file_actions.QFileDialog, "getSaveFileName", lambda *a, **k: (str(workdir / "two.fa"), ""))
-    window.files.save_as()
+    window.actionSaveAsNewFile.trigger()
     wait_until(lambda: window.document.source_path == workdir / "two.fa")
-    assert flame_names(workdir / "two.fa")[-1] == "pearl" and window.document.source_index == 2
+    assert flame_names(workdir / "two.fa")[-1] == "pearl" and window.document.source_index == 2   # added, not replaced
+    assert "instead of replacing" in window.statusBar().currentMessage()
     monkeypatch.setattr(fractal_file_actions.QFileDialog, "getSaveFileName", lambda *a, **k: (str(workdir / "noext"), ""))
-    window.files.save_as()
+    window.files.save_as_new_file()
     wait_until(lambda: (workdir / "noext.fa").exists())
+
+
+def test_several_fractals_collect_in_one_fa_file(window, workdir, monkeypatch):
+    """Add to This File as New Fractal… / Add to Another File… — the gradient window's flows, for fractals."""
+    collection = workdir / "collection.fa"
+    open_and_wait(window, workdir / "candy.flame", 0)
+    monkeypatch.setattr(fractal_file_actions.QFileDialog, "getSaveFileName", lambda *a, **k: (str(collection), ""))
+    window.files.save_as_new_file()
+    wait_until(lambda: window.document.source_path == collection)
+    assert window.actionSaveAsNewEntry.isEnabled()
+    # Add to This File: the edited flame joins its own file under a new name and becomes that entry
+    window.document.set_view(zoom=1.0)
+    monkeypatch.setattr(fractal_file_actions.QInputDialog, "getText", lambda *a, **k: ("original, zoomed", True))
+    window.actionSaveAsNewEntry.trigger()
+    wait_until(lambda: window.document.source_index == 1 and not window.document.modified)
+    assert flame_names(collection) == ["original", "original, zoomed"]
+    assert window.document.flame.name == "original, zoomed" and window.windowTitle().startswith("Fractalchemy — original, zoomed")
+    assert load_flame(collection, 0).camera.zoom == -0.544 and load_flame(collection, 1).camera.zoom == 1.0
+    # Add to Another File: a flame from a different file joins the collection too
+    open_and_wait(window, workdir / "candy.flame", 3)
+    monkeypatch.setattr(fractal_file_actions.QFileDialog, "getOpenFileName", lambda *a, **k: (str(collection), ""))
+    monkeypatch.setattr(fractal_file_actions.QInputDialog, "getText", lambda *a, **k: ("pearl in collection", True))
+    window.actionSaveAsIntoFile.trigger()
+    wait_until(lambda: window.document.source_path == collection and window.document.source_index == 2)
+    assert flame_names(collection) == ["original", "original, zoomed", "pearl in collection"]
+    assert [f.name for f in load_flames(collection)] == flame_names(collection)
+    model = window.fractal_library.model
+    wait_until(lambda: model.opened_file() == collection.resolve() and model.item(0).rowCount() == 3)
+    # a .chaos source has nothing to append to: Add to This File falls through to Add to Another File
+    open_and_wait(window, workdir / "tatasz_tram_rails.chaos", 0)
+    assert not window.actionSaveAsNewEntry.isEnabled()
+    asked = []
+    monkeypatch.setattr(window.files, "save_as_into_file", lambda: asked.append(1) or True)
+    window.files.save_as_new_entry()
+    assert asked == [1]
+    # a cancelled name prompt starts no write
+    open_and_wait(window, collection, 0)
+    monkeypatch.setattr(fractal_file_actions.QInputDialog, "getText", lambda *a, **k: ("", False))
+    assert not window.files.save_as_new_entry() and len(flame_names(collection)) == 3
 
 
 def test_save_as_can_write_flame_and_chaotica_files(window, workdir, monkeypatch):
@@ -179,12 +219,12 @@ def test_save_as_can_write_flame_and_chaotica_files(window, workdir, monkeypatch
     for name in ("out.flame", "out.chaos"):
         target = workdir / name
         monkeypatch.setattr(fractal_file_actions.QFileDialog, "getSaveFileName", lambda *a, t=target, **k: (str(t), ""))
-        window.files.save_as()
+        window.files.save_as_new_file()
         wait_until(lambda: target.exists() and window.document.source_path == target)
         assert flame_names(target) == ["rotated"] and load_flame(target).final is not None
     # .chaos entries can't be replaced in place: Save falls through to Save As
     saved = []
-    monkeypatch.setattr(window.files, "save_as", lambda: saved.append(1) or True)
+    monkeypatch.setattr(window.files, "save_as_new_file", lambda: saved.append(1) or True)
     window.document.set_view(zoom=0.5)
     window.files.save()
     assert saved == [1]
@@ -247,3 +287,19 @@ def test_opened_file_refreshes_after_entry_operations(window, workdir):
     window.fractal_library.rename(entry, "renamed flame")
     wait_until(lambda: model.item(0).rowCount() == 2 and model.item(0).child(1).text() == "renamed flame")
     assert flame_names(path)[1] == "renamed flame"
+
+
+def test_new_file_is_suggested_as_fa_date_counter(window, workdir, monkeypatch):
+    from datetime import date
+    from fractalchemy.ui.fractal_file_actions import suggested_file_name
+
+    stamp = date(2025, 1, 17)
+    assert suggested_file_name(workdir, ".fa", stamp) == workdir / "FA-250117-1.fa"
+    (workdir / "FA-250117-1.fa").write_text("x")
+    (workdir / "FA-250117-2.fa").write_text("x")
+    assert suggested_file_name(workdir, ".fa", stamp) == workdir / "FA-250117-3.fa"
+    open_and_wait(window, workdir / "candy.flame", 0)           # a flame called "original": the name is not used
+    offered = []
+    monkeypatch.setattr(fractal_file_actions.QFileDialog, "getSaveFileName", lambda parent, title, start, *a, **k: offered.append(start) or ("", ""))
+    window.files.save_as_new_file()
+    assert offered[0].startswith(str(workdir / f"FA-{date.today():%y%m%d}-")) and offered[0].endswith(".fa")

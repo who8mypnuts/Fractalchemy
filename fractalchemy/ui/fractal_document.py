@@ -32,8 +32,10 @@ class FractalDocument(QObject):
         image_size_changed(): The output resolution chosen for the viewer changed.
         modified_changed(bool): Whether the flame differs from its saved state.
         source_changed(): The flame was saved to a (possibly new) file / entry.
+        flame_renamed(): The flame took the name it was saved under.
     """
     source_changed = Signal()
+    flame_renamed = Signal()
     flame_replaced = Signal()
     flame_edited = Signal(str)
     camera_changed = Signal()

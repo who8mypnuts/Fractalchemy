@@ -163,3 +163,15 @@ fixed before polish (docstrings, comment pruning, layout-method splits). No code
 - `widgets/icons.action_icon()` (theme icon or painted glyph); toolbar: open, save, save-as, undo, redo, copy, paste, gradient.
 - Tests: `tests/test_fractal_files.py` (13). Suite: 297 passed, pyflakes clean. Test fixtures must `undo_stack.setClean()`
   before closing windows (closeEvent prompts for unsaved fractal edits).
+
+## Save As submenu (multi-fractal files)
+- `FractalFileActions.save_as_new_entry / save_as_new_file / save_as_into_file` (+ `_ask_name`, `_append_to`); `_saved(...,
+  renamed=True)` renames the document to the saved entry (`FractalDocument.flame_renamed`).
+- `menuSaveAs` in File menu; inserted on the toolbar in code after Save (QUiLoader ignores menus in toolbars), InstantPopup.
+- `MainWindow._refresh_save_targets` enables "Add to This File" only for appendable sources. Suite: 298 passed.
+
+## Fixes: default file name, gradient nodes jumping
+- `suggested_file_name(folder, suffix)` → `FA-YYMMDD-N` (lowest unused N); used by New File….
+- `GradientLink.apply_gradient` guards `set_gradient` with `_syncing`: `flame_edited` fired mid-edit and `_on_flame_edited`
+  re-synced (resampled) the editor from the flame, moving every node. Regression test
+  `test_dragging_a_node_leaves_the_other_nodes_alone`. Suite: 300 passed.

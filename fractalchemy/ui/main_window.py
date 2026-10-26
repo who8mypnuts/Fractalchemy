@@ -11,9 +11,10 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QToolButton
 
 from .. import config
+from ..fractal.formats import fractal_format_for
 from ..fractal.scene import Flame
 from ..library.catalog import FRACTAL_CATALOG
 from ..library.context_menu import LibraryContextMenu
@@ -91,6 +92,7 @@ class MainWindow(QMainWindow):
         self._connect_library()
         self._connect_render()
         self._connect_viewer_controls()
+        self._refresh_save_targets()
         self.render_service.start()
         self.fractal_library.rescan_all()
 
@@ -98,11 +100,18 @@ class MainWindow(QMainWindow):
     def _connect_actions(self) -> None:
         self.actionOpenFractal.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_DialogOpenButton))
         self.actionOpenFractal.triggered.connect(self.files.open)
-        for action, name in ((self.actionSave, "save"), (self.actionSaveAs, "save-as"), (self.actionUndo, "undo"),
+        for action, name in ((self.actionSave, "save"), (self.menuSaveAs.menuAction(), "save-as"), (self.actionUndo, "undo"),
                              (self.actionRedo, "redo"), (self.actionCopy, "copy"), (self.actionPaste, "paste")):
             action.setIcon(action_icon(name))
+        self.menuSaveAs.menuAction().setToolTip("Save As (add to this file, a new file, or another file)")
+        # a menu on the toolbar: Designer files can't express this, so insert it after Save here
+        after_save = self.toolBar.actions()[self.toolBar.actions().index(self.actionSave) + 1]
+        self.toolBar.insertAction(after_save, self.menuSaveAs.menuAction())
+        self.toolBar.widgetForAction(self.menuSaveAs.menuAction()).setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.actionSave.triggered.connect(self.files.save)
-        self.actionSaveAs.triggered.connect(self.files.save_as)
+        self.actionSaveAsNewEntry.triggered.connect(self.files.save_as_new_entry)
+        self.actionSaveAsNewFile.triggered.connect(self.files.save_as_new_file)
+        self.actionSaveAsIntoFile.triggered.connect(self.files.save_as_into_file)
         self.actionCopy.triggered.connect(lambda: self.files.copy("fa"))
         self.actionCopyApophysis.triggered.connect(lambda: self.files.copy("flame"))
         self.actionCopyChaotica.triggered.connect(lambda: self.files.copy("chaos"))
@@ -139,6 +148,8 @@ class MainWindow(QMainWindow):
         self.document.camera_changed.connect(self._on_camera_changed)
         self.document.palette_changed.connect(self._on_palette_changed)
         self.document.modified_changed.connect(self._on_modified_changed)
+        self.document.source_changed.connect(self._refresh_save_targets)
+        self.document.flame_renamed.connect(self._on_flame_replaced)
 
     def _connect_library(self) -> None:
         panel = self.fractalLibraryPanel
@@ -236,6 +247,21 @@ class MainWindow(QMainWindow):
         self.status.show_idle()
         self.viewerBar.show_flame(flame)
         self._refresh_title()
+        self._refresh_save_targets()
+
+    def _refresh_save_targets(self) -> None:
+        """'Add to This File' only makes sense for a file type that can hold several fractals."""
+        path = self.document.source_path
+        try:
+            fmt = fractal_format_for(path) if path is not None else None
+        except ValueError:
+            fmt = None
+        has_flame = self.document.flame is not None
+        self.actionSave.setEnabled(has_flame)
+        self.menuSaveAs.setEnabled(has_flame)
+        self.actionSaveAsNewEntry.setEnabled(has_flame and fmt is not None and fmt.can_append)
+        self.actionSave.setToolTip(f"Write back into {path.name} (Ctrl+S)" if fmt is not None and fmt.can_replace
+                                   else "Save to a new file (Ctrl+S)")
 
     def _set_undo_text(self, text: str) -> None:
         self.actionUndo.setText(f"Undo {text}" if text else "Undo")

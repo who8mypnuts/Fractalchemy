@@ -100,5 +100,11 @@ class GradientLink(QObject):
         """Recolour the fractal from the gradient being edited (re-renders if anything changed)."""
         if self._fractal.flame is None or not self._window.document.gradient.stops:
             return
-        self._fractal.set_gradient(self._window.document.gradient)
+        # `set_gradient` emits flame_edited before we can note the new palette; guard so the editor's own
+        # edit is never mistaken for an undo and "refreshed" (which resampled and moved its nodes)
+        self._syncing = True
+        try:
+            self._fractal.set_gradient(self._window.document.gradient)
+        finally:
+            self._syncing = False
         self._synced_palette = list(self._fractal.flame.palette)

@@ -169,3 +169,24 @@ def test_fa_files_are_gradient_sources_too(workdir):
     new = workdir / "new.fa"
     save_gradient(gradient, new)
     assert entry_names(new) == ["solid"] and load_flame(new).renderable()
+
+
+def test_dragging_a_node_leaves_the_other_nodes_alone(window, workdir):
+    """Regression: the editor was re-synced from the flame during its own edit, resampling its nodes."""
+    open_and_wait(window, workdir / "candy.flame", 0)
+    document = window.gradient_library.document
+    before = [(s.position, s.color) for s in document.gradient.stops]
+    assert len(before) > 3
+    moved = before[1]
+    new_index = document.move_stop(1, moved[0] + 0.02)              # what a drag does, step by step
+    new_index = document.move_stop(new_index, moved[0] + 0.04)      # (past a few neighbours: the list re-sorts)
+    after = [(s.position, s.color) for s in document.gradient.stops]
+    assert len(after) == len(before)
+    others_before = sorted(before[:1] + before[2:])
+    others_after = sorted(after[:new_index] + after[new_index + 1:])
+    assert others_after == others_before                             # every other node exactly where it was
+    assert after[new_index] == (pytest.approx(moved[0] + 0.04), moved[1])
+    assert window.document.flame.palette != load_flame(workdir / "candy.flame", 0).palette   # and the fractal followed
+    document.set_color(3, (1, 2, 3))
+    positions = [s.position for s in document.gradient.stops]
+    assert positions == [s[0] for s in after] and document.gradient.stops[3].color == (1, 2, 3)

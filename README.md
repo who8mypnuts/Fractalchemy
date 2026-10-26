@@ -31,9 +31,12 @@ python -m pytest
 * **Undo / Redo** cover every edit to the fractal — camera moves (Ctrl+drag / Ctrl+wheel / double-click) and gradient
   edits made in the Gradient Library; a drag or a slider sweep is one step. The title shows `*` while unsaved.
 * **Save** writes the flame back into its own entry (`.fa`, `.flame`); for a Chaotica world or a flame without a file
-  it becomes **Save As…**, which defaults to Fractalchemy `.fa` and also writes `.flame` and `.chaos`. Saving into an
-  existing multi-flame file adds an entry rather than replacing the file. Saving a flame that uses variations we
-  can't render yet back into its `.flame` warns first, because those variations would be dropped.
+  it becomes *New File…*. **Save As ▸** (File menu and the toolbar button) has the same three flavours as the
+  Gradient Library, so one `.fa` (or `.flame`) file can collect many fractals: *Add to This File as New Fractal…*
+  (`Ctrl+Shift+A`, appends under a name you choose), *New File…* (`Ctrl+Shift+S`, `.fa` by default, also `.flame` /
+  `.chaos`; an existing multi-fractal file is added to, never wiped), *Add to Another File…* (append to any `.fa` /
+  `.flame`). Afterwards the document points at the saved entry, so the next Save is in place. Saving a flame that
+  uses variations we can't render yet back into its `.flame` warns first, because those variations would be dropped.
 * **Copy** puts the parameters (transforms, camera, colouring *and* gradient) on the clipboard as Fractalchemy
   text; *Copy As* gives Apophysis `<flame>` XML or a Chaotica world instead. **Paste** accepts any of the three.
 * **Fractal Library** (left pane, collapsible via the divider arrow or `Ctrl+L`): folders of `.flame`

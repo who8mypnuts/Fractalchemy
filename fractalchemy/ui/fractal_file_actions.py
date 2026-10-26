@@ -1,21 +1,28 @@
 """Open / Save / Save As / Copy / Paste for the fractal shown in the main window.
 
-Disk work runs on the thread pool. Saving writes the flame back into its own entry
-when the file type allows it (`.fa`, `.flame`); otherwise — or for a flame that has no
-file yet — Save As offers a new file in any format, defaulting to Fractalchemy `.fa`.
-Saving into an existing multi-flame file appends rather than wiping it.
+Disk work runs on the thread pool. **Save** writes the flame back into its own entry when
+the file type allows it (`.fa`, `.flame`). **Save As** has the same three flavours as the
+Gradient Library, so one `.fa` (or `.flame`) file can collect many fractals:
+
+* *Add to This File as New Fractal…* — append to the flame's own file under a name you choose;
+* *New File…* — a new file in any format (Fractalchemy `.fa` by default; an existing
+  multi-flame file is appended to, never wiped);
+* *Add to Another File…* — pick an existing file and append under a chosen name.
 """
 
 from __future__ import annotations
 
 import time
+from datetime import date
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
+from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QWidget
 
-from ..fractal.formats import DEFAULT_SAVE_FORMAT, fractal_format_for, load_flame, open_dialog_filter, save_dialog_filter
+from ..fractal.formats import (
+    DEFAULT_SAVE_FORMAT, FORMATS, fractal_format_for, load_flame, open_dialog_filter, save_dialog_filter,
+)
 from ..fractal.formats.clipboard import ClipboardError, flame_to_text, text_to_flames
 from ..fractal.scene import Flame
 from .background import run_in_background
@@ -87,7 +94,7 @@ class FractalFileActions(QObject):
             return False
         fmt = _format_or_none(path)
         if path is None or fmt is None or not fmt.can_replace:
-            return self.save_as()
+            return self.save_as_new_file()
         if flame.unsupported and not self._confirm_lossy_save(path, flame):
             return False
         snapshot = flame.copy()
@@ -95,7 +102,23 @@ class FractalFileActions(QObject):
                         on_done=lambda _: self._saved(snapshot, path, index))
         return True
 
-    def save_as(self) -> bool:
+    def save_as_new_entry(self) -> bool:
+        """Append the flame to its own file under a (possibly new) name; falls back to 'another file'.
+
+        Returns:
+            True if a write was started.
+        """
+        path = self._document.source_path
+        fmt = _format_or_none(path)
+        if path is None or fmt is None or not fmt.can_append:
+            return self.save_as_into_file()
+        name = self._ask_name()
+        if not name:
+            return False
+        self._append_to(path, name)
+        return True
+
+    def save_as_new_file(self) -> bool:
         """Prompt for a file (any format, `.fa` by default) and write the flame there.
 
         An existing `.fa` / `.flame` file gains the flame as a new entry; other targets are
@@ -107,8 +130,8 @@ class FractalFileActions(QObject):
         flame = self._document.flame
         if flame is None:
             return False
-        chosen, _ = QFileDialog.getSaveFileName(self._parent, "Save fractal as", str(self._suggested_path()), save_dialog_filter(),
-                                                DEFAULT_SAVE_FORMAT.dialog_filter())
+        chosen, _ = QFileDialog.getSaveFileName(self._parent, "Save fractal as new file", str(self._suggested_path()),
+                                                save_dialog_filter(), DEFAULT_SAVE_FORMAT.dialog_filter())
         if not chosen:
             return False
         path = Path(chosen)
@@ -119,8 +142,39 @@ class FractalFileActions(QObject):
             self._fail("Could not save", ValueError(f"Unknown fractal file type '{path.suffix}'"))
             return False
         snapshot = flame.copy()
-        self._run_write(path, _write_as, snapshot, path, fmt, on_done=lambda index: self._saved(snapshot, path, index, opened=True))
+        self._run_write(path, _write_as, snapshot, path, fmt,
+                        on_done=lambda result: self._saved(snapshot, path, result[0], opened=True, note=result[1]))
         return True
+
+
+    def save_as_into_file(self) -> bool:
+        """Pick an existing `.fa` / `.flame` file and append the flame to it under a chosen name.
+
+        Returns:
+            True if a write was started.
+        """
+        if self._document.flame is None:
+            return False
+        chosen, _ = QFileDialog.getOpenFileName(self._parent, "Add fractal to an existing file", self._last_dir, _append_filter())
+        name = self._ask_name() if chosen else None
+        if not name:
+            return False
+        self._append_to(Path(chosen), name)
+        return True
+
+    def _append_to(self, path: Path, name: str) -> None:
+        fmt = _format_or_none(path)
+        if fmt is None or not fmt.can_append:
+            self._fail("Could not save", ValueError(f"Fractals cannot be added to {path.suffix or path.name} files"))
+            return
+        snapshot = self._document.flame.copy()
+        snapshot.name = name
+        self._run_write(path, _append, snapshot, path, fmt,
+                        on_done=lambda index: self._saved(snapshot, path, index, opened=True, renamed=True))
+
+    def _ask_name(self) -> str | None:
+        name, ok = QInputDialog.getText(self._parent, "Fractal name", "Save fractal as:", text=self._document.flame.name)
+        return name.strip() if ok and name.strip() else None
 
     def confirm_discard(self) -> bool:
         """Ask about unsaved edits before replacing the flame. Returns False if the caller should abort."""
@@ -184,31 +238,52 @@ class FractalFileActions(QObject):
         self._written[path] = time.monotonic()   # before the write too: the watcher can fire before `done`
         run_in_background(fn, *args, on_done=done, on_error=lambda exc: self._fail("Could not save fractal", exc))
 
-    def _saved(self, snapshot: Flame, path: Path, index: int, opened: bool = False) -> None:
-        if self._document.flame is not None and self._document.flame.to_dict() == snapshot.to_dict():
-            self._document.mark_saved(path, index)
+    def _saved(self, snapshot: Flame, path: Path, index: int, opened: bool = False, note: str = "", renamed: bool = False) -> None:
+        current = self._document.flame
+        if current is not None:
+            same = current.to_dict() == snapshot.to_dict() if not renamed else {**current.to_dict(), "name": snapshot.name} == snapshot.to_dict()
+            if same:
+                if renamed:
+                    current.name = snapshot.name   # the document now *is* the entry it was saved as
+                self._document.mark_saved(path, index)
+                if renamed:
+                    self._document.flame_renamed.emit()
         if opened:
             self.file_opened.emit(path)
-        self.status.emit(f"Saved '{snapshot.name}' to {path.name}")
+        self.status.emit(note or f"Saved '{snapshot.name}' to {path.name}")
 
     def _suggested_path(self) -> Path:
-        flame = self._document.flame
-        stem = _safe(flame.name) if flame is not None and flame.name else "fractal"
+        """`FA-YYMMDD-N.fa` in the current folder, N being the first number not yet used (Apophysis-style)."""
         source = self._document.source_path
         folder = source.parent if source is not None else Path(self._last_dir)
-        return folder / f"{stem}{DEFAULT_SAVE_FORMAT.extensions[0]}"
+        return suggested_file_name(folder, DEFAULT_SAVE_FORMAT.extensions[0])
 
     def _fail(self, title: str, exc: Exception) -> None:
         QMessageBox.warning(self._parent, title, str(exc))
         self.status.emit(f"{title}: {exc}")
 
 
-def _write_as(flame: Flame, path: Path, fmt) -> int:
-    """Save-As on the worker thread: append to an existing multi-flame file, else write a new one. Returns the index."""
+def _write_as(flame: Flame, path: Path, fmt) -> tuple[int, str]:
+    """'New file' on the worker thread: append to an existing multi-flame file (never wipe it), else write a new one.
+
+    Returns:
+        (entry index, status note or '').
+    """
     if path.exists() and fmt.can_append:
-        return fmt.append(flame, path)
+        index = fmt.append(flame, path)
+        return index, f"{path.name} exists — added '{flame.name}' to it instead of replacing the file"
     fmt.write_file([flame], path)
-    return 0
+    return 0, ""
+
+
+def _append(flame: Flame, path: Path, fmt) -> int:
+    """Append on the worker thread (creating the file if needed). Returns the new entry's index."""
+    return fmt.append(flame, path)
+
+
+def _append_filter() -> str:
+    """Dialog filter for formats a fractal can be added to."""
+    return ";;".join(f.dialog_filter() for f in FORMATS if f.can_append)
 
 
 def _format_or_none(path: Path | None):
@@ -220,6 +295,13 @@ def _format_or_none(path: Path | None):
         return None
 
 
-def _safe(name: str) -> str:
-    cleaned = "".join(c if c.isalnum() or c in " -_." else "_" for c in name).strip()
-    return cleaned or "fractal"
+FILE_PREFIX = "FA"
+
+
+def suggested_file_name(folder: Path, suffix: str, today: date | None = None) -> Path:
+    """`FA-YYMMDD-N<suffix>` in `folder`, with the lowest N that does not exist yet."""
+    stamp = (today or date.today()).strftime("%y%m%d")
+    n = 1
+    while (folder / f"{FILE_PREFIX}-{stamp}-{n}{suffix}").exists():
+        n += 1
+    return folder / f"{FILE_PREFIX}-{stamp}-{n}{suffix}"

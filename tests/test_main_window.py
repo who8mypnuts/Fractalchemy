@@ -42,7 +42,9 @@ def test_menu_bar_has_windows_and_help_menus(window):
     assert [a.text() for a in window.menuWindows.actions()] == ["Gradient Library"]
     assert [a.text() for a in window.menuHelp.actions()] == ["About Fractalchemy…", "About Qt…"]
     assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
-    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save", "Save As…", "Exit"]
+    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save", "Save As", "Exit"]
+    assert [a.text() for a in window.menuSaveAs.actions()] == ["Add to This File as New Fractal…", "New File…", "Add to Another File…"]
+    assert window.menuSaveAs.menuAction() in window.toolBar.actions()
     assert [a.text() for a in window.menuEdit.actions() if a.text()] == [
         "Undo", "Redo", "Copy", "Copy As", "Paste", "Edit Fractal Library…"]
     assert [a.text() for a in window.menuCopyAs.actions()] == ["Apophysis Parameters", "Chaotica Parameters"]
