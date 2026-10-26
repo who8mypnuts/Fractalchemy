@@ -1,19 +1,16 @@
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow
-from PySide6.QtUiTools import QUiLoader
 
-def main():
+from PySide6.QtWidgets import QApplication
+
+from hueclid.ui.main_window import MainWindow
+
+
+def main() -> int:
     app = QApplication(sys.argv)
-    loader = QUiLoader()
-    window = loader.load("ui/main_window.ui")
-    menubar = window.menuBar()
-    window.setMenuBar(menubar)
-    menubar.setVisible(True)
-    status = window.statusBar()
-    status.setVisible(True)
-    window.setStatusBar(status)
+    window = MainWindow()
     window.show()
-    sys.exit(app.exec())
+    return app.exec()
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
