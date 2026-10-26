@@ -13,7 +13,13 @@ from .qt_colors import contrasting_pen_color, to_qcolor
 
 
 class NodeBar(QWidget):
+    """Row of draggable node markers beneath the strip; drives selection and moves."""
     def __init__(self, document: GradientDocument, margin: int = config.EDITOR_MARGIN, parent=None):
+        """Args:
+            document: Source of stops and selection; edits are sent back to it.
+            margin: Horizontal inset matching the strip.
+            parent: Qt parent.
+        """
         super().__init__(parent)
         self._document = document
         self._margin = margin
@@ -28,9 +34,11 @@ class NodeBar(QWidget):
 
     # --- geometry -----------------------------------------------------------
     def mapper(self) -> PositionMapper:
+        """Position ↔ pixel mapping for the current width."""
         return PositionMapper(self.width(), self._margin)
 
     def node_center(self, index: int) -> QPointF:
+        """Pixel centre of the marker for stop `index`."""
         x = self.mapper().to_x(self._document.gradient.stops[index].position)
         return QPointF(x, config.NODE_RADIUS + 2)
 

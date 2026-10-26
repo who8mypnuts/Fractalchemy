@@ -1,0 +1,28 @@
+1977_ford_f-150_1977_ford_f-150_e47a8d42-8bd8-4174-9235-6873a3e8cc72-pOi6Fl-90714-90719-scaled {
+gradient:
+ title="1977_ford_f-150_1977_ford_f-150_e47a8d42-8bd8-4174-9235-6873a3e8cc72-pOi6Fl-90714-90719-scaled" smooth=no
+ index=0 color=986123
+ index=133 color=6844001
+ index=160 color=5731974
+ index=186 color=7966868
+ index=293 color=11845834
+ index=328 color=13025201
+ index=372 color=15326414
+ index=399 color=12298905
+
+}
+ 
+plus_rand {
+gradient:
+ title="plus_rand" smooth=no
+ index=18 color=12298905
+ index=25 color=5731974
+ index=172 color=986123
+ index=193 color=6844001
+ index=260 color=13025201
+ index=286 color=15326414
+ index=390 color=11845834
+ index=396 color=7966868
+
+}
+ 

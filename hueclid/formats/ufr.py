@@ -26,7 +26,7 @@ from pathlib import Path
 from ..model import Gradient
 from . import ufparams as uf
 from .base import FormatError, GradientFormat
-from .textfile import atomic_write_bytes, require_index
+from .textfile import atomic_write_bytes, detect_newline, require_index
 
 MAGIC = b"UltraFractal"
 HEADER_SIZE = 64
@@ -40,12 +40,14 @@ class _Ufr:
     tail: bytes        # everything after the parameter text
 
     def encode(self) -> bytes:
+        """Serialise with the header's length and offsets corrected for the text's new size."""
         body = self.text.encode("latin-1")
-        delta = len(body) - struct.unpack_from("<I", self.header, _TEXT_LENGTH)[0]
-        struct.pack_into("<I", self.header, _TEXT_LENGTH, len(body))
+        header = bytearray(self.header)
+        delta = len(body) - struct.unpack_from("<I", header, _TEXT_LENGTH)[0]
+        struct.pack_into("<I", header, _TEXT_LENGTH, len(body))
         for field in (_INFO_OFFSET, _CACHE_OFFSET):
-            struct.pack_into("<I", self.header, field, struct.unpack_from("<I", self.header, field)[0] + delta)
-        return bytes(self.header) + body + self.tail
+            struct.pack_into("<I", header, field, struct.unpack_from("<I", header, field)[0] + delta)
+        return bytes(header) + body + self.tail
 
 
 @dataclass(frozen=True)
@@ -55,34 +57,39 @@ class _Entry:
 
 
 class UfrFormat(GradientFormat):
+    """Reader/in-place writer for Ultra Fractal .ufr fractal files (one gradient per layer)."""
     name = "Ultra Fractal fractal"
     extensions = (".ufr",)
     can_save = True
     multi_entry = True
 
     def load(self, path: Path) -> list[Gradient]:
+        """One gradient per layer, named after the layer caption."""
         doc = _read(path)
         gradients = [Gradient(e.name, uf.stops_from_tokens(uf.tokens(e.section.body))) for e in _entries(doc.text)]
         return [g for g in gradients if g.stops]
 
     def names(self, path: Path) -> list[str]:
+        """Layer captions of every layer that has a gradient section."""
         return [e.name for e in _entries(_read(path).text)]
 
     def save(self, gradient: Gradient, path: Path, index: int = 0) -> None:
+        """Rewrite the gradient section of layer `index`, keeping its other attributes."""
         doc = _read(path)
         section = require_index([e.section for e in _entries(doc.text)], index, path)
         kept = uf.other_tokens(uf.tokens(section.body))
-        body = uf.wrap_tokens(kept + uf.stop_tokens(gradient.stops), _newline(doc.text))
+        body = uf.wrap_tokens(kept + uf.stop_tokens(gradient.stops), detect_newline(doc.text))
         doc.text = doc.text[:section.body_start] + body + doc.text[section.body_end:]
         _write(path, doc)
 
     def rename(self, path: Path, index: int, name: str) -> None:
+        """Set the caption of layer `index`."""
         doc = _read(path)
         section = require_index([s for s in uf.sections(doc.text) if s.name == "layer"], index, path)
         pairs = [(k, uf.quote(name) if k == "caption" else v) for k, v in uf.tokens(section.body)]
         if "caption" not in dict(pairs):
             pairs.insert(0, ("caption", uf.quote(name)))
-        body = uf.wrap_tokens(pairs, _newline(doc.text))
+        body = uf.wrap_tokens(pairs, detect_newline(doc.text))
         doc.text = doc.text[:section.body_start] + body + doc.text[section.body_end:]
         _write(path, doc)
 
@@ -113,7 +120,3 @@ def _entries(text: str) -> list[_Entry]:
             entries.append(_Entry(caption or f"Layer {layer_no or 1}", section))
             caption = None
     return entries
-
-
-def _newline(text: str) -> str:
-    return "\r\n" if "\r\n" in text else "\n"

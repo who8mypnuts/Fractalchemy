@@ -11,7 +11,7 @@ import random
 from typing import Sequence
 
 from .adjust import shift_hsl
-from .color import RGB
+from .color import RGB, hsl_to_rgb
 from .gradient import Gradient
 from .simplify import simplify
 from .stop import ColorStop
@@ -95,21 +95,14 @@ def _random_palette(rng: random.Random) -> list[RGB]:
     for offset in offsets:
         for _ in range(2):
             hue = (base_hue + offset + rng.uniform(-8, 8)) % 360
-            palette.append(_hsl_rgb(hue, rng.uniform(0.45, 1.0), rng.uniform(0.15, 0.85)))
-    palette.append(_hsl_rgb(base_hue, rng.uniform(0.0, 0.3), rng.choice((0.05, 0.95))))  # a near-black or near-white accent
+            palette.append(hsl_to_rgb(hue / 360.0, rng.uniform(0.45, 1.0), rng.uniform(0.15, 0.85)))
+    palette.append(hsl_to_rgb(base_hue / 360.0, rng.uniform(0.0, 0.3), rng.choice((0.05, 0.95))))  # near-black / near-white accent
     return palette
 
 
 def _pick(palette: list[RGB], rng: random.Random) -> RGB:
     """A palette colour with a touch of jitter so repeated picks aren't identical."""
     return shift_hsl(rng.choice(palette), rng.uniform(-6, 6), rng.uniform(-8, 8), rng.uniform(-8, 8))
-
-
-def _hsl_rgb(hue_degrees: float, saturation: float, lightness: float) -> RGB:
-    import colorsys
-
-    r, g, b = colorsys.hls_to_rgb(hue_degrees / 360.0, lightness, saturation)
-    return tuple(int(round(c * 255)) for c in (r, g, b))  # type: ignore[return-value]
 
 
 def _harmonious_color(color: RGB, rng: random.Random) -> RGB:

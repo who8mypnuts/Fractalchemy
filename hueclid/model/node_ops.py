@@ -33,6 +33,11 @@ def inserted_after(gradient: Gradient, index: int, color: RGB) -> tuple[list[Col
 
 
 def without(gradient: Gradient, index: int) -> list[ColorStop]:
+    """Copy of the stops with node `index` removed.
+
+    Raises:
+        ValueError: If removing it would leave fewer than MIN_NODES stops.
+    """
     if len(gradient.stops) <= MIN_NODES:
         raise ValueError(f"A gradient needs at least {MIN_NODES} nodes")
     return [s.copy() for i, s in enumerate(gradient.stops) if i != index]

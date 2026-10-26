@@ -30,13 +30,20 @@ BUTTON_COLUMNS = 3
 
 
 class WholeGradientPanel(QGroupBox):
-    """Built empty (promotable in Designer); call `bind()` once."""
+    """Built empty (promotable in Designer); call `bind()` once.
 
-    adjustments_changed = Signal(object)   # Adjustments
-    operation_requested = Signal(object)   # Operation callable
+    Signals:
+        adjustments_changed(Adjustments): A slider moved.
+        operation_requested(Operation): A node-operation button was clicked.
+        status(str): Outcome text for the status bar.
+    """
+
+    adjustments_changed = Signal(object)
+    operation_requested = Signal(object)
     status = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
+        """Build the adjustment rows and operation buttons."""
         super().__init__("Whole gradient", parent)
         self._document: GradientDocument | None = None
         self.position = AdjustRow("Position", -ROTATION_RANGE, ROTATION_RANGE, parent=self)
@@ -82,6 +89,11 @@ class WholeGradientPanel(QGroupBox):
 
     # --- document binding ---------------------------------------------------
     def bind(self, document: GradientDocument) -> None:
+        """Attach the document; sliders drive it and follow its resets.
+
+        Raises:
+            RuntimeError: If called twice.
+        """
         if self._document is not None:
             raise RuntimeError("WholeGradientPanel is already bound to a document")
         self._document = document
@@ -95,12 +107,14 @@ class WholeGradientPanel(QGroupBox):
 
     # --- clipboard ----------------------------------------------------------
     def copy_to_clipboard(self) -> None:
+        """Put the gradient on the clipboard as UGR text."""
         if self._document is None or not self._document.gradient.stops:
             return
         QGuiApplication.clipboard().setText(gradient_to_text(self._document.gradient))
         self.status.emit(f"Copied '{self._document.gradient.name}' to the clipboard (UGR text)")
 
     def paste_from_clipboard(self) -> None:
+        """Replace the gradient's nodes with the clipboard's gradient (name is kept)."""
         pasted = text_to_gradient(QGuiApplication.clipboard().text())
         if pasted is None or self._document is None:
             return self.status.emit("The clipboard doesn't hold a gradient")
@@ -110,9 +124,11 @@ class WholeGradientPanel(QGroupBox):
 
     # --- state --------------------------------------------------------------
     def adjustments(self) -> Adjustments:
+        """The current slider values."""
         return Adjustments(self.position.value(), self.hue.value(), self.saturation.value(), self.luminance.value())
 
     def reset(self) -> None:
+        """Move every slider to zero without emitting."""
         for row in self._rows():
             row.set_value(0)
 

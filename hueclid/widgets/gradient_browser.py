@@ -13,9 +13,15 @@ from .thumbnail import THUMBNAIL_SIZE, render_thumbnail
 
 
 class GradientBrowser(QListWidget):
-    entry_chosen = Signal(int)  # user clicked entry `index`
+    """Horizontal strip of thumbnails, one per gradient in the open file.
+
+    Signals:
+        entry_chosen(int): The user clicked the thumbnail at this index.
+    """
+    entry_chosen = Signal(int)
 
     def __init__(self, parent: QWidget | None = None):
+        """Configure a single-row, horizontally scrolling icon view."""
         super().__init__(parent)
         self._path: Path | None = None
         self._configure()
@@ -38,15 +44,18 @@ class GradientBrowser(QListWidget):
     # --- API ----------------------------------------------------------------
     @property
     def path(self) -> Path | None:
+        """File whose entries are shown, or None."""
         return self._path
 
     def set_entries(self, path: Path | None, gradients: list[Gradient]) -> None:
+        """Show thumbnails for `gradients` from `path`."""
         self._path = path
         self.clear()
         for gradient in gradients:
             self.addItem(self._make_item(gradient))
 
     def update_entry(self, index: int, gradient: Gradient) -> None:
+        """Re-render the thumbnail and name at `index`."""
         item = self.item(index)
         if item is not None:
             item.setIcon(QIcon(render_thumbnail(gradient)))
@@ -54,6 +63,7 @@ class GradientBrowser(QListWidget):
             item.setToolTip(_tooltip(gradient, index))
 
     def set_current(self, index: int) -> None:
+        """Highlight and scroll to `index` without emitting entry_chosen."""
         if 0 <= index < self.count():
             self.setCurrentRow(index)
             self.scrollToItem(self.item(index))

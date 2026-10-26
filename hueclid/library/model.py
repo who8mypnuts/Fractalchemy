@@ -12,6 +12,7 @@ from PySide6.QtCore import QModelIndex, Qt, Signal
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QApplication, QStyle
 
+from ..formats import format_for
 from .items import Kind, LibraryItem
 from .payload import MIME_TYPE, from_mime, to_mime
 from .scanner import ScannedDir, ScannedFile
@@ -22,15 +23,26 @@ COUNT_ROLE = Qt.ItemDataRole.UserRole + 3    # supported files under a root
 
 
 class LibraryModel(QStandardItemModel):
-    drop_requested = Signal(list, object, bool)  # items, target LibraryItem, move?
+    """Item model behind the library tree.
+
+    Rows are (re)built per root from ScannedDir results. Drops are validated
+    here but executed by the controller, which then rescans from disk.
+
+    Signals:
+        drop_requested(list[LibraryItem], LibraryItem, bool): Items dropped onto a
+            target; the bool is True for a move.
+    """
+    drop_requested = Signal(list, object, bool)
 
     def __init__(self, parent=None):
+        """Create an empty model with one 'Library' column."""
         super().__init__(parent)
         self.setHorizontalHeaderLabels(["Library"])
         self._icons = _Icons()
 
     # --- population ---------------------------------------------------------
     def root_paths(self) -> list[Path]:
+        """Paths of the roots currently in the tree, top to bottom."""
         return [self.item(row).data(ITEM_ROLE).path for row in range(self.rowCount())]
 
     def set_root(self, scanned: ScannedDir) -> QStandardItem:
@@ -47,17 +59,21 @@ class LibraryModel(QStandardItemModel):
         return item
 
     def remove_root(self, path: Path) -> None:
+        """Drop the subtree for `path` if present."""
         row = self._row_of_root(path)
         if row is not None:
             self.removeRow(row)
 
     def file_counts(self) -> dict[Path, int]:
+        """Supported-file count per root path."""
         return {self.item(r).data(ITEM_ROLE).path: self.item(r).data(COUNT_ROLE) for r in range(self.rowCount())}
 
     def library_item(self, index: QModelIndex) -> LibraryItem | None:
+        """The LibraryItem stored on `index`, or None for an invalid index."""
         return index.data(ITEM_ROLE) if index.isValid() else None
 
     def index_for(self, target: LibraryItem) -> QModelIndex:
+        """The model index whose item matches `target` (kind, path, index), or an invalid index."""
         for item in self._walk(self.invisibleRootItem()):
             data = item.data(ITEM_ROLE)
             if data.path == target.path and data.kind == target.kind and data.index == target.index:
@@ -134,8 +150,6 @@ class LibraryModel(QStandardItemModel):
 
 
 def _accepts_entries(path: Path) -> bool:
-    from ..formats import format_for  # local import keeps model import light
-
     return format_for(path).can_append
 
 
@@ -149,6 +163,7 @@ def _droppable(item: LibraryItem, target: LibraryItem) -> bool:
 
 class _Icons:
     def __init__(self):
+        """Fetch the standard folder / file / entry icons from the current style."""
         style = QApplication.style()
         self.folder = style.standardIcon(QStyle.StandardPixmap.SP_DirIcon)
         self.file = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)

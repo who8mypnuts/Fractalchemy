@@ -7,7 +7,7 @@ from PySide6.QtCore import QSettings
 
 from hueclid.formats import entry_names, load_gradients
 from hueclid.library.roots import LibraryRoots
-from hueclid.ui import file_actions
+from hueclid.ui import file_actions, file_workers
 from hueclid.ui.main_window import MainWindow
 from tests.conftest import wait_until
 
@@ -49,7 +49,7 @@ def test_browser_shows_every_entry_and_tracks_current(window, workdir):
 
 def test_clicking_a_thumbnail_switches_entry_without_reading_disk(window, workdir, monkeypatch):
     open_and_wait(window, workdir / "candy.flame", 0)
-    monkeypatch.setattr(file_actions, "load_gradients", lambda *a, **k: pytest.fail("disk read"))
+    monkeypatch.setattr(file_workers, "load_gradients", lambda *a, **k: pytest.fail("disk read"))
     window.gradientBrowser.entry_chosen.emit(3)
     assert window.document.gradient.name == "pearl" and window.document.source_index == 3
     assert window.gradientBrowser.currentRow() == 3

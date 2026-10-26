@@ -36,7 +36,11 @@ CUSTOM_WIDGETS = {
 
 
 class MainWindow(QMainWindow):
+    """Application window: library on the left, browser / editor / panels on the right."""
     def __init__(self, roots: LibraryRoots | None = None):
+        """Args:
+            roots: Library folders to use; defaults to the persisted list.
+        """
         super().__init__()
         load_ui(self, UI_FILE, CUSTOM_WIDGETS)
         self.document = GradientDocument(self)
@@ -99,17 +103,20 @@ class MainWindow(QMainWindow):
 
     # --- library slots ------------------------------------------------------
     def open_item(self, item: LibraryItem) -> None:
+        """Show the gradient a library row refers to, unless it is already shown."""
         if self.document.is_showing(item.path, item.index) and not self.document.modified:
             return
         if self.files.confirm_discard():
             self.files.open_path(item.path, item.index)
 
     def add_library_folder(self) -> None:
+        """Prompt for a folder and add it to the library."""
         folder = QFileDialog.getExistingDirectory(self, "Add folder to library")
         if folder and not self.library.roots.add(Path(folder)):
             self.statusBar().showMessage("That folder is already in the library")
 
     def edit_library(self) -> None:
+        """Open the modal Edit Library dialog."""
         EditLibraryDialog(self.library, self.add_library_folder, self).exec()
 
     def _show_scanning(self, busy: bool) -> None:

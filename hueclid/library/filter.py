@@ -8,7 +8,9 @@ from .model import SEARCH_ROLE
 
 
 class LibraryFilter(QSortFilterProxyModel):
+    """Proxy that hides rows not matching every search term (ancestors of matches stay)."""
     def __init__(self, parent=None):
+        """Configure recursive, case-insensitive filtering on SEARCH_ROLE."""
         super().__init__(parent)
         self.setFilterRole(SEARCH_ROLE)
         self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
@@ -16,6 +18,7 @@ class LibraryFilter(QSortFilterProxyModel):
         self._terms: list[str] = []
 
     def set_query(self, text: str) -> None:
+        """Set the search text; words are matched independently as substrings."""
         if hasattr(self, "beginFilterChange"):  # Qt >= 6.10
             self.beginFilterChange()
             self._terms = text.casefold().split()
@@ -26,6 +29,7 @@ class LibraryFilter(QSortFilterProxyModel):
 
     @property
     def active(self) -> bool:
+        """True while a non-empty query is applied."""
         return bool(self._terms)
 
     def filterAcceptsRow(self, source_row, source_parent):

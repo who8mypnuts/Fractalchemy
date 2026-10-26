@@ -12,15 +12,25 @@ HUE_STEPS = 24
 
 
 class HueSatWheel(QWidget):
-    changed = Signal(float, float)  # hue 0..1, saturation 0..1 (user interaction only)
+    """Colour wheel: hue by angle, saturation by radius.
+
+    Signals:
+        changed(float, float): Hue and saturation (0..1) after a click or drag.
+    """
+    changed = Signal(float, float)
 
     def __init__(self, diameter: int = 160, parent: QWidget | None = None):
+        """Args:
+            diameter: Widget size in pixels.
+            parent: Qt parent.
+        """
         super().__init__(parent)
         self._hue, self._sat = 0.0, 1.0
         self.setFixedSize(diameter, diameter)
         self.setCursor(Qt.CursorShape.CrossCursor)
 
     def set_hue_sat(self, hue: float, sat: float) -> None:
+        """Move the handle programmatically (no signal)."""
         self._hue, self._sat = hue % 1.0, max(0.0, min(1.0, sat))
         self.update()
 

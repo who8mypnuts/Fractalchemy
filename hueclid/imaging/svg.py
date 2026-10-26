@@ -11,6 +11,11 @@ from PySide6.QtSvg import QSvgRenderer
 
 
 def rasterize_svg(path: Path, max_edge: int) -> Image.Image:
+    """Render an SVG file to an RGBA Pillow image no larger than `max_edge` on either side.
+
+    Raises:
+        ValueError: If Qt cannot parse the file as SVG.
+    """
     renderer = QSvgRenderer(str(path))
     if not renderer.isValid():
         raise ValueError(f"{path.name} is not a valid SVG")

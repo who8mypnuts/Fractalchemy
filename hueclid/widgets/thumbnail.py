@@ -12,6 +12,7 @@ THUMBNAIL_SIZE = QSize(110, 36)
 
 
 def render_thumbnail(gradient: Gradient, size: QSize = THUMBNAIL_SIZE) -> QPixmap:
+    """Paint `gradient` into a bordered pixmap of `size`."""
     pixmap = QPixmap(size)
     pixmap.fill(QColor(40, 40, 40))
     painter = QPainter(pixmap)

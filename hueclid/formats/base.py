@@ -13,6 +13,16 @@ class FormatError(Exception):
 
 
 class GradientFormat(ABC):
+    """Base class for one file type that can hold gradients.
+
+    Subclasses set the capability flags and implement the reading/writing
+    methods those flags promise. Entry indices are positions in the list
+    `load()` / `names()` return, in file order.
+
+    Attributes:
+        name: Human-readable format name for dialogs and messages.
+        extensions: Lower-case suffixes (with dot) this format handles.
+    """
     name: str = ""
     extensions: tuple[str, ...] = ()
     # Capabilities. Defaults describe a read-only, single-gradient format.
@@ -23,9 +33,11 @@ class GradientFormat(ABC):
     multi_entry: bool = False   # one file can hold several gradients
 
     def matches(self, path: Path) -> bool:
+        """True if `path` has one of this format's extensions (case-insensitive)."""
         return path.suffix.lower() in self.extensions
 
     def dialog_filter(self) -> str:
+        """A QFileDialog filter string such as 'Flame (*.flame)'."""
         patterns = " ".join(f"*{ext}" for ext in self.extensions)
         return f"{self.name} ({patterns})"
 
@@ -52,9 +64,11 @@ class GradientFormat(ABC):
         raise NotImplementedError(f"{self.name} files cannot be written")
 
     def remove(self, path: Path, index: int) -> None:
+        """Delete entry `index` from the file."""
         raise NotImplementedError(f"{self.name} files cannot be written")
 
     def rename(self, path: Path, index: int, name: str) -> None:
+        """Change the name of entry `index` inside the file."""
         raise NotImplementedError(f"{self.name} files cannot be written")
 
     def copy_entry(self, source: Path, index: int, target: Path) -> None:

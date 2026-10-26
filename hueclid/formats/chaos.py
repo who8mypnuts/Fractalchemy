@@ -9,30 +9,33 @@ from pathlib import Path
 from .. import config
 from ..model import Gradient, clamp_channel
 from .base import FormatError, GradientFormat
-from .textfile import TextFile, require_index
+from .textfile import Span, TextFile, require_index, xml_attr
 
 _IFS_TAGS = ("flam3_IFS", "IFS")
 _IFS_SPAN = re.compile(r"<(flam3_IFS|IFS)\b.*?</\1>", re.DOTALL)
+_IFS_NAME = re.compile(r'^(<(?:flam3_IFS|IFS)\b[^>]*?\bname=")[^"]*(")')
 _PALETTE_VALUES = re.compile(r'(<table\s+name="flam3_palette"\s*>\s*<values>)(.*?)(</values>)', re.DOTALL)
 
 
 class ChaosFormat(GradientFormat):
+    """Reader/in-place writer for Chaotica worlds (one gradient per IFS with a palette)."""
     name = "Chaotica world"
     extensions = (".chaos",)
     can_save = True
     multi_entry = True
 
     def load(self, path: Path) -> list[Gradient]:
+        """One gradient per IFS element that has a flam3_palette table."""
         gradients = [_gradient_from_ifs(ifs) for ifs in _ifs_elements(path)]
         return [g for g in gradients if g is not None]
 
     def names(self, path: Path) -> list[str]:
+        """IFS names, in file order, for those that carry a palette."""
         return [_ifs_name(ifs) for ifs in _ifs_elements(path) if _palette_values(ifs) is not None]
 
     def save(self, gradient: Gradient, path: Path, index: int = 0) -> None:
-        doc = TextFile.read(path)
-        spans = [m.span() for m in _IFS_SPAN.finditer(doc.text) if 'name="flam3_palette"' in m.group(0)]
-        span = require_index(spans, index, path)
+        """Replace the palette values of IFS `index` with the gradient resampled to 256 colours."""
+        doc, span = _open_ifs(path, index)
         values = " ".join(_fmt(c / 255.0) for rgb in gradient.sample(config.FLAME_PALETTE_SIZE) for c in rgb)
         replaced, count = _PALETTE_VALUES.subn(lambda m: f"{m.group(1)}{values}{m.group(3)}", doc.slice(span), count=1)
         if count == 0:
@@ -41,16 +44,21 @@ class ChaosFormat(GradientFormat):
         doc.write()
 
     def rename(self, path: Path, index: int, name: str) -> None:
-        doc = TextFile.read(path)
-        spans = [m.span() for m in _IFS_SPAN.finditer(doc.text) if 'name="flam3_palette"' in m.group(0)]
-        span = require_index(spans, index, path)
-        text = doc.slice(span)
-        renamed = re.sub(r'^(<(?:flam3_IFS|IFS)\b[^>]*?\bname=")[^"]*(")', lambda m: f"{m.group(1)}{_xml(name)}{m.group(2)}", text, count=1)
+        """Set the `name` attribute of IFS `index`."""
+        doc, span = _open_ifs(path, index)
+        renamed = _IFS_NAME.sub(lambda m: f"{m.group(1)}{xml_attr(name)}{m.group(2)}", doc.slice(span), count=1)
         doc.replace(span, renamed)
         doc.write()
 
 
 # --- helpers ----------------------------------------------------------------
+def _open_ifs(path: Path, index: int) -> tuple[TextFile, Span]:
+    """The file plus the text span of the `index`-th IFS that carries a palette."""
+    doc = TextFile.read(path)
+    spans = [m.span() for m in _IFS_SPAN.finditer(doc.text) if 'name="flam3_palette"' in m.group(0)]
+    return doc, require_index(spans, index, path)
+
+
 def _ifs_elements(path: Path) -> list[ET.Element]:
     try:
         root = ET.parse(path).getroot()
@@ -82,7 +90,3 @@ def _gradient_from_ifs(ifs: ET.Element) -> Gradient | None:
 
 def _fmt(value: float) -> str:
     return f"{value:.8g}"
-
-
-def _xml(text: str) -> str:
-    return text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")

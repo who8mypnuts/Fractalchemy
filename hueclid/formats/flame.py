@@ -14,7 +14,7 @@ from pathlib import Path
 from .. import config
 from ..model import Gradient, hex_to_rgb, rgb_to_hex
 from .base import FormatError, GradientFormat
-from .textfile import Span, TextFile, require_index
+from .textfile import Span, TextFile, require_index, xml_attr
 
 _FLAME_SPAN = re.compile(r"<flame\b.*?</flame>[ \t]*\r?\n?", re.DOTALL)
 _PALETTE_BLOCK = re.compile(r"(<palette\b[^>]*>)(.*?)(</palette>)", re.DOTALL)
@@ -24,6 +24,7 @@ _FLAMES_CLOSE = re.compile(r"</Flames>", re.IGNORECASE)
 
 
 class FlameFormat(GradientFormat):
+    """Reader/writer for Apophysis / flam3 flame files (one gradient per <flame>)."""
     name = "Flame"
     extensions = (".flame",)
     can_save = True
@@ -34,14 +35,17 @@ class FlameFormat(GradientFormat):
 
     # --- reading ------------------------------------------------------------
     def load(self, path: Path) -> list[Gradient]:
+        """One gradient per <flame> element that carries a palette."""
         gradients = [_gradient_from_flame(f) for f in _flame_elements(path)]
         return [g for g in gradients if g is not None]
 
     def names(self, path: Path) -> list[str]:
+        """Flame names, in file order, for flames that carry a palette."""
         return [f.get("name", "flame") for f in _flame_elements(path) if f.find("palette") is not None]
 
     # --- writing ------------------------------------------------------------
     def save(self, gradient: Gradient, path: Path, index: int = 0) -> None:
+        """Replace the palette of flame `index`; creates a minimal file if `path` is new."""
         if not path.exists():
             return self.append(gradient, path)
         doc, spans = _open(path)
@@ -58,17 +62,20 @@ class FlameFormat(GradientFormat):
         _append_text(path, text)
 
     def remove(self, path: Path, index: int) -> None:
+        """Delete the <flame> element at `index`."""
         doc, spans = _open(path)
         doc.remove(require_index(spans, index, path))
         doc.write()
 
     def rename(self, path: Path, index: int, name: str) -> None:
+        """Set the `name` attribute of flame `index`."""
         doc, spans = _open(path)
         span = require_index(spans, index, path)
         doc.replace(span, _renamed(doc.slice(span), name))
         doc.write()
 
     def copy_entry(self, source: Path, index: int, target: Path) -> None:
+        """Append flame `index` of `source` to `target` verbatim (xforms included)."""
         doc, spans = _open(source)
         _append_text(target, doc.slice(require_index(spans, index, source)).rstrip() + "\n")
 
@@ -115,8 +122,8 @@ def _with_palette(flame_text: str, gradient: Gradient) -> str:
 
 
 def _renamed(flame_text: str, name: str) -> str:
-    renamed, count = _NAME_ATTR.subn(lambda m: f"{m.group(1)}{_xml_attr(name)}{m.group(3)}", flame_text, count=1)
-    return renamed if count else flame_text.replace("<flame", f'<flame name="{_xml_attr(name)}"', 1)
+    renamed, count = _NAME_ATTR.subn(lambda m: f"{m.group(1)}{xml_attr(name)}{m.group(3)}", flame_text, count=1)
+    return renamed if count else flame_text.replace("<flame", f'<flame name="{xml_attr(name)}"', 1)
 
 
 def _cloned_flame(template_path: Path, index: int, gradient: Gradient) -> str:
@@ -128,7 +135,7 @@ def _cloned_flame(template_path: Path, index: int, gradient: Gradient) -> str:
 
 def _minimal_flame(gradient: Gradient) -> str:
     return (
-        f'<flame name="{_xml_attr(gradient.name)}" version="{config.APP_NAME}" size="800 600" '
+        f'<flame name="{xml_attr(gradient.name)}" version="{config.APP_NAME}" size="800 600" '
         'center="0 0" scale="200" background="0 0 0" brightness="4" gamma="4">\n'
         '   <xform weight="0.5" color="0" linear="1" coefs="1 0 0 1 0 0" />\n'
         f"   {_palette_element(gradient)}\n"
@@ -138,21 +145,14 @@ def _minimal_flame(gradient: Gradient) -> str:
 
 def _append_text(path: Path, flame_text: str) -> None:
     """Add a <flame> to a file, wrapping a bare single-flame file in <Flames> first."""
-    if not path.exists():
-        TextFile.empty(path, "\n").write()
-        doc = TextFile.read(path)
-        doc.insert(0, flame_text)
-        return doc.write()
-    doc = TextFile.read(path)
+    doc = TextFile.read(path) if path.exists() else TextFile.empty(path, "\n")
     close = _FLAMES_CLOSE.search(doc.text)
     if close is not None:
         doc.insert(close.start(), flame_text)
-    else:
-        body = doc.text.rstrip() + doc.newline if doc.text.strip() else ""
-        doc.text = doc.nl(f'<Flames name="{_xml_attr(path.stem)}">\n') + body
+    elif doc.text.strip():
+        body = doc.text.rstrip() + doc.newline
+        doc.text = doc.nl(f'<Flames name="{xml_attr(path.stem)}">\n') + body
         doc.insert(len(doc.text), flame_text + "</Flames>\n")
+    else:
+        doc.insert(0, flame_text)
     doc.write()
-
-
-def _xml_attr(text: str) -> str:
-    return text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")

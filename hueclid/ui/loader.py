@@ -19,6 +19,10 @@ from PySide6.QtWidgets import QWidget
 
 class _InstanceLoader(QUiLoader):
     def __init__(self, base: QWidget, custom_widgets: Mapping[str, type[QWidget]]):
+        """Args:
+            base: Instance that becomes the .ui file's top-level widget.
+            custom_widgets: Class-name → widget class for promoted widgets.
+        """
         super().__init__(base)
         self._base = base
         self._custom = dict(custom_widgets)
@@ -36,6 +40,16 @@ class _InstanceLoader(QUiLoader):
 
 
 def load_ui(base: QWidget, ui_path: Path | str, custom_widgets: Mapping[str, type[QWidget]] | None = None) -> None:
+    """Populate `base` from a Designer .ui file.
+
+    Args:
+        base: The QMainWindow / QWidget instance to build into.
+        ui_path: The .ui file.
+        custom_widgets: Promoted widget classes keyed by the class name used in the .ui.
+
+    Raises:
+        RuntimeError: If the file cannot be loaded.
+    """
     loader = _InstanceLoader(base, custom_widgets or {})
     widget = loader.load(str(ui_path))  # no parent: top-level resolves to `base`
     if widget is None:

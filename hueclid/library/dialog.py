@@ -13,7 +13,13 @@ from .controller import LibraryController
 
 
 class EditLibraryDialog(QDialog):
+    """Modal list of library folders with file counts and per-row remove buttons."""
     def __init__(self, controller: LibraryController, add_folder, parent: QWidget | None = None):
+        """Args:
+            controller: Source of roots and counts; also performs removal.
+            add_folder: Callable that prompts for and adds a folder.
+            parent: Qt parent.
+        """
         super().__init__(parent)
         self._controller = controller
         self._add_folder = add_folder  # callable that prompts for and adds a directory

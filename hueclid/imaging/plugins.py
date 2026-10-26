@@ -10,7 +10,7 @@ from __future__ import annotations
 import importlib
 from functools import cache
 
-from PIL import Image, features
+from PIL import features
 
 NATIVE_EXTENSIONS = (".png", ".apng", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp")
 SVG_EXTENSIONS = (".svg", ".svgz")
@@ -58,7 +58,6 @@ def decoder_hint(suffix: str) -> str | None:
 
 
 def is_svg(suffix: str) -> bool:
+    """True for the SVG family of extensions (case-insensitive)."""
     return suffix.lower() in SVG_EXTENSIONS
 
-
-__all__ = ["Image", "decoder_hint", "is_svg", "supported_image_extensions"]

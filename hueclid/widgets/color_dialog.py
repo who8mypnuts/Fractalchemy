@@ -2,27 +2,31 @@
 
 from __future__ import annotations
 
-import colorsys
-
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from ..model import RGB, hex_to_rgb, rgb_to_hex
-from ..model.color import clamp_channel
+from ..model.color import hsl_to_rgb, rgb_to_hsl
 from .adjust_row import AdjustRow
 from .hue_wheel import HueSatWheel
 
 
 class ColorPickerDialog(QDialog):
-    """Keeps hue/sat/lightness as the master state so slider moves never round-trip through RGB."""
+    """Keeps hue/sat/lightness as the master state so slider moves never round-trip through RGB.
 
-    color_changed = Signal(tuple)   # live, on every adjustment
-    finished_with = Signal(bool)    # True = accepted, False = cancelled (colour already reverted)
+    Signals:
+        color_changed(tuple): The RGB colour, on every adjustment.
+        finished_with(bool): True on OK, False on Cancel (the colour has already been reverted).
+    """
+
+    color_changed = Signal(tuple)
+    finished_with = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None):
+        """Build the wheel, sliders, RGB / hex fields and preview."""
         super().__init__(parent, Qt.WindowType.Tool)  # stays above the main window, movable, non-modal
         self.setWindowTitle("Node colour")
         self._h, self._s, self._l = 0.0, 0.0, 0.5
@@ -44,10 +48,23 @@ class ColorPickerDialog(QDialog):
         if as_original:
             self._original = color
             _paint(self.before, color)
-        self._set_hsl(*_to_hsl(color))
+        self._set_hsl(*rgb_to_hsl(color))
 
     def color(self) -> RGB:
-        return _to_rgb(self._h, self._s, self._l)
+        """The colour currently shown."""
+        return hsl_to_rgb(self._h, self._s, self._l)
+
+    def show_beside(self, anchor: QWidget) -> None:
+        """Show (if hidden) next to `anchor`'s window and bring to front.
+
+        The dialog is placed to the right of the window when the screen has room,
+        otherwise over `anchor` itself — so it never covers the gradient.
+        """
+        if not self.isVisible():
+            self.move(self._position_beside(anchor))
+            self.show()
+        self.raise_()
+        self.activateWindow()
 
     # --- layout -------------------------------------------------------------
     def _build(self) -> None:
@@ -86,6 +103,16 @@ class ColorPickerDialog(QDialog):
         layout.addLayout(top)
         layout.addWidget(buttons)
 
+    def _configure_fields(self) -> None:
+        for spin in (self.red, self.green, self.blue):
+            spin.setRange(0, 255)
+            spin.setFixedWidth(64)
+        self.hex.setMaxLength(7)
+        self.hex.setFixedWidth(80)
+        for frame in (self.before, self.after):
+            frame.setFixedSize(44, 28)
+            frame.setFrameShape(QFrame.Shape.Box)
+
     def _connect(self) -> None:
         self.wheel.changed.connect(lambda h, s: self._set_hsl(h, s, self._l))
         self.hue.value_changed.connect(lambda v: self._set_hsl(v / 360.0, self._s, self._l))
@@ -103,13 +130,13 @@ class ColorPickerDialog(QDialog):
 
     def _from_rgb_fields(self, _value: int) -> None:
         if not self._updating:
-            self._set_hsl(*_to_hsl((self.red.value(), self.green.value(), self.blue.value())))
+            self._set_hsl(*rgb_to_hsl((self.red.value(), self.green.value(), self.blue.value())))
 
     def _from_hex(self) -> None:
         text = self.hex.text().strip().lstrip("#")
         if len(text) == 6:
             try:
-                self._set_hsl(*_to_hsl(hex_to_rgb(text)))
+                self._set_hsl(*rgb_to_hsl(hex_to_rgb(text)))
             except ValueError:
                 pass
 
@@ -126,25 +153,26 @@ class ColorPickerDialog(QDialog):
         _paint(self.after, rgb)
         self._updating = False
 
+    def _position_beside(self, anchor: QWidget) -> QPoint:
+        window = anchor.window()
+        screen = QGuiApplication.screenAt(window.pos()) or QGuiApplication.primaryScreen()
+        available = screen.availableGeometry()
+        size = self.sizeHint()
+        x = window.frameGeometry().right() + 8
+        if x + size.width() > available.right():
+            x = max(available.left(), window.frameGeometry().right() - size.width())
+        y = min(anchor.mapToGlobal(QPoint(0, 0)).y(), available.bottom() - size.height())
+        return QPoint(x, y)
+
     # --- closing ------------------------------------------------------------
     def accept(self) -> None:
         super().accept()
         self.finished_with.emit(True)
 
     def reject(self) -> None:
-        self._set_hsl(*_to_hsl(self._original))  # revert live
+        self._set_hsl(*rgb_to_hsl(self._original))  # revert live
         super().reject()
         self.finished_with.emit(False)
-
-
-# --- helpers ----------------------------------------------------------------
-def _to_hsl(color: RGB) -> tuple[float, float, float]:
-    h, l, s = colorsys.rgb_to_hls(*(c / 255.0 for c in color))
-    return h, s, l
-
-
-def _to_rgb(h: float, s: float, l: float) -> RGB:
-    return tuple(clamp_channel(c * 255) for c in colorsys.hls_to_rgb(h, l, s))  # type: ignore[return-value]
 
 
 def _paint(frame: QFrame, color: RGB) -> None:

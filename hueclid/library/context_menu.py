@@ -13,12 +13,19 @@ from .items import Kind, LibraryItem
 
 
 class LibraryContextMenu:
+    """Builds and shows the right-click menu for library rows."""
     def __init__(self, controller: LibraryController, open_item: Callable[[LibraryItem], None], parent: QWidget):
+        """Args:
+            controller: Executes the chosen operations.
+            open_item: Called with the item when 'Open' is chosen.
+            parent: Widget that owns the menu and any prompts.
+        """
         self._controller = controller
         self._open_item = open_item
         self._parent = parent
 
     def show(self, item: LibraryItem | None, selection: list[LibraryItem], pos: QPoint) -> None:
+        """Show the menu for `item` at global `pos`; `selection` feeds multi-item actions."""
         menu = QMenu(self._parent)
         if item is None:
             self._add(menu, "Refresh", self._controller.rescan_all)

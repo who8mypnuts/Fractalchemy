@@ -11,13 +11,16 @@ from .base import GradientFormat
 
 
 class ImageFormat(GradientFormat):
+    """Read-only 'format' that turns a raster or SVG image into a gradient."""
     name = "Image"
     can_save = False  # image-derived gradients are written out as .ugr
 
     def __init__(self) -> None:
+        """Resolve the supported extensions from the decoders installed right now."""
         self.extensions = supported_image_extensions()  # depends on installed decoders
 
     def load(self, path: Path) -> list[Gradient]:
+        """A single gradient built from the image's dominant colours."""
         weighted = extract_palette(path, config.IMAGE_COLOR_COUNT, config.IMAGE_ANALYSIS_SIZE)
         ordered = order_colors(weighted, config.IMAGE_ORDERING)
         return [Gradient.from_colors(path.stem, ordered)]

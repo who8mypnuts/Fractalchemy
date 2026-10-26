@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import random
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QAbstractSpinBox, QFormLayout, QGroupBox, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget
 
 from .. import config
@@ -14,6 +14,7 @@ from ..model import node_ops
 from ..ui.document import GradientDocument
 from .color_dialog import ColorPickerDialog
 from .qt_colors import contrasting_pen_color
+from .silent import set_value_silently
 
 PANEL_WIDTH = 210
 POSITION_MAX = config.UGR_MAX_INDEX  # 0..399, Ultra Fractal's native gradient index units
@@ -23,6 +24,7 @@ class NodePanel(QGroupBox):
     """Built empty (promotable in Designer); call `bind()` once. Greyed out with no selection."""
 
     def __init__(self, parent: QWidget | None = None):
+        """Build the controls and the (hidden) colour picker."""
         super().__init__("Selected node", parent)
         self._document: GradientDocument | None = None
         self._rng = random.Random()
@@ -85,6 +87,11 @@ class NodePanel(QGroupBox):
 
     # --- binding ------------------------------------------------------------
     def bind(self, document: GradientDocument) -> None:
+        """Attach the document and start following its selection.
+
+        Raises:
+            RuntimeError: If called twice.
+        """
         if self._document is not None:
             raise RuntimeError("NodePanel is already bound to a document")
         self._document = document
@@ -96,15 +103,12 @@ class NodePanel(QGroupBox):
 
     # --- actions ------------------------------------------------------------
     def open_picker(self) -> None:
+        """Show the colour picker for the selected node beside the window."""
         index = self._selected()
         if index < 0:
             return
         self.picker.set_color(self._current_color(), as_original=True)
-        if not self.picker.isVisible():
-            self.picker.move(self._picker_position())
-            self.picker.show()
-        self.picker.raise_()
-        self.picker.activateWindow()
+        self.picker.show_beside(self)
 
     def _insert(self, color: RGB) -> None:
         index = self._selected()
@@ -142,15 +146,10 @@ class NodePanel(QGroupBox):
                 self.picker.hide()
             return
         stop = stops[index]
-        self.number.blockSignals(True)
-        self.number.setRange(1, len(stops))
-        self.number.setValue(index + 1)
-        self.number.blockSignals(False)
+        set_value_silently(self.number, index + 1, minimum=1, maximum=len(stops))
         units = round(stop.position * POSITION_MAX)
-        for widget in (self.position, self.position_slider):
-            widget.blockSignals(True)
-            widget.setValue(units)
-            widget.blockSignals(False)
+        set_value_silently(self.position, units)
+        set_value_silently(self.position_slider, units)
         self.delete_button.setEnabled(len(stops) > node_ops.MIN_NODES)
         self._paint_swatch(stop.color)
         if self.picker.isVisible() and self.picker.color() != stop.color:
@@ -160,18 +159,6 @@ class NodePanel(QGroupBox):
         text = contrasting_pen_color(color).name()
         self.swatch.setText("#" + rgb_to_hex(color))
         self.swatch.setStyleSheet(f"background-color: {QColor(*color).name()}; color: {text}; border: 1px solid #555;")
-
-    def _picker_position(self) -> QPoint:
-        """Beside the main window when the screen allows, otherwise over this panel (never over the gradient)."""
-        window = self.window()
-        screen = QGuiApplication.screenAt(window.pos()) or QGuiApplication.primaryScreen()
-        available = screen.availableGeometry()
-        size = self.picker.sizeHint()
-        x = window.frameGeometry().right() + 8
-        if x + size.width() > available.right():
-            x = max(available.left(), window.frameGeometry().right() - size.width())
-        y = min(self.mapToGlobal(QPoint(0, 0)).y(), available.bottom() - size.height())
-        return QPoint(x, y)
 
     # --- helpers ------------------------------------------------------------
     def _selected(self) -> int:

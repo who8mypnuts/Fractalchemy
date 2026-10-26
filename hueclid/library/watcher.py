@@ -18,10 +18,17 @@ MAX_WATCHED_FILES = 4000  # stay well under typical inotify limits; dirs are alw
 
 
 class LibraryWatcher(QObject):
+    """Keeps a QFileSystemWatcher in step with scan results and debounces its events.
+
+    Signals:
+        root_changed(Path): Something under this root changed; rescan it.
+        file_changed(Path): A watched file was modified or replaced.
+    """
     root_changed = Signal(Path)
     file_changed = Signal(Path)
 
     def __init__(self, parent: QObject | None = None):
+        """Create the watcher and its debounce timer."""
         super().__init__(parent)
         self._watcher = QFileSystemWatcher(self)
         self._roots: dict[Path, set[str]] = {}       # root -> watched paths (as strings)
@@ -33,6 +40,7 @@ class LibraryWatcher(QObject):
 
     # --- keeping watches in step with scans --------------------------------
     def track(self, scanned: ScannedDir) -> None:
+        """Watch exactly the folders and files found in `scanned` (adding and removing as needed)."""
         wanted = {str(p) for p in _paths_of(scanned)}
         current = self._roots.get(scanned.path, set())
         if current - wanted:
@@ -42,6 +50,7 @@ class LibraryWatcher(QObject):
         self._roots[scanned.path] = wanted
 
     def forget(self, root: Path) -> None:
+        """Stop watching everything under `root`."""
         paths = self._roots.pop(root, set())
         if paths:
             self._watcher.removePaths(sorted(paths))

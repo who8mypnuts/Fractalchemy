@@ -13,6 +13,16 @@ WeightedColor = tuple[RGB, int]  # (rgb, pixel count)
 
 
 def extract_palette(path: Path, color_count: int, analysis_size: int) -> list[WeightedColor]:
+    """Quantise an image to its dominant colours.
+
+    Args:
+        path: Image file (any type `decode.load_for_analysis` accepts).
+        color_count: Maximum number of colours to return.
+        analysis_size: Longest edge the image is shrunk to before analysis.
+
+    Returns:
+        (rgb, pixel_count) pairs, most frequent first.
+    """
     image = load_for_analysis(path, analysis_size)
     quantized = image.quantize(colors=color_count, method=Image.Quantize.MEDIANCUT)
     return _weighted_palette(quantized)

@@ -10,18 +10,30 @@ KEY = "library/roots"
 
 
 class LibraryRoots(QObject):
+    """The list of folders in the library, persisted through QSettings.
+
+    Signals:
+        added(Path): A folder was added.
+        removed(Path): A folder was removed.
+    """
     added = Signal(Path)
     removed = Signal(Path)
 
     def __init__(self, settings: QSettings | None = None, parent: QObject | None = None):
+        """Args:
+            settings: Backing store; defaults to the application's QSettings.
+            parent: Qt parent.
+        """
         super().__init__(parent)
         self._settings = settings or QSettings()
         self._paths: list[Path] = self._load()
 
     def paths(self) -> list[Path]:
+        """The library folders, in the order they were added."""
         return list(self._paths)
 
     def add(self, path: Path) -> bool:
+        """Add a folder. Returns False if it is already present or not a directory."""
         path = Path(path).resolve()
         if path in self._paths or not path.is_dir():
             return False
@@ -31,6 +43,7 @@ class LibraryRoots(QObject):
         return True
 
     def remove(self, path: Path) -> bool:
+        """Remove a folder. Returns False if it was not in the library."""
         path = Path(path).resolve()
         if path not in self._paths:
             return False

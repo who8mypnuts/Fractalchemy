@@ -14,6 +14,7 @@ class GradientEditor(QWidget):
     """Built empty (so it can be promoted in Qt Designer); call `bind()` once."""
 
     def __init__(self, parent: QWidget | None = None):
+        """Create the empty container; widgets are added by `bind()`."""
         super().__init__(parent)
         self._document: GradientDocument | None = None
         self._layout = QVBoxLayout(self)
@@ -22,9 +23,15 @@ class GradientEditor(QWidget):
 
     @property
     def document(self) -> GradientDocument | None:
+        """The bound document, or None before `bind()`."""
         return self._document
 
     def bind(self, document: GradientDocument) -> None:
+        """Attach the document and create the strip and node bar.
+
+        Raises:
+            RuntimeError: If called twice.
+        """
         if self._document is not None:
             raise RuntimeError("GradientEditor is already bound to a document")
         self._document = document

@@ -5,13 +5,27 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QAbstractSpinBox, QHBoxLayout, QLabel, QSlider, QSpinBox, QWidget
 
+from .silent import set_value_silently
+
 SPINBOX_WIDTH = 64
 
 
 class AdjustRow(QWidget):
-    value_changed = Signal(int)  # emitted for user changes only, never for set_value()
+    """Label + slider + spin box that always show the same integer.
+
+    Signals:
+        value_changed(int): The user moved the slider or edited the number.
+    """
+    value_changed = Signal(int)
 
     def __init__(self, label: str, minimum: int, maximum: int, suffix: str = "", parent: QWidget | None = None):
+        """Args:
+            label: Text shown left of the slider.
+            minimum: Lowest value.
+            maximum: Highest value.
+            suffix: Unit appended in the spin box, e.g. '%'.
+            parent: Qt parent.
+        """
         super().__init__(parent)
         self.label = QLabel(label, self)
         self.slider = QSlider(Qt.Orientation.Horizontal, self)
@@ -40,24 +54,19 @@ class AdjustRow(QWidget):
 
     # --- API ----------------------------------------------------------------
     def value(self) -> int:
+        """The current value."""
         return self.slider.value()
 
     def set_value(self, value: int) -> None:
         """Programmatic update: moves both controls without emitting value_changed."""
-        for widget in (self.slider, self.spin):
-            widget.blockSignals(True)
-            widget.setValue(value)
-            widget.blockSignals(False)
+        set_value_silently(self.slider, value)
+        set_value_silently(self.spin, value)
 
     # --- sync ---------------------------------------------------------------
     def _from_slider(self, value: int) -> None:
-        self.spin.blockSignals(True)
-        self.spin.setValue(value)
-        self.spin.blockSignals(False)
+        set_value_silently(self.spin, value)
         self.value_changed.emit(value)
 
     def _from_spin(self, value: int) -> None:
-        self.slider.blockSignals(True)
-        self.slider.setValue(value)
-        self.slider.blockSignals(False)
+        set_value_silently(self.slider, value)
         self.value_changed.emit(value)

@@ -26,6 +26,15 @@ from .watcher import LibraryWatcher
 
 
 class LibraryController(QObject):
+    """Owns the roots, scans them in the background, and runs file operations.
+
+    Signals:
+        status(str): Something succeeded; show it.
+        failed(str): Something failed; show it.
+        root_scanned(Path): A root's subtree was rebuilt.
+        scanning(bool): Whether any scan is in flight.
+        file_changed_externally(Path): Another program changed a watched file.
+    """
     status = Signal(str)
     failed = Signal(str)
     root_scanned = Signal(Path)
@@ -33,6 +42,11 @@ class LibraryController(QObject):
     file_changed_externally = Signal(Path)
 
     def __init__(self, model: LibraryModel, roots: LibraryRoots, parent: QObject | None = None):
+        """Args:
+            model: The tree model to populate.
+            roots: The persisted folder list.
+            parent: Qt parent.
+        """
         super().__init__(parent)
         self.model = model
         self.roots = roots
@@ -47,10 +61,12 @@ class LibraryController(QObject):
 
     # --- scanning -----------------------------------------------------------
     def rescan_all(self) -> None:
+        """Rescan every root."""
         for path in self.roots.paths():
             self.rescan_root(path)
 
     def rescan_root(self, path: Path) -> None:
+        """Rescan one root; stale results from earlier scans are discarded."""
         self._generation[path] += 1
         generation = self._generation[path]
         self._set_pending(+1)
@@ -61,24 +77,29 @@ class LibraryController(QObject):
         )
 
     def rescan_containing(self, *paths: Path) -> None:
+        """Rescan each root that contains any of `paths`."""
         for root in {r for r in self.roots.paths() for p in paths if _is_within(p, r)}:
             self.rescan_root(root)
 
     def root_of(self, path: Path) -> Path | None:
+        """The library root containing `path`, or None."""
         return next((r for r in self.roots.paths() if _is_within(path, r)), None)
 
     # --- operations (all run off the GUI thread) ---------------------------
     def drop(self, items: list[LibraryItem], target: LibraryItem, move: bool) -> None:
+        """Perform a drag-and-drop (or paste) of `items` onto `target`."""
         affected = [i.path for i in items] + [target.path]
         self._run(ops.drop_items, items, target, move, DEFAULT_SAVE_FORMAT.extensions[0], affected=affected)
 
     def duplicate(self, item: LibraryItem) -> None:
+        """Copy a file alongside itself, or a gradient entry within its file."""
         if item.kind == Kind.GRADIENT:
             self._run(ops.duplicate_entry, item.path, item.index, affected=[item.path])
         elif item.kind == Kind.FILE:
             self._run(ops.duplicate_file, item.path, affected=[item.path])
 
     def delete(self, items: list[LibraryItem]) -> None:
+        """Delete files / folders (to the trash when possible) or gradient entries."""
         for item in items:
             if item.kind == Kind.GRADIENT:
                 self._run(ops.delete_entry, item.path, item.index, affected=[item.path])
@@ -86,19 +107,23 @@ class LibraryController(QObject):
                 self._run(ops.delete_path, item.path, affected=[item.path])
 
     def rename(self, item: LibraryItem, new_name: str) -> None:
+        """Rename a file, folder or gradient entry."""
         if item.kind == Kind.GRADIENT:
             self._run(ops.rename_entry, item.path, item.index, new_name, affected=[item.path])
         elif item.kind in (Kind.FILE, Kind.DIR):
             self._run(ops.rename_path, item.path, new_name, affected=[item.path])
 
     def new_folder(self, target: LibraryItem, name: str) -> None:
+        """Create a sub-folder in the folder of `target`."""
         self._run(ops.create_folder, target.directory, name, affected=[target.directory])
 
     def copy_to_clipboard(self, items: list[LibraryItem]) -> None:
+        """Put `items` on the clipboard for a later `paste`."""
         QGuiApplication.clipboard().setMimeData(to_mime(items))
         self.status.emit(f"Copied {len(items)} item(s)")
 
     def paste(self, target: LibraryItem) -> None:
+        """Drop whatever is on the clipboard onto `target` as a copy."""
         items = from_mime(QGuiApplication.clipboard().mimeData())
         if items and self.model.canDropMimeData(QGuiApplication.clipboard().mimeData(), None, 0, 0, self.model.index_for(target)):
             self.drop(items, target, move=False)
@@ -106,9 +131,11 @@ class LibraryController(QObject):
             self.failed.emit("Nothing on the clipboard can be pasted here")
 
     def reveal(self, item: LibraryItem) -> None:
+        """Open the item's folder in the system file manager."""
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(item.directory)))
 
     def remove_root(self, path: Path) -> None:
+        """Remove a folder from the library (files on disk are untouched)."""
         self.roots.remove(path)
         self.status.emit(f"Removed {path.name} from the library")
 

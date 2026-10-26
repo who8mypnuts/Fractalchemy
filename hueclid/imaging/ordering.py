@@ -12,10 +12,12 @@ Strategy = Callable[[list[RGB]], list[RGB]]
 
 
 def by_luminance(colors: list[RGB]) -> list[RGB]:
+    """Darkest to brightest."""
     return sorted(colors, key=luminance)
 
 
 def by_hue(colors: list[RGB]) -> list[RGB]:
+    """Around the colour wheel starting at red."""
     return sorted(colors, key=hue)
 
 
@@ -42,6 +44,11 @@ STRATEGIES: dict[str, Strategy] = {
 
 
 def order_colors(weighted: list[WeightedColor], strategy: str = "path") -> list[RGB]:
+    """Arrange extracted colours using the named strategy from STRATEGIES.
+
+    Raises:
+        ValueError: If `strategy` is not a known name.
+    """
     try:
         order = STRATEGIES[strategy]
     except KeyError:

@@ -13,15 +13,24 @@ from ..model.color import clamp_unit
 
 @dataclass(frozen=True)
 class PositionMapper:
+    """Maps gradient positions (0..1) to pixel x and back for a given widget width.
+
+    Attributes:
+        width: Widget width in pixels.
+        margin: Inset on each side in pixels.
+    """
     width: int
     margin: int
 
     @property
     def usable_width(self) -> int:
+        """Pixels available between the margins (at least 1)."""
         return max(1, self.width - 2 * self.margin)
 
     def to_x(self, position: float) -> float:
+        """Pixel x for a gradient position (clamped to 0..1)."""
         return self.margin + clamp_unit(position) * self.usable_width
 
     def to_position(self, x: float) -> float:
+        """Gradient position for a pixel x (clamped to 0..1)."""
         return clamp_unit((x - self.margin) / self.usable_width)

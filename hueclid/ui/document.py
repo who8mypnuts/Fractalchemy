@@ -15,16 +15,31 @@ from typing import Callable
 from ..formats import GradientFormat, format_for
 from ..model import RGB, ColorStop, Gradient
 from ..model.adjust import Adjustments, apply_adjustments
+from ..model.node_ops import without
 
 
 class GradientDocument(QObject):
-    gradient_replaced = Signal()          # a whole new gradient was loaded
-    gradient_changed = Signal()           # every stop may have changed (adjustment / operation)
-    stop_changed = Signal(int)            # a single stop moved / recoloured (its current index)
-    selection_changed = Signal(int)       # -1 when nothing is selected
-    adjustments_reset = Signal()          # pending slider adjustments were baked in; sliders go to 0
+    """The gradient being edited, its origin, selection and pending adjustments.
+
+    Every mutation goes through this object so widgets can stay in sync via
+    signals. Whole-gradient adjustments are applied to a base snapshot and are
+    baked in ("committed") by any other edit.
+
+    Signals:
+        gradient_replaced(): A different gradient was loaded.
+        gradient_changed(): Any or all stops changed (adjustment / operation).
+        stop_changed(int): One stop moved or was recoloured; its current index.
+        selection_changed(int): The selected node index, -1 for none.
+        adjustments_reset(): Pending slider values were committed; sliders show 0.
+    """
+    gradient_replaced = Signal()
+    gradient_changed = Signal()
+    stop_changed = Signal(int)
+    selection_changed = Signal(int)
+    adjustments_reset = Signal()
 
     def __init__(self, parent: QObject | None = None):
+        """Start with an empty, unmodified gradient and no source file."""
         super().__init__(parent)
         self._gradient = Gradient()
         self._source_path: Path | None = None
@@ -37,10 +52,12 @@ class GradientDocument(QObject):
     # --- state --------------------------------------------------------------
     @property
     def gradient(self) -> Gradient:
+        """The gradient as currently displayed (adjustments applied)."""
         return self._gradient
 
     @property
     def source_path(self) -> Path | None:
+        """File the gradient came from, or None."""
         return self._source_path
 
     @property
@@ -50,18 +67,22 @@ class GradientDocument(QObject):
 
     @property
     def source_format(self) -> GradientFormat | None:
+        """Format of the source file, or None."""
         return format_for(self._source_path) if self._source_path else None
 
     @property
     def selected_index(self) -> int:
+        """Index of the selected node, -1 for none."""
         return self._selected
 
     @property
     def adjustments(self) -> Adjustments:
+        """Pending whole-gradient slider values."""
         return self._adjustments
 
     # --- commands -----------------------------------------------------------
     def replace(self, gradient: Gradient, source_path: Path | None = None, source_index: int = 0) -> None:
+        """Show a new gradient, recording where it came from; clears edits and selection."""
         self._gradient = gradient
         self._source_path = source_path
         self._source_index = source_index
@@ -71,11 +92,13 @@ class GradientDocument(QObject):
         self.gradient_replaced.emit()
 
     def mark_saved(self, path: Path, index: int = 0) -> None:
+        """Record that the gradient now lives at `path` / `index` and is unmodified."""
         self._source_path = path
         self._source_index = index
         self.modified = False
 
     def is_showing(self, path: Path, index: int) -> bool:
+        """True if the document's source is exactly `path` / `index`."""
         return self._source_path == path and self._source_index == index
 
     # --- whole-gradient edits ----------------------------------------------
@@ -108,8 +131,6 @@ class GradientDocument(QObject):
 
     def remove_stop(self, index: int) -> None:
         """Delete a node and select its successor (or the new last node)."""
-        from ..model.node_ops import without
-
         self._commit_adjustments()
         self._gradient = Gradient(self._gradient.name, without(self._gradient, index))
         self.modified = True
@@ -127,11 +148,13 @@ class GradientDocument(QObject):
         return new_index
 
     def set_color(self, index: int, color: RGB) -> None:
+        """Recolour node `index` (commits pending adjustments first)."""
         self._commit_adjustments()
         self._gradient.set_color(index, color)
         self._touch(index)
 
     def select(self, index: int) -> None:
+        """Select node `index` (-1 clears); emits only on change."""
         if index != self._selected:
             self._selected = index
             self.selection_changed.emit(index)

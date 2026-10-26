@@ -11,10 +11,21 @@ from .stop import ColorStop
 
 @dataclass
 class Gradient:
+    """An ordered, cyclic list of colour stops.
+
+    The stop list is kept sorted by position at all times. Colours between
+    stops are linearly interpolated; beyond the first or last stop the colour
+    wraps around (last stop back to first), matching Ultra Fractal / Apophysis.
+
+    Attributes:
+        name: The gradient's title as shown in the UI and written to files.
+        stops: The colour nodes, sorted by position.
+    """
     name: str = "untitled"
     stops: list[ColorStop] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        """Enforce the sorted-stops invariant for stops passed to the constructor."""
         self._sort()
 
     # --- construction -------------------------------------------------------
@@ -28,6 +39,7 @@ class Gradient:
 
     # --- queries ------------------------------------------------------------
     def __len__(self) -> int:
+        """Number of colour stops."""
         return len(self.stops)
 
     def color_at(self, t: float) -> RGB:
@@ -74,9 +86,11 @@ class Gradient:
         return self.index_of(stop)
 
     def set_color(self, index: int, color: RGB) -> None:
+        """Recolour the stop at `index`."""
         self.stops[index].color = color
 
     def copy(self) -> "Gradient":
+        """Return a deep copy (stops are new objects)."""
         return Gradient(self.name, [s.copy() for s in self.stops])
 
     # --- internals ----------------------------------------------------------
@@ -98,4 +112,5 @@ class Gradient:
 
 
 def evenly_spaced(colors: Iterable[RGB], name: str = "untitled") -> Gradient:
+    """Build a gradient whose colours are spread evenly across 0..1."""
     return Gradient.from_colors(name, list(colors))

@@ -13,6 +13,7 @@ MIME_TYPE = "application/x-hueclid-items"
 
 
 def to_mime(items: list[LibraryItem]) -> QMimeData:
+    """Package items for drag-and-drop / the clipboard (plus file URLs for files, and plain text)."""
     data = QMimeData()
     records = [{"kind": i.kind.value, "path": str(i.path), "index": i.index, "name": i.name} for i in items]
     data.setData(MIME_TYPE, json.dumps(records).encode("utf-8"))
@@ -24,6 +25,7 @@ def to_mime(items: list[LibraryItem]) -> QMimeData:
 
 
 def from_mime(data: QMimeData) -> list[LibraryItem]:
+    """Decode items from our own MIME type, or from file URLs dropped in from the desktop."""
     if data.hasFormat(MIME_TYPE):
         records = json.loads(bytes(data.data(MIME_TYPE).data()).decode("utf-8"))
         return [LibraryItem(Kind(r["kind"]), Path(r["path"]), r["index"], r["name"]) for r in records]

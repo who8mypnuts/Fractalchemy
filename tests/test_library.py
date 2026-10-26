@@ -117,9 +117,12 @@ def test_drop_gradient_onto_file_moves_it(window, library_dir):
     data = model.mimeData([model.index_for(source)])
     assert model.canDropMimeData(data, Qt.DropAction.MoveAction, -1, -1, model.index_for(target))
     assert not model.canDropMimeData(data, Qt.DropAction.MoveAction, -1, -1, model.index_for(source))
+    errors = []
+    window.library.failed.connect(errors.append)
     model.dropMimeData(data, Qt.DropAction.MoveAction, -1, -1, model.index_for(target))
     wait_until(lambda: entry_names(target.path) == ["rainbow", "002"])
-    assert "002" not in entry_names(source.path)
+    wait_until(lambda: "002" not in entry_names(source.path))  # the move's second write
+    assert errors == []
     wait_until(lambda: file_item(window, "saturated rainbox.gradient", 1).name == "002")  # tree refreshed
 
 

@@ -5,9 +5,13 @@ from __future__ import annotations
 from PySide6.QtGui import QColor, QLinearGradient
 
 from ..model import RGB, Gradient
+from ..model.color import luminance
+
+LIGHT_THRESHOLD = 140  # luminance above which black text / outlines read better than white
 
 
 def to_qcolor(rgb: RGB) -> QColor:
+    """QColor for an RGB triple."""
     return QColor(*rgb)
 
 
@@ -24,5 +28,5 @@ def to_qgradient(gradient: Gradient, x0: float, x1: float) -> QLinearGradient:
 
 
 def contrasting_pen_color(rgb: RGB) -> QColor:
-    r, g, b = rgb
-    return QColor(0, 0, 0) if (0.2126 * r + 0.7152 * g + 0.0722 * b) > 140 else QColor(255, 255, 255)
+    """Black for light colours, white for dark ones, so outlines and text stay legible."""
+    return QColor(0, 0, 0) if luminance(rgb) > LIGHT_THRESHOLD else QColor(255, 255, 255)

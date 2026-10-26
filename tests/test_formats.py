@@ -1,7 +1,7 @@
 import pytest
 
 from hueclid.formats import FORMATS, format_for, load_gradient, load_gradients, save_gradient
-from hueclid.formats.ugr import pack_color, unpack_color
+from hueclid.formats.ufparams import pack_color, unpack_color
 from hueclid.model import Gradient
 
 
@@ -72,3 +72,24 @@ def test_unknown_extension_rejected(tmp_path):
 def test_no_duplicate_extensions_across_formats():
     seen = [ext for fmt in FORMATS for ext in fmt.extensions]
     assert len(seen) == len(set(seen))
+
+
+def test_flame_without_palettes_is_reported_not_crashed(tmp_path, qapp):
+    from hueclid.ui.file_workers import load_entries
+
+    path = tmp_path / "bare.flame"
+    path.write_text('<flame name="x"><xform weight="1" coefs="1 0 0 1 0 0"/></flame>')
+    assert load_gradients(path) == []
+    with pytest.raises(Exception, match="no gradients"):
+        load_entries(path)
+
+
+def test_scanner_skips_directory_symlink_loops(tmp_path):
+    from hueclid.library.scanner import scan_directory
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "loop").symlink_to(tmp_path, target_is_directory=True)
+    (tmp_path / "a" / "g.ugr").write_text('x {\ngradient:\n title="x" smooth=no\n index=0 color=0\n}\n')
+    scanned = scan_directory(tmp_path)
+    assert scanned.file_count() == 1 and [d.path.name for d in scanned.dirs] == ["a"]
+    assert scanned.dirs[0].dirs == []

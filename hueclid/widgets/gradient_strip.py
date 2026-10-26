@@ -13,7 +13,13 @@ from .qt_colors import to_qgradient
 
 
 class GradientStrip(QWidget):
+    """Paints the document's gradient as a horizontal band."""
     def __init__(self, document: GradientDocument, margin: int = config.EDITOR_MARGIN, parent=None):
+        """Args:
+            document: Source of the gradient; repaints on its change signals.
+            margin: Horizontal inset so edge nodes line up with the node bar.
+            parent: Qt parent.
+        """
         super().__init__(parent)
         self._document = document
         self._margin = margin
@@ -23,6 +29,7 @@ class GradientStrip(QWidget):
         document.stop_changed.connect(self.update)
 
     def mapper(self) -> PositionMapper:
+        """Position ↔ pixel mapping for the current width."""
         return PositionMapper(self.width(), self._margin)
 
     def paintEvent(self, event: QPaintEvent) -> None:

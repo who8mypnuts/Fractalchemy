@@ -12,6 +12,16 @@ from .stop import ColorStop
 
 
 def simplify(stops: list[ColorStop], tolerance: int) -> list[ColorStop]:
+    """Drop stops that a straight blend between their neighbours reproduces.
+
+    Args:
+        stops: Stops sorted by position.
+        tolerance: Maximum per-channel error (0..255) allowed when dropping a stop;
+            0 keeps everything.
+
+    Returns:
+        A new list of copied stops, always including the first and last.
+    """
     if tolerance <= 0 or len(stops) <= 2:
         return [s.copy() for s in stops]
     keep = [False] * len(stops)

@@ -13,14 +13,22 @@ SEARCH_DELAY_MS = 300
 
 
 class LibraryPanel(QWidget):
-    """Constructed empty (promotable in Designer); owns the model and tree, no disk access."""
+    """Constructed empty (promotable in Designer); owns the model and tree, no disk access.
+
+    Signals:
+        add_requested(): The '+' button was clicked.
+        edit_requested(): The edit button was clicked.
+        item_chosen(LibraryItem): Relayed from the tree.
+        menu_requested(LibraryItem | None, QPoint): Relayed from the tree.
+    """
 
     add_requested = Signal()
     edit_requested = Signal()
-    item_chosen = Signal(object)             # LibraryItem
-    menu_requested = Signal(object, QPoint)  # LibraryItem | None, global position
+    item_chosen = Signal(object)
+    menu_requested = Signal(object, QPoint)
 
     def __init__(self, parent: QWidget | None = None):
+        """Build the search box, tree and buttons; no disk access happens here."""
         super().__init__(parent)
         self.model = LibraryModel(self)
         self.tree = LibraryTree(self.model, self)

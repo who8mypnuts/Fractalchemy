@@ -20,10 +20,16 @@ DEFAULT_SAVE_FORMAT: GradientFormat = FORMATS[1]  # UGR
 
 
 class UnsupportedFormatError(FormatError):
+    """Raised for a path whose extension no format claims."""
     pass
 
 
 def format_for(path: Path | str) -> GradientFormat:
+    """The format responsible for `path`, chosen by extension.
+
+    Raises:
+        UnsupportedFormatError: If no format matches (with an install hint when known).
+    """
     path = Path(path)
     for fmt in FORMATS:
         if fmt.matches(path):
@@ -34,6 +40,7 @@ def format_for(path: Path | str) -> GradientFormat:
 
 
 def save_format_for(path: Path | str) -> GradientFormat:
+    """Like `format_for`, but also requires the format to be writable."""
     fmt = format_for(path)
     if not fmt.can_save:
         raise UnsupportedFormatError(f"{fmt.name} files cannot be written")
@@ -59,6 +66,7 @@ def _simplified(gradient: Gradient, tolerance: int) -> Gradient:
 
 
 def save_gradient(gradient: Gradient, path: Path | str, index: int = 0) -> None:
+    """Write `gradient` into entry `index` of `path` using the matching format."""
     save_format_for(path).save(gradient, Path(path), index)
 
 
@@ -69,6 +77,7 @@ def entry_names(path: Path | str) -> list[str]:
 
 
 def open_dialog_filter() -> str:
+    """QFileDialog filter listing every readable type, with an 'All supported' entry first."""
     all_patterns = " ".join(f"*{ext}" for fmt in FORMATS for ext in fmt.extensions)
     return ";;".join([f"All supported ({all_patterns})", *(f.dialog_filter() for f in FORMATS)])
 
