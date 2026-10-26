@@ -136,3 +136,16 @@ fixed before polish (docstrings, comment pruning, layout-method splits). No code
 - Status-bar labels no longer force a minimum window width (engine name → tooltip); main splitter gives resizes to the viewport.
 - `FileActions._run_write` records the write before starting it (watcher event vs. completion callback race).
 - Tests: `tests/test_gradient_link.py` (10). Suite: 273 passed, pyflakes clean.
+
+## Viewer controls (resolution, view vs. camera pan/zoom, settings panel, status bar)
+- `CollapsibleSplitter` now supports three panes (first and last collapse; `set_last_collapsed`, `last_collapsed_changed`).
+- `Camera.at_size(w, h)`; `FractalDocument.image_size` / `set_image_size` / `image_size_changed`.
+- `FractalViewport` rewritten: image framing + view zoom/offset (`set_zoom`, `pan_view`, `zoom_to_fit`, `fit_zoom`,
+  `min_zoom`, `MAX_ZOOM` 3.0), `render_camera()` renders only the visible region; plain drag/wheel = view,
+  Ctrl+drag/wheel = composition (`zoom_camera_at`), double-click recentres.
+- `ui/viewer_bar.py` (zoom combo + Fit, image-size combo with presets / Custom), `ui/settings_panel.py` (tabs; Render:
+  passes, quality; persisted via `attach_settings(QSettings)`), `RenderSettings.with_effort`.
+- `RenderStatus` rebuilt: fixed widths from font metrics + separators → no overlap at any DPI.
+- `MainWindow(..., settings=)`; View menu: Show/Hide Settings Panel (Ctrl+Shift+L), Zoom to Fit (Ctrl+0), Zoom 100% (Ctrl+1).
+- Tests: `tests/test_viewer_controls.py` (11). Suite: 284 passed, pyflakes clean. Tests must pass `settings=` to
+  MainWindow or they write to the real QSettings store.

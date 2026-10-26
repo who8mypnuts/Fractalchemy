@@ -17,7 +17,8 @@ from tests.conftest import spin, wait_until
 @pytest.fixture
 def window(qapp, tmp_path):
     settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
-    win = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key="fractal_library/roots"), prefer_gpu=False)
+    win = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key="fractal_library/roots"), prefer_gpu=False,
+                     settings=settings)
     win.show()
     yield win
     win.gradient_library.document.modified = False  # never prompt on teardown
@@ -166,7 +167,7 @@ def fractal_window(qapp, tmp_path, samples):
     settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
     fractal_roots = LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key)
     fractal_roots.add(library / "sample flames")
-    win = MainWindow(LibraryRoots(settings), fractal_roots, prefer_gpu=False)
+    win = MainWindow(LibraryRoots(settings), fractal_roots, prefer_gpu=False, settings=settings)
     win.resize(640, 420)
     win.show()
     wait_until(lambda: win.fractalLibraryPanel.model.rowCount() == 1 and not win.fractal_library._pending)
@@ -196,10 +197,11 @@ def test_opening_a_flame_renders_it_in_the_viewport_with_status(fractal_window, 
     win.open_path(path, 2)
     wait_until(lambda: win.document.flame is not None and win.document.flame.name == "rotated")
     wait_until(lambda: win.viewport.stats is not None and win.viewport.stats.finished
-               and win.viewport.stats.width == win.viewport.width(), timeout_ms=60000)
+               and win.viewport.stats.width == win.viewport.image_rect.width(), timeout_ms=60000)
     stats = win.viewport.stats
     assert stats.passes_done == stats.passes_total == win.viewport.settings.passes
-    assert win.viewport.image is not None and win.viewport.image.width() == win.viewport.width()
+    assert win.viewport.image is not None and win.viewport.image.width() == win.viewport.image_rect.width()
+    assert win.viewport.image_rect.width() <= win.viewport.width() and win.viewport.is_fit
     assert "rotated" in win.status.fractal.text() and "6 transforms + final" in win.status.fractal.text()
     assert "Pass 6 of 6" in win.status.passes.text()
     assert win.status.progress.value() == win.status.progress.maximum() == 6
@@ -218,7 +220,7 @@ def test_choosing_a_library_row_loads_it(fractal_window):
     assert win.document.source_index == 3
 
 
-def test_zoom_keeps_the_point_under_the_cursor_and_rerenders_at_half_size(fractal_window):
+def test_camera_zoom_keeps_the_point_under_the_cursor_and_rerenders_at_half_size(fractal_window):
     from PySide6.QtCore import QPointF
 
     win = fractal_window
@@ -228,15 +230,17 @@ def test_zoom_keeps_the_point_under_the_cursor_and_rerenders_at_half_size(fracta
     win.render_service.submit = lambda key, flame, settings, priority=0: (submitted.append((key, settings)), real_submit(key, flame, settings, priority))
     before = win.viewport.generation
     view = win.viewport
-    anchor = view._document.flame.camera.unproject(50, 40, view.width(), view.height())
-    view.zoom_at(QPointF(50, 40), 1.0)
-    after = view._document.flame.camera.unproject(50, 40, view.width(), view.height())
-    assert after == pytest.approx(anchor, abs=1e-9) and view._document.flame.camera.zoom == pytest.approx(-0.544 + 1.0)
+    pos = QPointF(view.image_rect.center())
+    anchor = view.fractal_point_at(pos)
+    view.zoom_camera_at(pos, 1.0)                                       # what Ctrl+wheel does
+    assert view.fractal_point_at(pos) == pytest.approx(anchor, abs=1e-9)
+    assert view._document.flame.camera.zoom == pytest.approx(-0.544 + 1.0)
     assert view.generation == before + 1 and view._settle.isActive()
-    assert submitted[-1][1].width == int(view.width() * 0.5)            # interactive: half resolution
+    assert submitted[-1][1].width == int(view.image_rect.width() * 0.5)   # interactive: half resolution
     wait_until(lambda: len(submitted) >= 2 and not view._settle.isActive())
-    assert submitted[-1][1].width == view.width() and submitted[-1][0] != submitted[-2][0]   # settled: full size, new key
-    wait_until(lambda: view.stats is not None and view.stats.width == view.width() and view.stats.finished, timeout_ms=60000)
+    assert submitted[-1][1].width == view.image_rect.width() and submitted[-1][0] != submitted[-2][0]   # settled
+    wait_until(lambda: view.stats is not None and view.stats.width == view.image_rect.width() and view.stats.finished,
+               timeout_ms=60000)
 
 
 def test_thumbnail_view_renders_icons_for_entries(fractal_window):

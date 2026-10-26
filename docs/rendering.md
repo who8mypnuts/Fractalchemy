@@ -85,6 +85,10 @@ and tested against each other.
 * `RenderService` runs one worker thread that owns the engine (OpenGL contexts are thread-bound).
   Requests carry a *key*: resubmitting a key cancels the previous job for that slot, so an old render
   can never overwrite a newer view. Lower priority numbers run first; thumbnails yield to viewport work.
+* The viewport frames the flame as an image of the chosen output resolution (`Camera.at_size`, width-based
+  framing as in Apophysis) and renders only the *visible* part of it at screen density: the render camera is
+  the image camera re-centred on the visible rectangle with `ppu × view zoom`. Output size therefore never
+  changes the cost of a preview, and zooming the view to 300 % reveals real detail.
 * The viewport renders at `INTERACTIVE_SCALE` (50 %) while dragging/zooming/resizing and at full size
   `INTERACTION_SETTLE_MS` after the last change. Each request has a generation number; late passes
   from older generations are discarded.

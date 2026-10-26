@@ -43,6 +43,9 @@ class RenderSettings:
     def with_size(self, width: int, height: int) -> "RenderSettings":
         return replace(self, width=max(1, width), height=max(1, height))
 
+    def with_effort(self, passes: int, quality: float) -> "RenderSettings":
+        return replace(self, passes=max(1, int(passes)), quality=max(0.01, float(quality)))
+
 
 @dataclass
 class RenderStats:

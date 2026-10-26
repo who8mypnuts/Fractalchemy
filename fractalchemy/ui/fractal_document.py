@@ -17,16 +17,19 @@ class FractalDocument(QObject):
         flame_replaced(): A different flame was loaded.
         camera_changed(): The view (center / zoom / rotation) of the current flame changed.
         palette_changed(): The flame's colours changed (e.g. edited in the Gradient Library).
+        image_size_changed(): The output resolution chosen for the viewer changed.
     """
     flame_replaced = Signal()
     camera_changed = Signal()
     palette_changed = Signal()
+    image_size_changed = Signal()
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
         self._flame: Flame | None = None
         self._source_path: Path | None = None
         self._source_index = 0
+        self._image_size: tuple[int, int] | None = None   # None = the flame's own size
 
     @property
     def flame(self) -> Flame | None:
@@ -39,6 +42,27 @@ class FractalDocument(QObject):
     @property
     def source_index(self) -> int:
         return self._source_index
+
+    @property
+    def image_size(self) -> tuple[int, int]:
+        """Output resolution the viewer frames: the chosen one, else the flame's own size."""
+        if self._image_size is not None:
+            return self._image_size
+        if self._flame is not None:
+            return (self._flame.camera.width, self._flame.camera.height)
+        return (800, 600)
+
+    @property
+    def custom_image_size(self) -> tuple[int, int] | None:
+        """The explicitly chosen resolution, or None when following the flame."""
+        return self._image_size
+
+    def set_image_size(self, size: tuple[int, int] | None) -> None:
+        """Choose the output resolution (None = the flame's own size)."""
+        size = None if size is None else (max(1, int(size[0])), max(1, int(size[1])))
+        if size != self._image_size:
+            self._image_size = size
+            self.image_size_changed.emit()
 
     def is_showing(self, path: Path, index: int) -> bool:
         return self._source_path == path and self._source_index == index

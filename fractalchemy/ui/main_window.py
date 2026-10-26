@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import QSettings
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
@@ -32,16 +33,21 @@ from .gradient_library_window import GradientLibraryWindow
 from .gradient_link import GradientLink
 from .loader import load_ui
 from .render_status import RenderStatus
+from .settings_panel import SettingsPanel
 from .thumbnails import ThumbnailProvider
+from .viewer_bar import ViewerBar
 
 UI_FILE = Path(__file__).resolve().parents[2] / "ui" / "main_window.ui"
 CUSTOM_WIDGETS = {
     "FractalLibraryPanel": FractalLibraryPanel,
     "FractalViewport": FractalViewport,
+    "ViewerBar": ViewerBar,
+    "SettingsPanel": SettingsPanel,
     "CollapsibleSplitter": CollapsibleSplitter,
 }
 SCANNING_MESSAGE = "Scanning fractal library…"
 LIBRARY_PANE_WIDTH = 300
+SETTINGS_PANE_WIDTH = 230
 MESSAGE_MS = 6000
 ABOUT_TEXT = (
     f"<h3>{config.APP_NAME} {config.APP_VERSION}</h3>"
@@ -54,11 +60,12 @@ ABOUT_TEXT = (
 class MainWindow(QMainWindow):
     """Application shell: fractal library + viewport, menus, toolbar, status bar, and the Gradient Library window."""
     def __init__(self, roots: LibraryRoots | None = None, fractal_roots: LibraryRoots | None = None,
-                 prefer_gpu: bool = True):
+                 prefer_gpu: bool = True, settings: QSettings | None = None):
         """Args:
             roots: Gradient library folders; defaults to the persisted list.
             fractal_roots: Fractal library folders; defaults to the persisted list.
             prefer_gpu: Try the OpenGL preview engine first (tests may force the CPU engine).
+            settings: Store for preferences such as preview quality; defaults to the application's.
         """
         super().__init__()
         load_ui(self, UI_FILE, CUSTOM_WIDGETS)
@@ -73,13 +80,17 @@ class MainWindow(QMainWindow):
         self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
         self.gradient_library = GradientLibraryWindow(roots, self)
         self.gradient_link = GradientLink(self.document, self.gradient_library, self.viewport, self)
+        self.splitter.first_label, self.splitter.last_label = "fractal library", "settings panel"
         self.splitter.set_first_width(LIBRARY_PANE_WIDTH)
-        self.splitter.setStretchFactor(0, 0)   # window resizes go to the viewport, not the library pane
-        self.splitter.setStretchFactor(1, 1)
+        self.splitter.set_last_width(SETTINGS_PANE_WIDTH)
+        for pane, stretch in ((0, 0), (1, 1), (2, 0)):   # window resizes go to the viewport, not the side panes
+            self.splitter.setStretchFactor(pane, stretch)
+        self.settingsPanel.attach_settings(settings if settings is not None else QSettings())
         self._connect_actions()
         self._connect_document()
         self._connect_library()
         self._connect_render()
+        self._connect_viewer_controls()
         self.render_service.start()
         self.fractal_library.rescan_all()
 
@@ -99,6 +110,10 @@ class MainWindow(QMainWindow):
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
         self.splitter.collapsed_changed.connect(lambda collapsed: self.actionToggleFractalLibrary.setChecked(not collapsed))
+        self.actionToggleSettings.toggled.connect(lambda shown: self.splitter.set_last_collapsed(not shown))
+        self.splitter.last_collapsed_changed.connect(lambda collapsed: self.actionToggleSettings.setChecked(not collapsed))
+        self.actionZoomFit.triggered.connect(self.viewport.zoom_to_fit)
+        self.actionZoomActual.triggered.connect(lambda: self.viewport.set_zoom(1.0))
 
     def _connect_document(self) -> None:
         self.document.flame_replaced.connect(self._on_flame_replaced)
@@ -121,6 +136,21 @@ class MainWindow(QMainWindow):
         self.render_service.engine_ready.connect(self.status.set_engine)
         self.viewport.render_progress.connect(self.status.show_progress)
         self.viewport.render_failed.connect(lambda message: self._message(f"Cannot render: {message}"))
+
+    def _connect_viewer_controls(self) -> None:
+        bar, panel, view = self.viewerBar, self.settingsPanel, self.viewport
+        bar.zoom_requested.connect(view.set_zoom)
+        bar.resolution_chosen.connect(self.document.set_image_size)
+        view.view_changed.connect(bar.show_zoom)
+        panel.render_settings_changed.connect(self._apply_render_settings)
+        self._apply_render_settings(panel.passes, panel.quality, render=False)
+
+    def _apply_render_settings(self, passes: int, quality: float, render: bool = True) -> None:
+        settings = self.viewport.settings.with_effort(passes, quality)
+        if render:
+            self.viewport.set_render_settings(settings)
+        else:
+            self.viewport.settings = settings
 
     # --- fractal loading ----------------------------------------------------
     def open_file(self) -> None:
@@ -189,6 +219,7 @@ class MainWindow(QMainWindow):
         source = self.document.source_path.name if self.document.source_path else ""
         self.status.show_fractal(flame, source)
         self.status.show_idle()
+        self.viewerBar.show_flame(flame)
         self.setWindowTitle(f"{config.APP_NAME} — {flame.name}" if flame else config.APP_NAME)
 
     def _on_camera_changed(self) -> None:

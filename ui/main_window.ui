@@ -22,7 +22,22 @@
     <item>
      <widget class="CollapsibleSplitter" name="splitter">
       <widget class="FractalLibraryPanel" name="fractalLibraryPanel" native="true"/>
-      <widget class="FractalViewport" name="viewport" native="true"/>
+      <widget class="QWidget" name="viewerPane" native="true">
+       <layout class="QVBoxLayout" name="viewerLayout">
+        <property name="leftMargin"><number>0</number></property>
+        <property name="topMargin"><number>0</number></property>
+        <property name="rightMargin"><number>0</number></property>
+        <property name="bottomMargin"><number>0</number></property>
+        <property name="spacing"><number>0</number></property>
+        <item>
+         <widget class="FractalViewport" name="viewport" native="true"/>
+        </item>
+        <item>
+         <widget class="ViewerBar" name="viewerBar" native="true"/>
+        </item>
+       </layout>
+      </widget>
+      <widget class="SettingsPanel" name="settingsPanel" native="true"/>
      </widget>
     </item>
    </layout>
@@ -57,6 +72,10 @@
     <addaction name="actionToggleFractalLibrary"/>
     <addaction name="actionRefreshFractalLibrary"/>
     <addaction name="actionThumbnailView"/>
+    <addaction name="actionToggleSettings"/>
+    <addaction name="separator"/>
+    <addaction name="actionZoomFit"/>
+    <addaction name="actionZoomActual"/>
     <addaction name="separator"/>
     <addaction name="actionShowStatusBar"/>
    </widget>
@@ -137,6 +156,22 @@
    <property name="text"><string>Thumbnails in Fractal Library</string></property>
    <property name="statusTip"><string>Show a rendered thumbnail next to every fractal</string></property>
   </action>
+  <action name="actionToggleSettings">
+   <property name="checkable"><bool>true</bool></property>
+   <property name="checked"><bool>true</bool></property>
+   <property name="text"><string>Show/Hide Settings Panel</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+L</string></property>
+  </action>
+  <action name="actionZoomFit">
+   <property name="text"><string>Zoom to Fit</string></property>
+   <property name="shortcut"><string>Ctrl+0</string></property>
+   <property name="statusTip"><string>Show the whole image in the viewer</string></property>
+  </action>
+  <action name="actionZoomActual">
+   <property name="text"><string>Zoom 100%</string></property>
+   <property name="shortcut"><string>Ctrl+1</string></property>
+   <property name="statusTip"><string>One image pixel per screen pixel</string></property>
+  </action>
   <action name="actionShowStatusBar">
    <property name="checkable"><bool>true</bool></property>
    <property name="checked"><bool>true</bool></property>
@@ -166,6 +201,17 @@
    <class>FractalViewport</class>
    <extends>QWidget</extends>
    <header>fractalchemy/ui/fractal_viewport.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ViewerBar</class>
+   <extends>QWidget</extends>
+   <header>fractalchemy/ui/viewer_bar.h</header>
+  </customwidget>
+  <customwidget>
+   <class>SettingsPanel</class>
+   <extends>QWidget</extends>
+   <header>fractalchemy/ui/settings_panel.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>

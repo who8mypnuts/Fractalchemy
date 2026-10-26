@@ -21,7 +21,8 @@ python -m pytest
 
 ### Main window
 * Menu bar: *File* (Open Fractal…, Exit), *Edit* (Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
-  Refresh `F5`, Thumbnails, Toolbar, Status Bar), *Windows* (Gradient Library `F6`), *Help*.
+  Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
+  *Windows* (Gradient Library `F6`), *Help*.
 * Toolbar: **Open Fractal**, **Gradient Library** (hover for tooltips).
 * **Fractal Library** (left pane, collapsible via the divider arrow or `Ctrl+L`): folders of `.flame`
   (Apophysis / flam3, legacy files included), `.chaos` (Chaotica) and `.fa` (Fractalchemy) files, each file
@@ -29,12 +30,25 @@ python -m pytest
   (rendered on demand by the preview engine, at low priority so the viewport always comes first).
   Folders are watched, and the right-click menu / drag-and-drop file operations are the same as in the
   Gradient Library. It has its own folder list (*Edit ▸ Edit Fractal Library…*, or **+** / ✎ in the pane).
-* **Viewport** (the rest of the window): click a flame and it renders progressively in passes.
-  Mouse wheel zooms about the cursor, left-drag pans, double-click re-centres. While you interact the render
-  runs at half resolution; a quarter second after you stop it re-renders at full resolution. A newer view always
-  cancels the older render, so a stale image never overwrites the current one.
+* **Viewport** (the centre): click a flame and it renders progressively in passes. The flame is framed as an
+  *image* of the chosen **Image size** (dropdown under the viewer, far right: the flame's own size, common
+  screen and print sizes, or Custom… with width × height). Changing it only changes the image's aspect and
+  framing inside the viewer — never the window.
+  * **Look around without changing the fractal**: left-drag pans, the wheel zooms about the cursor, and the
+    **Zoom** box (bottom left) lists Fit / 25–200 % or takes any typed value up to 300 %; zooming out stops once
+    the whole image is visible (*View ▸ Zoom to Fit* `Ctrl+0`, *Zoom 100%* `Ctrl+1`). Only the visible part of
+    the image is rendered, at screen density, so zooming in genuinely shows more detail at no extra cost.
+  * **Re-compose the fractal**: hold **Ctrl** — drag moves the camera, the wheel zooms it (about the cursor),
+    double-click re-centres. These change the flame's `center` / `zoom`.
+  * While you interact the render runs at half resolution; a quarter second after you stop it re-renders at
+    full resolution. Meanwhile the previous picture is simply repositioned under the new view (never stretched),
+    and a newer view always cancels the older render, so a stale image never overwrites the current one.
+* **Settings panel** (right, collapsible via its divider arrow or *View ▸ Show/Hide Settings Panel* `Ctrl+Shift+L`):
+  tabs of options — today *Render* with **Passes** and **Quality** (samples per pixel) for the preview; both
+  re-render immediately and persist between runs.
 * **Status bar** across the bottom: the loaded fractal (name, transform count, size, file, ignored
-  variations), render facts (engine, resolution, samples, samples/second), **Pass n of N**, and a progress bar.
+  variations), render facts (engine, render size, samples, samples/second — the full GPU name is in the
+  tooltip), **Pass n of N**, and a progress bar.
 * *Windows ▸ Gradient Library* (`F6`) or the toolbar button opens the **Gradient Library** window —
   the gradient editor described below. It is a tool window that stays above the main window; closing it
   only hides it, so the gradient you are editing (and any unsaved edits) stay put until you reopen it.
@@ -58,8 +72,8 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
   and the flam3 variation definitions. ~50 variations are implemented, each written once for numpy *and*
   GLSL and tested to agree; unknown ones (plugins not ported yet) are listed in the status bar and ignored.
   3D variations render as their 2D projection.
-* Tunables in `config.py`: `PREVIEW_PASSES` (6), `PREVIEW_QUALITY` (samples per pixel), `INTERACTIVE_SCALE`,
-  thumbnail size / quality. These will become user settings.
+* Tunables in `config.py`: `PREVIEW_PASSES` / `PREVIEW_QUALITY` (defaults for the settings panel),
+  `INTERACTIVE_SCALE`, thumbnail size / quality.
 
 | Fractal format | Read | Entries | Rename | Add / remove / replace |
 |---|---|---|---|---|
@@ -161,8 +175,9 @@ fractalchemy/
                         model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
   widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons
-  ui/                   .ui loader, background tasks, MainWindow, FractalDocument, FractalViewport,
-                        FractalLibraryPanel, ThumbnailProvider, RenderStatus (status bar), and the gradient side:
+  ui/                   .ui loader, background tasks, MainWindow, FractalDocument, FractalViewport (image framing,
+                        view vs. camera pan/zoom), ViewerBar (zoom + image size), SettingsPanel, FractalLibraryPanel,
+                        ThumbnailProvider, RenderStatus (status bar), GradientLink, and the gradient side:
                         GradientDocument, file actions, GradientLibraryWindow
 tests/                  pytest suite
 samples/                sample flames / gradients / images used by the tests, plus

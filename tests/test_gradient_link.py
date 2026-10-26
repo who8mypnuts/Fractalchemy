@@ -30,7 +30,7 @@ def window(qapp, workdir):
     settings = QSettings(str(workdir / "s.ini"), QSettings.Format.IniFormat)
     roots = LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key)
     roots.add(workdir)
-    win = MainWindow(LibraryRoots(settings), roots, prefer_gpu=False)
+    win = MainWindow(LibraryRoots(settings), roots, prefer_gpu=False, settings=settings)
     win.resize(520, 400)
     win.show()
     yield win
@@ -45,7 +45,7 @@ def open_and_wait(win, path, index):
 
 def wait_for_render(win, timeout_ms=60000):
     wait_until(lambda: win.viewport.stats is not None and win.viewport.stats.finished
-               and win.viewport.stats.width == win.viewport.width(), timeout_ms=timeout_ms)
+               and win.viewport.stats.width == win.viewport.image_rect.width(), timeout_ms=timeout_ms)
 
 
 # --- fractal → gradient ----------------------------------------------------------

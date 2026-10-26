@@ -100,6 +100,17 @@ class Camera:
     width: int = 800
     height: int = 600
 
+    def at_size(self, width: int, height: int) -> "Camera":
+        """The camera for an output image of another size.
+
+        Framing follows the width, as Apophysis does when rendering at a new size: the
+        same fractal span fits across the image, and a taller aspect simply shows more.
+        The result has `zoom` folded into `scale`, so for it `pixels_per_unit(width, height)`
+        is exactly that scale.
+        """
+        ppu = self.scale * (2.0 ** self.zoom) * width / max(1, self.width)
+        return Camera(self.center, ppu, 0.0, self.rotate, max(1, int(width)), max(1, int(height)))
+
     def pixels_per_unit(self, view_width: int, view_height: int) -> float:
         """Scale for a viewport of another size: the flame's framed area always fits inside it."""
         fit = min(view_width / max(1, self.width), view_height / max(1, self.height))
