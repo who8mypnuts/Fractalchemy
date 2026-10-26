@@ -10,14 +10,19 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from typing import Callable
+
 from ..formats import GradientFormat, format_for
-from ..model import RGB, Gradient
+from ..model import RGB, ColorStop, Gradient
+from ..model.adjust import Adjustments, apply_adjustments
 
 
 class GradientDocument(QObject):
     gradient_replaced = Signal()          # a whole new gradient was loaded
+    gradient_changed = Signal()           # every stop may have changed (adjustment / operation)
     stop_changed = Signal(int)            # a single stop moved / recoloured (its current index)
     selection_changed = Signal(int)       # -1 when nothing is selected
+    adjustments_reset = Signal()          # pending slider adjustments were baked in; sliders go to 0
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
@@ -25,6 +30,8 @@ class GradientDocument(QObject):
         self._source_path: Path | None = None
         self._source_index = 0
         self._selected = -1
+        self._base: Gradient | None = None        # gradient before the pending adjustments
+        self._adjustments = Adjustments()
         self.modified = False
 
     # --- state --------------------------------------------------------------
@@ -49,12 +56,17 @@ class GradientDocument(QObject):
     def selected_index(self) -> int:
         return self._selected
 
+    @property
+    def adjustments(self) -> Adjustments:
+        return self._adjustments
+
     # --- commands -----------------------------------------------------------
     def replace(self, gradient: Gradient, source_path: Path | None = None, source_index: int = 0) -> None:
         self._gradient = gradient
         self._source_path = source_path
         self._source_index = source_index
         self.modified = False
+        self._reset_adjustments()
         self.select(-1)
         self.gradient_replaced.emit()
 
@@ -66,8 +78,29 @@ class GradientDocument(QObject):
     def is_showing(self, path: Path, index: int) -> bool:
         return self._source_path == path and self._source_index == index
 
+    # --- whole-gradient edits ----------------------------------------------
+    def set_adjustments(self, adjustments: Adjustments) -> None:
+        """Re-derive the gradient from the base snapshot with new slider values (lossless)."""
+        if self._base is None:
+            self._base = self._gradient.copy()
+        self._adjustments = adjustments
+        self._gradient = apply_adjustments(self._base, adjustments)
+        self.modified = True
+        self.select(-1)
+        self.gradient_changed.emit()
+
+    def apply_operation(self, operation: Callable[[Gradient], list[ColorStop]]) -> None:
+        """Replace all stops with `operation(gradient)`; bakes in any pending adjustments first."""
+        self._commit_adjustments()
+        self._gradient = Gradient(self._gradient.name, operation(self._gradient))
+        self.modified = True
+        self.select(-1)
+        self.gradient_changed.emit()
+
+    # --- single-stop edits --------------------------------------------------
     def move_stop(self, index: int, position: float) -> int:
         """Move a stop; selection follows it. Returns its new index."""
+        self._commit_adjustments()
         new_index = self._gradient.move_stop(index, position)
         if self._selected == index:
             self.select(new_index)
@@ -75,6 +108,7 @@ class GradientDocument(QObject):
         return new_index
 
     def set_color(self, index: int, color: RGB) -> None:
+        self._commit_adjustments()
         self._gradient.set_color(index, color)
         self._touch(index)
 
@@ -84,6 +118,18 @@ class GradientDocument(QObject):
             self.selection_changed.emit(index)
 
     # --- internals ----------------------------------------------------------
+    def _commit_adjustments(self) -> None:
+        """The adjusted gradient becomes the new base; sliders return to zero."""
+        if self._base is not None:
+            self._reset_adjustments()
+
+    def _reset_adjustments(self) -> None:
+        had_pending = self._base is not None or not self._adjustments.is_identity
+        self._base = None
+        self._adjustments = Adjustments()
+        if had_pending:
+            self.adjustments_reset.emit()
+
     def _touch(self, index: int) -> None:
         self.modified = True
         self.stop_changed.emit(index)

@@ -31,14 +31,17 @@ class Gradient:
         return len(self.stops)
 
     def color_at(self, t: float) -> RGB:
-        """Linear interpolation between neighbouring stops; clamped at the ends."""
+        """Linear interpolation between neighbouring stops.
+
+        The gradient is cyclic (as in Ultra Fractal / Apophysis): outside the
+        first..last span the colour blends from the last stop back to the first.
+        """
         if not self.stops:
             return (0, 0, 0)
         t = clamp_unit(t)
-        if t <= self.stops[0].position:
-            return self.stops[0].color
-        if t >= self.stops[-1].position:
-            return self.stops[-1].color
+        first, last = self.stops[0], self.stops[-1]
+        if t < first.position or t > last.position:
+            return self._wrap_color(t)
         left, right = self._neighbours(t)
         span = right.position - left.position
         if span <= 0:
@@ -79,6 +82,13 @@ class Gradient:
     # --- internals ----------------------------------------------------------
     def _sort(self) -> None:
         self.stops.sort(key=lambda s: s.position)  # stable: equal positions keep order
+
+    def _wrap_color(self, t: float) -> RGB:
+        first, last = self.stops[0], self.stops[-1]
+        span = first.position + (1.0 - last.position)
+        if span <= 0:
+            return first.color
+        return lerp_rgb(last.color, first.color, ((t - last.position) % 1.0) / span)
 
     def _neighbours(self, t: float) -> tuple[ColorStop, ColorStop]:
         for left, right in zip(self.stops, self.stops[1:]):

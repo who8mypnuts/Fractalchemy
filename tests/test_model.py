@@ -6,11 +6,14 @@ def test_from_colors_spaces_evenly():
     assert [round(s.position, 3) for s in g.stops] == [0.0, 0.5, 1.0]
 
 
-def test_color_at_interpolates_and_clamps():
+def test_color_at_interpolates_and_wraps_cyclically():
     g = Gradient("g", [ColorStop(0.25, (0, 0, 0)), ColorStop(0.75, (200, 100, 0))])
-    assert g.color_at(0.0) == (0, 0, 0)
     assert g.color_at(0.5) == (100, 50, 0)
-    assert g.color_at(1.0) == (200, 100, 0)
+    assert g.color_at(0.25) == (0, 0, 0) and g.color_at(0.75) == (200, 100, 0)
+    assert g.color_at(1.0) == (100, 50, 0) == g.color_at(0.0)  # halfway round the wrap
+    assert g.color_at(0.875) == (150, 75, 0)
+    g2 = Gradient.from_colors("g", [(0, 0, 0), (255, 255, 255)])
+    assert g2.color_at(0.0) == (0, 0, 0) and g2.color_at(1.0) == (255, 255, 255)
 
 
 def test_stops_are_kept_sorted():

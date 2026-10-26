@@ -19,6 +19,7 @@ class GradientStrip(QWidget):
         self._margin = margin
         self.setMinimumHeight(config.STRIP_MIN_HEIGHT)
         document.gradient_replaced.connect(self.update)
+        document.gradient_changed.connect(self.update)
         document.stop_changed.connect(self.update)
 
     def mapper(self) -> PositionMapper:

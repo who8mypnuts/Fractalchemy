@@ -12,7 +12,7 @@ from hueclid.library.payload import from_mime, to_mime
 from hueclid.library.roots import LibraryRoots
 from hueclid.library.scanner import count_supported_files, scan_directory
 from hueclid.ui.main_window import MainWindow
-from tests.conftest import spin, wait_until
+from tests.conftest import wait_until
 
 
 @pytest.fixture
@@ -204,12 +204,12 @@ def test_library_collapses_via_arrow_and_view_menu(window):
 def test_expansion_is_restored_after_rescan(window, library_dir):
     tree, model = window.libraryPanel.tree, window.libraryPanel.model
     flames_dir = LibraryItem(Kind.DIR, library_dir / "sample flames", name="sample flames")
-    assert tree.isExpanded(tree._proxy.mapFromSource(model.index_for(LibraryItem(Kind.ROOT, library_dir.resolve()))))
+    root_index = lambda: tree._proxy.mapFromSource(model.index_for(LibraryItem(Kind.ROOT, library_dir.resolve())))  # noqa: E731
+    wait_until(lambda: tree.isExpanded(root_index()))  # restore is deferred to the event loop
     tree.expand(tree._proxy.mapFromSource(model.index_for(flames_dir)))
     window.library.rescan_all()
     wait_until(lambda: not window.library._pending)
-    spin(50)
-    assert tree.isExpanded(tree._proxy.mapFromSource(model.index_for(flames_dir)))
+    wait_until(lambda: tree.isExpanded(tree._proxy.mapFromSource(model.index_for(flames_dir))))
     assert not tree.isExpanded(tree._proxy.mapFromSource(model.index_for(file_item(window, "candy.flame"))))
 
 

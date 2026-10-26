@@ -22,6 +22,7 @@ class NodeBar(QWidget):
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         document.gradient_replaced.connect(self.update)
+        document.gradient_changed.connect(self.update)
         document.stop_changed.connect(self.update)
         document.selection_changed.connect(self.update)
 

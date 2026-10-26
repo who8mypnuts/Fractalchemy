@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1100</width>
-    <height>520</height>
+    <height>680</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -43,6 +43,9 @@
            </sizepolicy>
           </property>
          </widget>
+        </item>
+        <item>
+         <widget class="WholeGradientPanel" name="wholeGradientPanel"/>
         </item>
         <item>
          <layout class="QHBoxLayout" name="buttonRow">
@@ -201,6 +204,12 @@
    <class>GradientEditor</class>
    <extends>QWidget</extends>
    <header>hueclid/widgets/gradient_editor.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>WholeGradientPanel</class>
+   <extends>QGroupBox</extends>
+   <header>hueclid/widgets/whole_gradient_panel.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>

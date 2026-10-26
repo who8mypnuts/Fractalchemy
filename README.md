@@ -33,6 +33,17 @@ python -m pytest
 * Scanning, loading and every file operation run on a thread pool; the UI never blocks.
 
 ### Editor
+* **Whole gradient** box: *Position* rotates the gradient (−200…200 = one full turn in 1/400 steps,
+  nodes wrap around the ends); *Hue / Saturation / Luminance* shift every colour. Sliders and spin
+  boxes are linked; values are always applied to the gradient as it was when you started adjusting,
+  so dragging back and forth is lossless. Any other edit (dragging a node, the buttons, loading)
+  bakes the adjustment in and returns the sliders to zero.
+* *Randomize nodes* (new positions, colours kept), *Randomize node colors* (positions kept, colours drawn from a
+  random harmony — analogous / complementary / triadic / split), *Reroll gradient* (new count, positions and
+  colours), *Auto increase nodes* (2–6 harmonising colours), *Decrease nodes* (drops 25–50 %),
+  *Smooth gradient* (blurs the colour curve and keeps only the nodes needed to reproduce it).
+* Gradients are cyclic, as in Ultra Fractal / Apophysis: beyond the first/last node the colour
+  blends across the wrap rather than clamping.
 * The strip above the editor shows a thumbnail of **every gradient in the open file**; click one to edit it.
 * **Save** (`Ctrl+S`) writes the gradient back into its own slot in the file and refreshes its thumbnail.
 * **Save As ▾**: *Add to This File as New Gradient…* (`Ctrl+Shift+A`), *New File…* (`Ctrl+Shift+S`),
@@ -68,7 +79,7 @@ main.py                 entry point only
 ui/main_window.ui       Qt Designer layout (GradientEditor is a promoted custom widget)
 hueclid/
   config.py             tunables: node counts, simplify tolerance, sizes
-  model/                Qt-free data: colours, stops, Gradient, stop simplification
+  model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              roots (QSettings), scanner, model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
