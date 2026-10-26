@@ -42,6 +42,9 @@ python -m pytest
   random harmony — analogous / complementary / triadic / split), *Reroll gradient* (new count, positions and
   colours), *Auto increase nodes* (2–6 harmonising colours), *Decrease nodes* (drops 25–50 %),
   *Smooth gradient* (blurs the colour curve and keeps only the nodes needed to reproduce it).
+* *Copy gradient* puts the gradient on the clipboard as UGR text — the format Ultra Fractal's and
+  Apophysis's gradient editors paste from. *Paste gradient* accepts the same text back (also a bare run of
+  `index=/color=` tokens or a flame `<palette>`), replacing the current entry's nodes but keeping its name.
 * **Selected node** box (right of the gradient, greyed out until a node is clicked): type a node number
   to select it; click the colour swatch for a movable, non-modal picker (hue/saturation wheel, H/S/L
   sliders, R/G/B and hex fields, before/after preview) that updates the gradient live — Cancel reverts.

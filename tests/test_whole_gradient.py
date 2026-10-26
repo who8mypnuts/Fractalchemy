@@ -135,5 +135,5 @@ def test_panel_drives_document_and_follows_resets(qapp):
     panel.buttons["Decrease nodes"].click()
     assert len(window.document.gradient) >= MIN_NODES
     window.document.replace(Gradient())
-    assert not panel.isEnabled()
+    assert not panel.position.isEnabled() and not panel.buttons["Smooth gradient"].isEnabled()
     window.close()

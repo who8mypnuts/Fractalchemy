@@ -69,6 +69,7 @@ class MainWindow(QMainWindow):
         self.btnSaveAs.setMenu(self.menuSaveAs)
         self.splitter.collapsed_changed.connect(lambda collapsed: self.actionToggleLibrary.setChecked(not collapsed))
         self.files.status.connect(self.statusBar().showMessage)
+        self.wholeGradientPanel.status.connect(self.statusBar().showMessage)
         self.files.file_written.connect(self.library.rescan_containing)
 
     def _connect_document(self) -> None:

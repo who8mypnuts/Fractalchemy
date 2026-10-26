@@ -5,9 +5,12 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QGridLayout, QGroupBox, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
-from ..model import ColorStop, Gradient
+from .. import config
+from ..formats.clipboard import gradient_to_text, text_to_gradient
+from ..model import ColorStop, Gradient, simplify
 from ..model import operations as ops
 from ..model.adjust import ROTATION_RANGE, Adjustments
 from ..ui.document import GradientDocument
@@ -31,6 +34,7 @@ class WholeGradientPanel(QGroupBox):
 
     adjustments_changed = Signal(object)   # Adjustments
     operation_requested = Signal(object)   # Operation callable
+    status = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__("Whole gradient", parent)
@@ -40,6 +44,8 @@ class WholeGradientPanel(QGroupBox):
         self.saturation = AdjustRow("Saturation", -100, 100, "%", self)
         self.luminance = AdjustRow("Luminance", -100, 100, "%", self)
         self.buttons: dict[str, QPushButton] = {}
+        self.copy_button = QPushButton("Copy gradient", self)
+        self.paste_button = QPushButton("Paste gradient", self)
         self._build()
         for row in self._rows():
             row.value_changed.connect(self._emit_adjustments)
@@ -58,6 +64,14 @@ class WholeGradientPanel(QGroupBox):
             button.clicked.connect(lambda _=False, op=operation: self.operation_requested.emit(op))
             buttons.addWidget(button, i // BUTTON_COLUMNS, i % BUTTON_COLUMNS)
             self.buttons[text] = button
+        self.copy_button.setToolTip("Copy this gradient to the clipboard as Ultra Fractal / Apophysis gradient text")
+        self.paste_button.setToolTip("Replace this gradient with the one on the clipboard")
+        self.copy_button.clicked.connect(self.copy_to_clipboard)
+        self.paste_button.clicked.connect(self.paste_from_clipboard)
+        QGuiApplication.clipboard().dataChanged.connect(self._refresh_enabled)
+        row = len(OPERATIONS) // BUTTON_COLUMNS
+        buttons.addWidget(self.copy_button, row, 0)
+        buttons.addWidget(self.paste_button, row, 1)
         lower = QHBoxLayout()
         lower.addLayout(hsl, 1)        # sliders take about a third of the width…
         lower.addSpacing(16)
@@ -79,6 +93,21 @@ class WholeGradientPanel(QGroupBox):
         document.gradient_changed.connect(self._refresh_enabled)
         self._refresh_enabled()
 
+    # --- clipboard ----------------------------------------------------------
+    def copy_to_clipboard(self) -> None:
+        if self._document is None or not self._document.gradient.stops:
+            return
+        QGuiApplication.clipboard().setText(gradient_to_text(self._document.gradient))
+        self.status.emit(f"Copied '{self._document.gradient.name}' to the clipboard (UGR text)")
+
+    def paste_from_clipboard(self) -> None:
+        pasted = text_to_gradient(QGuiApplication.clipboard().text())
+        if pasted is None or self._document is None:
+            return self.status.emit("The clipboard doesn't hold a gradient")
+        stops = simplify(pasted.stops, config.IMPORT_SIMPLIFY_TOLERANCE)
+        self._document.apply_operation(lambda _g: stops)  # keeps this entry's name so Save stays in place
+        self.status.emit(f"Pasted '{pasted.name}' ({len(stops)} nodes)")
+
     # --- state --------------------------------------------------------------
     def adjustments(self) -> Adjustments:
         return Adjustments(self.position.value(), self.hue.value(), self.saturation.value(), self.luminance.value())
@@ -91,7 +120,14 @@ class WholeGradientPanel(QGroupBox):
         self.adjustments_changed.emit(self.adjustments())
 
     def _refresh_enabled(self) -> None:
-        self.setEnabled(self._document is not None and bool(self._document.gradient.stops))
+        has_gradient = self._document is not None and bool(self._document.gradient.stops)
+        self.setEnabled(has_gradient or self._clipboard_has_gradient())
+        for widget in (*self._rows(), *self.buttons.values(), self.copy_button):
+            widget.setEnabled(has_gradient)
+        self.paste_button.setEnabled(self._document is not None and self._clipboard_has_gradient())
+
+    def _clipboard_has_gradient(self) -> bool:
+        return text_to_gradient(QGuiApplication.clipboard().text()) is not None
 
     def _rows(self) -> tuple[AdjustRow, ...]:
         return self.position, self.hue, self.saturation, self.luminance
