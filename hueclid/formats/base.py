@@ -43,8 +43,12 @@ class GradientFormat(ABC):
         """Replace entry `index` (creating the file if it doesn't exist and can_create)."""
         raise NotImplementedError(f"{self.name} files cannot be written")
 
-    def append(self, gradient: Gradient, path: Path) -> None:
-        """Add a gradient as a new entry (creating the file if needed)."""
+    def append(self, gradient: Gradient, path: Path, template: tuple[Path, int] | None = None) -> None:
+        """Add a gradient as a new entry (creating the file if needed).
+
+        `template` = (file, index) of the entry the gradient came from; formats
+        that carry more than colours (flames) clone that entry so nothing is lost.
+        """
         raise NotImplementedError(f"{self.name} files cannot be written")
 
     def remove(self, path: Path, index: int) -> None:

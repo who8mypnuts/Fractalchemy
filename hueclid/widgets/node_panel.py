@@ -6,8 +6,9 @@ import random
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor, QGuiApplication
-from PySide6.QtWidgets import QFormLayout, QGroupBox, QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QAbstractSpinBox, QFormLayout, QGroupBox, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget
 
+from .. import config
 from ..model import RGB, rgb_to_hex
 from ..model import node_ops
 from ..ui.document import GradientDocument
@@ -15,6 +16,7 @@ from .color_dialog import ColorPickerDialog
 from .qt_colors import contrasting_pen_color
 
 PANEL_WIDTH = 210
+POSITION_MAX = config.UGR_MAX_INDEX  # 0..399, Ultra Fractal's native gradient index units
 
 
 class NodePanel(QGroupBox):
@@ -26,7 +28,8 @@ class NodePanel(QGroupBox):
         self._rng = random.Random()
         self.number = QSpinBox(self)
         self.swatch = QPushButton(self)
-        self.position = QLabel("", self)
+        self.position = QSpinBox(self)
+        self.position_slider = QSlider(Qt.Orientation.Horizontal, self)
         self.add_button = QPushButton("Add node", self)
         self.add_random_button = QPushButton("Add random node", self)
         self.randomize_button = QPushButton("Randomize node", self)
@@ -42,6 +45,13 @@ class NodePanel(QGroupBox):
         self.number.setRange(1, 1)
         self.number.setToolTip("Node number — type one to select it")
         self.number.setKeyboardTracking(False)
+        self.position.setRange(0, POSITION_MAX)
+        self.position.setToolTip(f"Node position, 0–{POSITION_MAX} (Ultra Fractal index units)")
+        self.position.setKeyboardTracking(False)
+        self.position.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+        self.position_slider.setRange(0, POSITION_MAX)
+        self.position_slider.setTracking(True)
+        self.position_slider.setToolTip("Drag to move this node along the gradient")
         self.swatch.setFixedHeight(36)
         self.swatch.setToolTip("Click to change this node's colour")
         self.swatch.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -52,15 +62,20 @@ class NodePanel(QGroupBox):
         form = QFormLayout()
         form.addRow("Node", self.number)
         form.addRow("Position", self.position)
-        form.addRow("Colour", self.swatch)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        layout.addWidget(self.position_slider)
+        colour = QFormLayout()
+        colour.addRow("Colour", self.swatch)
+        layout.addLayout(colour)
         for button in (self.add_button, self.add_random_button, self.randomize_button, self.delete_button):
             layout.addWidget(button)
         layout.addStretch(1)
 
     def _connect(self) -> None:
         self.number.valueChanged.connect(lambda n: self._document.select(n - 1) if self._document else None)
+        self.position.valueChanged.connect(self._move_to)
+        self.position_slider.valueChanged.connect(self._move_to)
         self.swatch.clicked.connect(self.open_picker)
         self.add_button.clicked.connect(lambda: self._insert(self._current_color()))
         self.add_random_button.clicked.connect(lambda: self._insert(node_ops.random_color(self._rng)))
@@ -106,6 +121,11 @@ class NodePanel(QGroupBox):
         if index >= 0 and self.delete_button.isEnabled():
             self._document.remove_stop(index)
 
+    def _move_to(self, units: int) -> None:
+        index = self._selected()
+        if index >= 0 and round(self._document.gradient.stops[index].position * POSITION_MAX) != units:
+            self._document.move_stop(index, units / POSITION_MAX)  # selection follows if it crosses a neighbour
+
     def _set_color(self, color: RGB) -> None:
         index = self._selected()
         if index >= 0 and self._document.gradient.stops[index].color != tuple(color):
@@ -126,7 +146,11 @@ class NodePanel(QGroupBox):
         self.number.setRange(1, len(stops))
         self.number.setValue(index + 1)
         self.number.blockSignals(False)
-        self.position.setText(f"{stop.position:.3f}")
+        units = round(stop.position * POSITION_MAX)
+        for widget in (self.position, self.position_slider):
+            widget.blockSignals(True)
+            widget.setValue(units)
+            widget.blockSignals(False)
         self.delete_button.setEnabled(len(stops) > node_ops.MIN_NODES)
         self._paint_swatch(stop.color)
         if self.picker.isVisible() and self.picker.color() != stop.color:

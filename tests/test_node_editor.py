@@ -55,7 +55,7 @@ def test_panel_is_greyed_without_selection_and_follows_it(window):
     assert not panel.isEnabled()
     window.document.select(1)
     assert panel.isEnabled() and panel.number.value() == 2 and panel.number.maximum() == 3
-    assert panel.swatch.text() == "#FF0000" and panel.position.text() == "0.500"
+    assert panel.swatch.text() == "#FF0000" and panel.position.value() == 200 and panel.position_slider.value() == 200
     window.document.select(-1)
     assert not panel.isEnabled()
 
@@ -64,6 +64,30 @@ def test_typing_a_node_number_selects_it(window):
     window.document.select(0)
     window.nodePanel.number.setValue(3)
     assert window.document.selected_index == 2 and window.nodePanel.swatch.text() == "#FFFFFF"
+
+
+def test_position_spin_and_slider_move_the_node(window):
+    doc, panel = window.document, window.nodePanel
+    doc.select(1)
+    panel.position.setValue(100)
+    assert round(doc.gradient.stops[1].position * 399) == 100 and panel.position_slider.value() == 100
+    panel.position_slider.setValue(380)  # past the white node at 399? no — but past nothing yet
+    assert doc.selected_index == 1 and round(doc.gradient.stops[1].position * 399) == 380
+    panel.position_slider.setValue(399)  # ties with the last node: stable order keeps red before white
+    panel.position.setValue(0)           # crosses the black node at 0 → red becomes node 1? tie keeps black first
+    assert doc.gradient.stops[doc.selected_index].color == (255, 0, 0)
+    assert panel.number.value() == doc.selected_index + 1
+    assert doc.modified
+
+
+def test_position_drag_across_a_neighbour_keeps_following_the_node(window):
+    doc, panel = window.document, window.nodePanel
+    doc.replace(Gradient.from_colors("g", [(0, 0, 0), (255, 0, 0), (0, 255, 0), (255, 255, 255)]))
+    doc.select(1)  # red at 133
+    panel.position_slider.setValue(300)  # jumps over green at 266
+    assert doc.selected_index == 2 and doc.gradient.stops[2].color == (255, 0, 0)
+    assert panel.number.value() == 3 and panel.position.value() == 300
+    assert round(doc.gradient.stops[1].position * 399) == 266  # green untouched
 
 
 def test_add_add_random_randomize_delete(window):

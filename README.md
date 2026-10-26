@@ -48,6 +48,7 @@ python -m pytest
 * **Selected node** box (right of the gradient, greyed out until a node is clicked): type a node number
   to select it; click the colour swatch for a movable, non-modal picker (hue/saturation wheel, H/S/L
   sliders, R/G/B and hex fields, before/after preview) that updates the gradient live — Cancel reverts.
+  Position has a slider plus spin box in 0–399 (UF index) units; dragging past neighbours is allowed.
   *Add node* (same colour, midway to the next node), *Add random node*, *Randomize node* (nudges
   hue/saturation/lightness), *Delete node* (never below two nodes).
 * Gradients are cyclic, as in Ultra Fractal / Apophysis: beyond the first/last node the colour
@@ -56,6 +57,9 @@ python -m pytest
 * **Save** (`Ctrl+S`) writes the gradient back into its own slot in the file and refreshes its thumbnail.
 * **Save As ▾**: *Add to This File as New Gradient…* (`Ctrl+Shift+A`), *New File…* (`Ctrl+Shift+S`),
   or *Add to Another File…*. Afterwards the editor points at the saved location, so the next Save is in place.
+  Flame gradients keep their fractal: a new entry or new file made from a flame clones the source `<flame>`
+  (xforms, camera, …) under the new palette. Existing multi-gradient files are never overwritten by
+  *New File…* — the gradient is saved into its own slot or appended instead.
 
 * **Open** (`File ▸ Open…`, `Ctrl+O`) any of:
 

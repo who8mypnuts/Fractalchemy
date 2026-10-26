@@ -49,8 +49,13 @@ class FlameFormat(GradientFormat):
         doc.replace(span, _with_palette(doc.slice(span), gradient))
         doc.write()
 
-    def append(self, gradient: Gradient, path: Path) -> None:
-        _append_text(path, _minimal_flame(gradient))
+    def append(self, gradient: Gradient, path: Path, template: tuple[Path, int] | None = None) -> None:
+        """Add a <flame>. With a flame `template`, its xforms etc. are cloned under the new palette."""
+        if template is not None and self.matches(template[0]) and template[0].exists():
+            text = _cloned_flame(template[0], template[1], gradient)
+        else:
+            text = _minimal_flame(gradient)
+        _append_text(path, text)
 
     def remove(self, path: Path, index: int) -> None:
         doc, spans = _open(path)
@@ -60,11 +65,7 @@ class FlameFormat(GradientFormat):
     def rename(self, path: Path, index: int, name: str) -> None:
         doc, spans = _open(path)
         span = require_index(spans, index, path)
-        element = doc.slice(span)
-        renamed, count = _NAME_ATTR.subn(lambda m: f"{m.group(1)}{_xml_attr(name)}{m.group(3)}", element, count=1)
-        if count == 0:
-            renamed = element.replace("<flame", f'<flame name="{_xml_attr(name)}"', 1)
-        doc.replace(span, renamed)
+        doc.replace(span, _renamed(doc.slice(span), name))
         doc.write()
 
     def copy_entry(self, source: Path, index: int, target: Path) -> None:
@@ -111,6 +112,18 @@ def _with_palette(flame_text: str, gradient: Gradient) -> str:
     if count == 0:
         raise FormatError("flame entry has no <palette> element to update")
     return new_text
+
+
+def _renamed(flame_text: str, name: str) -> str:
+    renamed, count = _NAME_ATTR.subn(lambda m: f"{m.group(1)}{_xml_attr(name)}{m.group(3)}", flame_text, count=1)
+    return renamed if count else flame_text.replace("<flame", f'<flame name="{_xml_attr(name)}"', 1)
+
+
+def _cloned_flame(template_path: Path, index: int, gradient: Gradient) -> str:
+    """The template <flame> verbatim (xforms, camera, ...) with the new name and palette."""
+    doc, spans = _open(template_path)
+    element = doc.slice(require_index(spans, index, template_path)).rstrip() + "\n"
+    return _with_palette(_renamed(element, gradient.name), gradient).replace(doc.newline, "\n")
 
 
 def _minimal_flame(gradient: Gradient) -> str:

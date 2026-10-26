@@ -58,7 +58,7 @@ class UgrFormat(GradientFormat):
         doc.replace(require_index(spans, index, path), serialize(gradient))
         doc.write()
 
-    def append(self, gradient: Gradient, path: Path) -> None:
+    def append(self, gradient: Gradient, path: Path, template: tuple[Path, int] | None = None) -> None:
         _append_text(path, serialize(gradient))
 
     def remove(self, path: Path, index: int) -> None:

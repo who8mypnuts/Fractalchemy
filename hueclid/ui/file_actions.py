@@ -48,14 +48,15 @@ class FileActions(QObject):
         if path:
             self.open_path(Path(path))
 
-    def open_path(self, path: Path, index: int = 0) -> None:
-        """Load every gradient in `path` on a worker thread, then show entry `index`."""
+    def open_path(self, path: Path, index: int = 0, note: str | None = None) -> None:
+        """Load every gradient in `path` on a worker thread, then show entry `index`.
+        `note` replaces the usual 'Loaded…' status message."""
         self._load_ticket += 1
         ticket = self._load_ticket
         self.status.emit(f"Loading {path.name}…")
         run_in_background(
             load_gradients, path,
-            on_done=lambda gradients: self._loaded(gradients, path, index, ticket),
+            on_done=lambda gradients: self._loaded(gradients, path, index, ticket, note),
             on_error=lambda exc: self._fail("Could not open file", exc),
         )
 
@@ -91,7 +92,11 @@ class FileActions(QObject):
         path, _ = QFileDialog.getSaveFileName(self._parent, "Save gradient as new file", str(self._suggested_save_path()), save_dialog_filter())
         if path:
             gradient = self._document.gradient.copy()
-            self._run_write(_create_file, gradient, Path(path), on_done=lambda _: self.open_path(Path(path), 0))
+            self._run_write(_write_file, gradient, Path(path), self._source(),
+                            on_done=lambda result: self._wrote_file(Path(path), *result))
+
+    def _wrote_file(self, path: Path, index: int, note: str) -> None:
+        self.open_path(path, index, note or None)
 
     def save_as_into_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self._parent, "Add gradient to an existing file", self._last_dir, append_dialog_filter())
@@ -117,7 +122,7 @@ class FileActions(QObject):
         return time.monotonic() - self._written.get(path, -1e9) < RECENT_WRITE_SECONDS
 
     # --- helpers ------------------------------------------------------------
-    def _loaded(self, gradients: list[Gradient], path: Path, index: int, ticket: int) -> None:
+    def _loaded(self, gradients: list[Gradient], path: Path, index: int, ticket: int, note: str | None = None) -> None:
         if ticket != self._load_ticket:
             return  # a newer load superseded this one
         index = min(index, len(gradients) - 1)
@@ -125,12 +130,17 @@ class FileActions(QObject):
         self._entries = gradients
         self.entries_loaded.emit(path, gradients)
         self._document.replace(gradients[index].copy(), path, index)
-        self.status.emit(f"Loaded '{gradients[index].name}' from {path.name} ({len(gradients[index])} nodes)")
+        self.status.emit(note or f"Loaded '{gradients[index].name}' from {path.name} ({len(gradients[index])} nodes)")
 
     def _append_to(self, path: Path, name: str) -> None:
         gradient = self._document.gradient.copy()
         gradient.name = name
-        self._run_write(_append_entry, gradient, path, on_done=lambda new_index: self.open_path(path, new_index))
+        self._run_write(_append_entry, gradient, path, self._source(), on_done=lambda new_index: self.open_path(path, new_index))
+
+    def _source(self) -> tuple[Path, int] | None:
+        """Where the edited gradient came from — lets flame saves clone the fractal around the palette."""
+        path = self._document.source_path
+        return (path, self._document.source_index) if path is not None else None
 
     def _run_write(self, fn, *args, on_done) -> None:
         def done(result) -> None:
@@ -173,21 +183,31 @@ class FileActions(QObject):
 
 
 # --- worker functions (no Qt) ------------------------------------------------
-def _append_entry(gradient: Gradient, path: Path) -> int:
+def _append_entry(gradient: Gradient, path: Path, source: tuple[Path, int] | None) -> int:
     fmt = format_for(path)
     if not (fmt.can_append if path.exists() else fmt.can_create):
         raise ValueError(f"Gradients cannot be added to {fmt.name} files")
-    fmt.append(gradient, path)
+    fmt.append(gradient, path, template=source)
     return len(fmt.names(path)) - 1
 
 
-def _create_file(gradient: Gradient, path: Path) -> None:
+def _write_file(gradient: Gradient, path: Path, source: tuple[Path, int] | None) -> tuple[int, str]:
+    """'Save as new file'. Existing multi-gradient files are never wiped: the gradient goes
+    into its own slot (same file) or is appended (another file). Returns (entry index, note)."""
     fmt = format_for(path)
+    if path.exists() and fmt.multi_entry:
+        if source is not None and path.resolve() == source[0].resolve():
+            fmt.save(gradient, path, source[1])
+            return source[1], f"{path.name} already holds this gradient — saved in place"
+        if fmt.can_append:
+            return _append_entry(gradient, path, source), f"{path.name} exists — added '{gradient.name}' to it instead of replacing the file"
+        raise ValueError(f"{path.name} exists and {fmt.name} files can't take extra gradients")
     if not fmt.can_create:
         raise ValueError(f"New {fmt.name} files cannot be created; choose another format")
     if path.exists():
-        path.unlink()  # the save dialog already confirmed the overwrite
+        path.unlink()  # single-gradient file: the save dialog already confirmed the overwrite
     if fmt.can_append:
-        fmt.append(gradient, path)
+        fmt.append(gradient, path, template=source)
     else:
         fmt.save(gradient, path)
+    return 0, ""
