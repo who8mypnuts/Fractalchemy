@@ -17,6 +17,7 @@ from ..model import rgb_to_hex
 from ..widgets import GradientEditor
 from ..widgets.collapsible_splitter import CollapsibleSplitter
 from ..widgets.gradient_browser import GradientBrowser
+from ..widgets.node_panel import NodePanel
 from ..widgets.whole_gradient_panel import WholeGradientPanel
 from .document import GradientDocument
 from .file_actions import FileActions
@@ -27,6 +28,7 @@ UI_FILE = Path(__file__).resolve().parents[2] / "ui" / "main_window.ui"
 CUSTOM_WIDGETS = {
     "GradientBrowser": GradientBrowser,
     "GradientEditor": GradientEditor,
+    "NodePanel": NodePanel,
     "WholeGradientPanel": WholeGradientPanel,
     "LibraryPanel": LibraryPanel,
     "CollapsibleSplitter": CollapsibleSplitter,
@@ -40,6 +42,7 @@ class MainWindow(QMainWindow):
         self.document = GradientDocument(self)
         self.gradientEditor.bind(self.document)
         self.wholeGradientPanel.bind(self.document)
+        self.nodePanel.bind(self.document)
         self.files = FileActions(self.document, self)
         self.library = LibraryController(self.libraryPanel.model, roots or LibraryRoots(parent=self), self)
         self.library_menu = LibraryContextMenu(self.library, self.open_item, self)

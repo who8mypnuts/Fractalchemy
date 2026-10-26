@@ -98,6 +98,25 @@ class GradientDocument(QObject):
         self.gradient_changed.emit()
 
     # --- single-stop edits --------------------------------------------------
+    def insert_stop(self, stops: list[ColorStop], new_index: int) -> None:
+        """Replace the stop list (already containing the new node) and select the new node."""
+        self._commit_adjustments()
+        self._gradient = Gradient(self._gradient.name, stops)
+        self.modified = True
+        self.gradient_changed.emit()
+        self.select(new_index)
+
+    def remove_stop(self, index: int) -> None:
+        """Delete a node and select its successor (or the new last node)."""
+        from ..model.node_ops import without
+
+        self._commit_adjustments()
+        self._gradient = Gradient(self._gradient.name, without(self._gradient, index))
+        self.modified = True
+        self.select(-1)
+        self.gradient_changed.emit()
+        self.select(min(index, len(self._gradient.stops) - 1))
+
     def move_stop(self, index: int, position: float) -> int:
         """Move a stop; selection follows it. Returns its new index."""
         self._commit_adjustments()

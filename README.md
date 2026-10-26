@@ -42,6 +42,11 @@ python -m pytest
   random harmony — analogous / complementary / triadic / split), *Reroll gradient* (new count, positions and
   colours), *Auto increase nodes* (2–6 harmonising colours), *Decrease nodes* (drops 25–50 %),
   *Smooth gradient* (blurs the colour curve and keeps only the nodes needed to reproduce it).
+* **Selected node** box (right of the gradient, greyed out until a node is clicked): type a node number
+  to select it; click the colour swatch for a movable, non-modal picker (hue/saturation wheel, H/S/L
+  sliders, R/G/B and hex fields, before/after preview) that updates the gradient live — Cancel reverts.
+  *Add node* (same colour, midway to the next node), *Add random node*, *Randomize node* (nudges
+  hue/saturation/lightness), *Delete node* (never below two nodes).
 * Gradients are cyclic, as in Ultra Fractal / Apophysis: beyond the first/last node the colour
   blends across the wrap rather than clamping.
 * The strip above the editor shows a thumbnail of **every gradient in the open file**; click one to edit it.

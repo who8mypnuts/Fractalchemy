@@ -35,14 +35,21 @@
          </widget>
         </item>
         <item>
-         <widget class="GradientEditor" name="gradientEditor" native="true">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-         </widget>
+         <layout class="QHBoxLayout" name="editorRow">
+          <item>
+           <widget class="GradientEditor" name="gradientEditor" native="true">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+              <horstretch>1</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="NodePanel" name="nodePanel"/>
+          </item>
+         </layout>
         </item>
         <item>
          <widget class="WholeGradientPanel" name="wholeGradientPanel"/>
@@ -204,6 +211,12 @@
    <class>GradientEditor</class>
    <extends>QWidget</extends>
    <header>hueclid/widgets/gradient_editor.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>NodePanel</class>
+   <extends>QGroupBox</extends>
+   <header>hueclid/widgets/node_panel.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
