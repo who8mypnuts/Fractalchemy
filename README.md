@@ -17,9 +17,41 @@ python -m pytest
 
 ## What it does today
 
+### Library (left pane)
+* Add folders with **+** (or *Edit ▸ Edit Library…* / the ✎ button, which lists every folder
+  with its path, supported-file count and a ✕ to remove it). Folders persist between runs.
+* The tree shows folders, supported files, and — for `.flame` / `.ugr` files holding several
+  gradients — each named gradient as a child row. Click any file or gradient row to show it.
+* Search box (debounced) matches file names **and** gradient names inside files; the ▲ button collapses the tree.
+* Folders are watched (`QFileSystemWatcher`): files added, removed or rewritten by other programs show up
+  automatically, and the open file is reloaded if it changes on disk and you have no unsaved edits.
+* Right-click: Open, Copy, Paste, Duplicate, Rename, Delete, New Folder, Show in File Manager,
+  Refresh, Remove from Library.
+* Drag a gradient row onto another `.ugr` / `.flame` file to **move** it there (hold **Ctrl** to copy);
+  onto a folder to create a new `.ugr` from it. Drag files between folders to move them.
+* The arrow in the middle of the divider (or *View ▸ Show/Hide Library*, `Ctrl+L`) collapses the pane.
+* Scanning, loading and every file operation run on a thread pool; the UI never blocks.
+
+### Editor
+* The strip above the editor shows a thumbnail of **every gradient in the open file**; click one to edit it.
+* **Save** (`Ctrl+S`) writes the gradient back into its own slot in the file and refreshes its thumbnail.
+* **Save As ▾**: *Add to This File as New Gradient…* (`Ctrl+Shift+A`), *New File…* (`Ctrl+Shift+S`),
+  or *Add to Another File…*. Afterwards the editor points at the saved location, so the next Save is in place.
+
 * **Open** (`File ▸ Open…`, `Ctrl+O`) any of:
-  * `.flame` – the `<palette>` of the first `<flame>` in the file
-  * `.ugr` / `.gradient` – the first gradient in the file (Ultra Fractal format)
+
+  | Format | Entries per file | Save in place | Add / remove entries | New file |
+  |---|---|---|---|---|
+  | `.flame` (Apophysis / flam3) | one per `<flame>` | ✓ | ✓ | ✓ |
+  | `.ugr` / `.gradient` (Ultra Fractal gradients) | many | ✓ | ✓ | ✓ |
+  | `.ufr` (Ultra Fractal fractal) | one per layer | ✓ | – | – |
+  | `.map` (Fractint / UF palette) | one | ✓ | – | ✓ |
+  | `.chaos` (Chaotica world) | one per IFS | ✓ | – | – |
+  | images | one (extracted) | – | – | – |
+
+  `.ufr` files are binary containers (header + parameter text + cached render); only the
+  gradient section of a layer is rewritten and the header offsets are adjusted, so the
+  cached pixels survive. A no-op save reproduces the file byte-for-byte.
   * images – dominant colours are extracted and ordered into a gradient:
     PNG / APNG (first frame), JPEG, AVIF, HEIC/HEIF, JPEG XL, WebP, GIF, BMP, TIFF,
     and SVG (rasterised via Qt). Transparent pixels are ignored.
@@ -37,10 +69,11 @@ ui/main_window.ui       Qt Designer layout (GradientEditor is a promoted custom 
 hueclid/
   config.py             tunables: node counts, simplify tolerance, sizes
   model/                Qt-free data: colours, stops, Gradient, stop simplification
-  formats/              one module per file type + registry (extension → format)
+  formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
+  library/              roots (QSettings), scanner, model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
   widgets/              GradientStrip, NodeBar, GradientEditor, position mapping
-  ui/                   .ui loader, GradientDocument (state + signals), file actions, MainWindow
+  ui/                   .ui loader, GradientDocument (state + signals), background tasks, file actions, MainWindow
 tests/                  pytest suite
 ```
 

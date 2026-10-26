@@ -23,6 +23,7 @@ class GradientDocument(QObject):
         super().__init__(parent)
         self._gradient = Gradient()
         self._source_path: Path | None = None
+        self._source_index = 0
         self._selected = -1
         self.modified = False
 
@@ -36,6 +37,11 @@ class GradientDocument(QObject):
         return self._source_path
 
     @property
+    def source_index(self) -> int:
+        """Which entry of a multi-gradient source file this is."""
+        return self._source_index
+
+    @property
     def source_format(self) -> GradientFormat | None:
         return format_for(self._source_path) if self._source_path else None
 
@@ -44,16 +50,21 @@ class GradientDocument(QObject):
         return self._selected
 
     # --- commands -----------------------------------------------------------
-    def replace(self, gradient: Gradient, source_path: Path | None = None) -> None:
+    def replace(self, gradient: Gradient, source_path: Path | None = None, source_index: int = 0) -> None:
         self._gradient = gradient
         self._source_path = source_path
+        self._source_index = source_index
         self.modified = False
         self.select(-1)
         self.gradient_replaced.emit()
 
-    def mark_saved(self, path: Path) -> None:
+    def mark_saved(self, path: Path, index: int = 0) -> None:
         self._source_path = path
+        self._source_index = index
         self.modified = False
+
+    def is_showing(self, path: Path, index: int) -> bool:
+        return self._source_path == path and self._source_index == index
 
     def move_stop(self, index: int, position: float) -> int:
         """Move a stop; selection follows it. Returns its new index."""

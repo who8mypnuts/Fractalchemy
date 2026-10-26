@@ -1,0 +1,82 @@
+"""Notice files changed by other programs and ask for a rescan of the affected root.
+
+After every scan the controller hands us the directories and files it saw;
+we keep QFileSystemWatcher in step with that list. Events are debounced so a
+burst (e.g. Apophysis saving several files) becomes one rescan.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6.QtCore import QFileSystemWatcher, QObject, QTimer, Signal
+
+from .scanner import ScannedDir
+
+DEBOUNCE_MS = 600
+MAX_WATCHED_FILES = 4000  # stay well under typical inotify limits; dirs are always watched
+
+
+class LibraryWatcher(QObject):
+    root_changed = Signal(Path)
+    file_changed = Signal(Path)
+
+    def __init__(self, parent: QObject | None = None):
+        super().__init__(parent)
+        self._watcher = QFileSystemWatcher(self)
+        self._roots: dict[Path, set[str]] = {}       # root -> watched paths (as strings)
+        self._dirty: set[Path] = set()
+        self._timer = QTimer(self, singleShot=True, interval=DEBOUNCE_MS)
+        self._timer.timeout.connect(self._flush)
+        self._watcher.directoryChanged.connect(self._on_changed)
+        self._watcher.fileChanged.connect(self._on_file_changed)
+
+    # --- keeping watches in step with scans --------------------------------
+    def track(self, scanned: ScannedDir) -> None:
+        wanted = {str(p) for p in _paths_of(scanned)}
+        current = self._roots.get(scanned.path, set())
+        if current - wanted:
+            self._watcher.removePaths(sorted(current - wanted))
+        if wanted - current:
+            self._watcher.addPaths(sorted(wanted - current))
+        self._roots[scanned.path] = wanted
+
+    def forget(self, root: Path) -> None:
+        paths = self._roots.pop(root, set())
+        if paths:
+            self._watcher.removePaths(sorted(paths))
+
+    # --- events -------------------------------------------------------------
+    def _on_changed(self, changed: str) -> None:
+        root = self._root_for(Path(changed))
+        if root is not None:
+            self._dirty.add(root)
+            self._timer.start()
+
+    def _on_file_changed(self, changed: str) -> None:
+        self.file_changed.emit(Path(changed))
+        self._on_changed(changed)
+
+    def _flush(self) -> None:
+        dirty, self._dirty = self._dirty, set()
+        for root in dirty:
+            self.root_changed.emit(root)
+
+    def _root_for(self, path: Path) -> Path | None:
+        for root, watched in self._roots.items():
+            if str(path) in watched:
+                return root
+        return None
+
+
+def _paths_of(scanned: ScannedDir) -> list[Path]:
+    dirs, files = [], []
+    _collect(scanned, dirs, files)
+    return dirs + files[:MAX_WATCHED_FILES]
+
+
+def _collect(node: ScannedDir, dirs: list[Path], files: list[Path]) -> None:
+    dirs.append(node.path)
+    files.extend(f.path for f in node.files)
+    for sub in node.dirs:
+        _collect(sub, dirs, files)

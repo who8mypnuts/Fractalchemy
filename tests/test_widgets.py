@@ -1,6 +1,7 @@
 from PySide6.QtCore import QPointF
 
 from hueclid.model import Gradient
+from tests.conftest import wait_until
 from hueclid.ui.main_window import MainWindow
 from hueclid.widgets.mapping import PositionMapper
 
@@ -17,7 +18,7 @@ def test_window_loads_and_nodes_follow_drag(qapp, samples):
     window.resize(800, 300)
     window.show()
     window.files.open_path(samples / "sample gradients" / "saturated rainbox.gradient")
-    assert "rainbow" in window.lblGradientName.text()
+    wait_until(lambda: "rainbow" in window.lblGradientName.text())
 
     window.document.replace(Gradient.from_colors("sparse", [(0, 0, 0), (50, 50, 50), (255, 0, 0), (0, 255, 0), (0, 0, 255)]))
     nodes = window.gradientEditor.nodes

@@ -1,0 +1,156 @@
+"""Coordinates roots, background scans, and file operations for the library.
+
+Everything that touches the disk goes through `run_in_background`; the model is
+rebuilt from the results on the GUI thread. Dialogs live elsewhere: this class
+only emits `status` / `failed` strings.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from pathlib import Path
+from typing import Callable
+
+from PySide6.QtCore import QObject, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QGuiApplication
+
+from ..formats import DEFAULT_SAVE_FORMAT
+from ..ui.background import run_in_background
+from . import operations as ops
+from .items import Kind, LibraryItem
+from .model import LibraryModel
+from .payload import from_mime, to_mime
+from .roots import LibraryRoots
+from .scanner import ScannedDir, scan_directory
+from .watcher import LibraryWatcher
+
+
+class LibraryController(QObject):
+    status = Signal(str)
+    failed = Signal(str)
+    root_scanned = Signal(Path)
+    scanning = Signal(bool)
+    file_changed_externally = Signal(Path)
+
+    def __init__(self, model: LibraryModel, roots: LibraryRoots, parent: QObject | None = None):
+        super().__init__(parent)
+        self.model = model
+        self.roots = roots
+        self._generation: dict[Path, int] = defaultdict(int)
+        self._pending = 0
+        self.watcher = LibraryWatcher(self)
+        roots.added.connect(self.rescan_root)
+        roots.removed.connect(self._on_root_removed)
+        model.drop_requested.connect(self.drop)
+        self.watcher.root_changed.connect(self.rescan_root)
+        self.watcher.file_changed.connect(self.file_changed_externally)
+
+    # --- scanning -----------------------------------------------------------
+    def rescan_all(self) -> None:
+        for path in self.roots.paths():
+            self.rescan_root(path)
+
+    def rescan_root(self, path: Path) -> None:
+        self._generation[path] += 1
+        generation = self._generation[path]
+        self._set_pending(+1)
+        run_in_background(
+            scan_directory, path,
+            on_done=lambda scanned: self._apply_scan(scanned, generation),
+            on_error=lambda exc: self._scan_failed(path, exc),
+        )
+
+    def rescan_containing(self, *paths: Path) -> None:
+        for root in {r for r in self.roots.paths() for p in paths if _is_within(p, r)}:
+            self.rescan_root(root)
+
+    def root_of(self, path: Path) -> Path | None:
+        return next((r for r in self.roots.paths() if _is_within(path, r)), None)
+
+    # --- operations (all run off the GUI thread) ---------------------------
+    def drop(self, items: list[LibraryItem], target: LibraryItem, move: bool) -> None:
+        affected = [i.path for i in items] + [target.path]
+        self._run(ops.drop_items, items, target, move, DEFAULT_SAVE_FORMAT.extensions[0], affected=affected)
+
+    def duplicate(self, item: LibraryItem) -> None:
+        if item.kind == Kind.GRADIENT:
+            self._run(ops.duplicate_entry, item.path, item.index, affected=[item.path])
+        elif item.kind == Kind.FILE:
+            self._run(ops.duplicate_file, item.path, affected=[item.path])
+
+    def delete(self, items: list[LibraryItem]) -> None:
+        for item in items:
+            if item.kind == Kind.GRADIENT:
+                self._run(ops.delete_entry, item.path, item.index, affected=[item.path])
+            elif item.kind in (Kind.FILE, Kind.DIR):
+                self._run(ops.delete_path, item.path, affected=[item.path])
+
+    def rename(self, item: LibraryItem, new_name: str) -> None:
+        if item.kind == Kind.GRADIENT:
+            self._run(ops.rename_entry, item.path, item.index, new_name, affected=[item.path])
+        elif item.kind in (Kind.FILE, Kind.DIR):
+            self._run(ops.rename_path, item.path, new_name, affected=[item.path])
+
+    def new_folder(self, target: LibraryItem, name: str) -> None:
+        self._run(ops.create_folder, target.directory, name, affected=[target.directory])
+
+    def copy_to_clipboard(self, items: list[LibraryItem]) -> None:
+        QGuiApplication.clipboard().setMimeData(to_mime(items))
+        self.status.emit(f"Copied {len(items)} item(s)")
+
+    def paste(self, target: LibraryItem) -> None:
+        items = from_mime(QGuiApplication.clipboard().mimeData())
+        if items and self.model.canDropMimeData(QGuiApplication.clipboard().mimeData(), None, 0, 0, self.model.index_for(target)):
+            self.drop(items, target, move=False)
+        else:
+            self.failed.emit("Nothing on the clipboard can be pasted here")
+
+    def reveal(self, item: LibraryItem) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(item.directory)))
+
+    def remove_root(self, path: Path) -> None:
+        self.roots.remove(path)
+        self.status.emit(f"Removed {path.name} from the library")
+
+    # --- internals ----------------------------------------------------------
+    def _run(self, fn: Callable, *args, affected: list[Path]) -> None:
+        def done(message: str) -> None:
+            self.status.emit(message)
+            self.rescan_containing(*affected)
+
+        def error(exc: Exception) -> None:
+            self.failed.emit(str(exc))
+            self.rescan_containing(*affected)
+
+        run_in_background(fn, *args, on_done=done, on_error=error)
+
+    def _apply_scan(self, scanned: ScannedDir, generation: int) -> None:
+        self._set_pending(-1)
+        if generation != self._generation[scanned.path] or scanned.path not in self.roots.paths():
+            return  # superseded or removed meanwhile
+        self.model.set_root(scanned)
+        self.watcher.track(scanned)
+        self.root_scanned.emit(scanned.path)
+
+    def _scan_failed(self, path: Path, exc: Exception) -> None:
+        self._set_pending(-1)
+        self.failed.emit(f"Could not scan {path}: {exc}")
+
+    def _on_root_removed(self, path: Path) -> None:
+        self._generation[path] += 1
+        self.model.remove_root(path)
+        self.watcher.forget(path)
+
+    def _set_pending(self, delta: int) -> None:
+        was_busy = self._pending > 0
+        self._pending = max(0, self._pending + delta)
+        if was_busy != (self._pending > 0):
+            self.scanning.emit(self._pending > 0)
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+        return True
+    except ValueError:
+        return False

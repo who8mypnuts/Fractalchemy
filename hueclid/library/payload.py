@@ -1,0 +1,33 @@
+"""Serialise library items for drag-and-drop and the clipboard."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from PySide6.QtCore import QMimeData, QUrl
+
+from .items import Kind, LibraryItem
+
+MIME_TYPE = "application/x-hueclid-items"
+
+
+def to_mime(items: list[LibraryItem]) -> QMimeData:
+    data = QMimeData()
+    records = [{"kind": i.kind.value, "path": str(i.path), "index": i.index, "name": i.name} for i in items]
+    data.setData(MIME_TYPE, json.dumps(records).encode("utf-8"))
+    files = [i.path for i in items if i.kind == Kind.FILE]
+    if files:
+        data.setUrls([QUrl.fromLocalFile(str(p)) for p in files])  # lets files be dropped on the OS
+    data.setText("\n".join(str(i.path) for i in items))
+    return data
+
+
+def from_mime(data: QMimeData) -> list[LibraryItem]:
+    if data.hasFormat(MIME_TYPE):
+        records = json.loads(bytes(data.data(MIME_TYPE).data()).decode("utf-8"))
+        return [LibraryItem(Kind(r["kind"]), Path(r["path"]), r["index"], r["name"]) for r in records]
+    if data.hasUrls():  # files dragged in from the desktop / file manager
+        return [LibraryItem(Kind.FILE, Path(u.toLocalFile()), name=Path(u.toLocalFile()).name)
+                for u in data.urls() if u.isLocalFile()]
+    return []

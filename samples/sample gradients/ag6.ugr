@@ -4980,172 +4980,94 @@ gradient:
 gradient:
  title="021" smooth=no
  index=0 color=3220253
- index=2 color=3944225
- index=3 color=4404006
- index=5 color=5061679
- index=6 color=5127217
- index=8 color=4931888
  index=9 color=5521714
- index=11 color=5127217
- index=13 color=4995377
- index=14 color=4535339
- index=16 color=4534826
- index=17 color=4864300
  index=19 color=5127726
- index=20 color=6845243
  index=22 color=8418380
  index=23 color=9480075
  index=25 color=8502946
  index=27 color=10342841
  index=28 color=14275798
- index=30 color=15786209
  index=31 color=16248549
  index=33 color=16181982
- index=34 color=15588304
  index=36 color=13746094
  index=38 color=11838612
  index=39 color=10255732
+ index=40 color=6845243
  index=41 color=5856109
  index=42 color=5660016
  index=44 color=6845574
  index=45 color=9671340
  index=47 color=11317442
- index=49 color=14472664
  index=50 color=15592935
- index=52 color=16054007
  index=53 color=16056317
  index=55 color=13826805
- index=56 color=11396054
  index=58 color=11787202
- index=59 color=11854279
- index=61 color=13888991
- index=63 color=15330544
  index=64 color=16316664
- index=66 color=16252412
- index=67 color=16514043
- index=69 color=16448505
- index=70 color=16316664
- index=72 color=16447217
- index=74 color=16644082
- index=75 color=16710907
+ index=70 color=11396054
  index=77 color=16777215
- index=78 color=16777215
- index=80 color=16777215
- index=81 color=16777215
- index=83 color=16777215
- index=84 color=16777215
- index=86 color=16777215
- index=88 color=16777215
- index=89 color=16777215
- index=91 color=16777215
- index=92 color=16777215
+ index=85 color=4534826
+ index=91 color=16447217
  index=94 color=16711422
- index=95 color=16185078
- index=97 color=15658226
  index=99 color=14740451
  index=100 color=12052704
  index=102 color=10999738
  index=103 color=11196857
- index=105 color=13293264
  index=106 color=14672094
  index=108 color=15459306
- index=110 color=15525872
- index=111 color=15130351
  index=113 color=14210796
  index=114 color=12105675
  index=116 color=11117231
  index=117 color=9929361
  index=119 color=6841693
  index=120 color=7626576
- index=122 color=8349523
  index=124 color=9731178
  index=125 color=11442316
  index=127 color=13810350
- index=128 color=14797499
- index=130 color=15720145
  index=131 color=16248549
- index=133 color=16445419
- index=135 color=16709105
- index=136 color=16775927
  index=138 color=16711422
- index=139 color=16645629
- index=141 color=16250871
  index=142 color=16182762
- index=144 color=14802656
  index=146 color=14730702
  index=147 color=13084855
  index=149 color=11838137
  index=150 color=10860458
  index=152 color=10406318
  index=153 color=13353402
- index=155 color=15258317
  index=156 color=16180954
  index=158 color=16115928
  index=160 color=15851985
- index=161 color=14798013
  index=163 color=12761007
  index=164 color=10589587
  index=166 color=7107971
  index=167 color=5133923
- index=169 color=4673119
  index=171 color=4409950
- index=172 color=4475740
  index=174 color=4673626
- index=175 color=5133154
  index=177 color=5791602
  index=178 color=8686237
- index=180 color=10596030
  index=182 color=12897236
  index=183 color=15002092
  index=185 color=16182768
- index=186 color=16315376
- index=188 color=16446703
- index=189 color=16512496
  index=191 color=16642798
- index=192 color=16050657
- index=194 color=16115421
  index=196 color=15588045
- index=197 color=14731705
  index=199 color=13547431
  index=200 color=11245452
  index=202 color=10124655
  index=203 color=8086351
  index=205 color=5199200
- index=207 color=4607071
  index=208 color=4212576
- index=210 color=3686227
- index=211 color=3028551
  index=213 color=2436674
- index=214 color=2501173
- index=216 color=2564378
  index=217 color=2235662
- index=219 color=1709833
  index=221 color=1315338
- index=222 color=1578510
- index=224 color=2628626
- index=225 color=3549212
  index=227 color=4140840
  index=228 color=5327939
  index=230 color=8678488
- index=232 color=11047565
  index=233 color=13152935
- index=235 color=14469309
- index=236 color=14994878
  index=238 color=15653836
- index=239 color=15323589
  index=241 color=13808572
  index=243 color=12889502
- index=244 color=10720135
  index=246 color=7364438
  index=247 color=6503215
- index=249 color=4864300
  index=250 color=4141349
- index=252 color=3681828
- index=253 color=3418914
- index=255 color=3156262
- index=257 color=3220508
  index=258 color=2695191
- index=260 color=2563864
  index=261 color=2695450
  index=263 color=2699327
  index=264 color=3949399
@@ -5154,86 +5076,46 @@ gradient:
  index=269 color=11052976
  index=271 color=13814712
  index=272 color=15719629
- index=274 color=16707548
  index=275 color=16314347
- index=277 color=16381424
- index=279 color=16514290
- index=280 color=16776701
  index=282 color=16777215
- index=283 color=16776700
- index=285 color=16644080
- index=286 color=16379367
  index=288 color=15786201
- index=289 color=14403516
  index=291 color=11969689
  index=293 color=7830406
  index=294 color=5265001
  index=296 color=4804450
- index=297 color=4673122
  index=299 color=4738402
- index=300 color=5264487
  index=302 color=6383745
  index=304 color=9476271
  index=305 color=12762317
  index=307 color=15194326
- index=308 color=15787230
- index=310 color=16050904
  index=311 color=16115414
  index=313 color=15061701
- index=315 color=11586497
  index=316 color=9621943
- index=318 color=9555120
  index=319 color=9160098
  index=321 color=9877664
  index=322 color=11053495
  index=324 color=10920362
  index=325 color=8555678
  index=327 color=6315903
- index=329 color=4935781
  index=330 color=4409692
- index=332 color=3882312
  index=333 color=4274223
- index=335 color=4141602
- index=336 color=3418656
  index=338 color=3155731
  index=340 color=2367772
  index=341 color=2107449
- index=343 color=2700101
- index=344 color=3159629
  index=346 color=3818843
- index=347 color=3751501
- index=349 color=3224896
  index=350 color=2501687
  index=352 color=3089694
- index=354 color=2629657
- index=355 color=2498840
- index=357 color=2234899
- index=358 color=1577999
- index=360 color=1315084
- index=361 color=1183752
  index=363 color=723970
- index=365 color=1314572
- index=366 color=2300438
  index=368 color=3812130
  index=369 color=5654843
  index=371 color=5264740
  index=372 color=7568274
  index=374 color=9802665
  index=376 color=10658480
- index=377 color=8819109
- index=379 color=6516609
  index=380 color=5133668
  index=382 color=4540502
- index=383 color=3487808
- index=385 color=3484452
  index=386 color=2695190
- index=388 color=2103568
- index=390 color=1774862
  index=391 color=1642769
- index=393 color=1774864
- index=394 color=1972496
- index=396 color=2234899
- index=397 color=2497554
  index=399 color=2629912
 
 }
@@ -9165,6 +9047,268 @@ gradient:
  index=396 color=14272699
  index=397 color=16640996
  index=399 color=15194055
+
+}
+ 
+037 {
+gradient:
+ title="037" smooth=no
+ index=0 color=1320278
+ index=2 color=2305395
+ index=3 color=1787272
+ index=5 color=1005730
+ index=6 color=1342400
+ index=8 color=2136281
+ index=9 color=3058918
+ index=11 color=4699631
+ index=13 color=7194869
+ index=14 color=9163507
+ index=16 color=10542322
+ index=17 color=9687274
+ index=19 color=8376308
+ index=20 color=8048109
+ index=22 color=7195116
+ index=23 color=7188986
+ index=25 color=6857467
+ index=27 color=5874145
+ index=28 color=4757980
+ index=30 color=3113185
+ index=31 color=1532883
+ index=33 color=353212
+ index=34 color=158397
+ index=36 color=754126
+ index=38 color=1802955
+ index=39 color=2069721
+ index=41 color=3257067
+ index=42 color=4504054
+ index=44 color=5947129
+ index=45 color=7130362
+ index=47 color=7002364
+ index=49 color=7064310
+ index=50 color=6663408
+ index=52 color=5280237
+ index=53 color=3371240
+ index=55 color=2907862
+ index=56 color=2641612
+ index=58 color=3034560
+ index=59 color=2901172
+ index=61 color=2638520
+ index=63 color=1723059
+ index=64 color=1399726
+ index=66 color=1406141
+ index=67 color=887756
+ index=69 color=956627
+ index=70 color=235214
+ index=72 color=166357
+ index=74 color=1997790
+ index=75 color=1991904
+ index=77 color=2645984
+ index=78 color=1526734
+ index=80 color=1327823
+ index=81 color=1130952
+ index=83 color=1720779
+ index=84 color=2181575
+ index=86 color=2964164
+ index=88 color=1853111
+ index=89 color=1724852
+ index=91 color=2381747
+ index=92 color=2513592
+ index=94 color=2255803
+ index=95 color=2912965
+ index=97 color=4746455
+ index=99 color=5334993
+ index=100 color=5596091
+ index=102 color=4673703
+ index=103 color=3161236
+ index=105 color=1717139
+ index=106 color=1062550
+ index=108 color=864910
+ index=110 color=537482
+ index=111 color=732544
+ index=113 color=71020
+ index=114 color=4715
+ index=116 color=135794
+ index=117 color=72589
+ index=119 color=11656
+ index=120 color=142222
+ index=122 color=991638
+ index=124 color=1648536
+ index=125 color=1388182
+ index=127 color=1127072
+ index=128 color=401578
+ index=130 color=275119
+ index=131 color=406189
+ index=133 color=802980
+ index=135 color=2311346
+ index=136 color=3031990
+ index=138 color=3430572
+ index=139 color=5535657
+ index=141 color=6526864
+ index=142 color=7249300
+ index=144 color=6001096
+ index=146 color=6657240
+ index=147 color=6527703
+ index=149 color=6203616
+ index=150 color=4766434
+ index=152 color=3192544
+ index=153 color=1944546
+ index=155 color=1352669
+ index=156 color=3125215
+ index=158 color=3978717
+ index=160 color=4507371
+ index=161 color=4641019
+ index=163 color=2937854
+ index=164 color=3391725
+ index=166 color=2667759
+ index=167 color=4042480
+ index=169 color=4174327
+ index=171 color=4174320
+ index=172 color=4959725
+ index=174 color=5547758
+ index=175 color=5678311
+ index=177 color=5941221
+ index=178 color=5612510
+ index=180 color=4170968
+ index=182 color=4755915
+ index=183 color=4358587
+ index=185 color=3569081
+ index=186 color=3110074
+ index=188 color=1797543
+ index=189 color=360111
+ index=191 color=160947
+ index=192 color=227517
+ index=194 color=879566
+ index=196 color=2387159
+ index=197 color=2851044
+ index=199 color=3243495
+ index=200 color=5010399
+ index=202 color=3630277
+ index=203 color=2776252
+ index=205 color=3362239
+ index=207 color=2967739
+ index=208 color=1724857
+ index=210 color=935358
+ index=211 color=1129651
+ index=213 color=936368
+ index=214 color=2512304
+ index=216 color=3367099
+ index=217 color=5144272
+ index=219 color=5741532
+ index=221 color=6007533
+ index=222 color=6600686
+ index=224 color=6995179
+ index=225 color=8242924
+ index=227 color=9552102
+ index=228 color=8106990
+ index=230 color=7779301
+ index=232 color=8826591
+ index=233 color=8695258
+ index=235 color=7316954
+ index=236 color=7183767
+ index=238 color=5736067
+ index=239 color=3968394
+ index=241 color=4226162
+ index=243 color=4029572
+ index=244 color=2581921
+ index=246 color=2776760
+ index=247 color=3236027
+ index=249 color=3241914
+ index=250 color=3308734
+ index=252 color=5207509
+ index=253 color=5210858
+ index=255 color=3774435
+ index=257 color=3643879
+ index=258 color=2986981
+ index=260 color=3182812
+ index=261 color=3054021
+ index=263 color=4105168
+ index=264 color=5021407
+ index=266 color=4630768
+ index=268 color=4171509
+ index=269 color=4368895
+ index=271 color=4436212
+ index=272 color=5092856
+ index=274 color=5224952
+ index=275 color=5158647
+ index=277 color=5353718
+ index=279 color=5742838
+ index=280 color=5216229
+ index=282 color=3775712
+ index=283 color=1875673
+ index=285 color=891095
+ index=286 color=168163
+ index=288 color=235214
+ index=289 color=1157332
+ index=291 color=2335191
+ index=293 color=3642838
+ index=294 color=3179728
+ index=296 color=4159677
+ index=297 color=4025550
+ index=299 color=4089040
+ index=300 color=5468879
+ index=302 color=6059714
+ index=304 color=7240139
+ index=305 color=6714833
+ index=307 color=5928921
+ index=308 color=5469650
+ index=310 color=5270720
+ index=311 color=5135795
+ index=313 color=4279972
+ index=315 color=2702985
+ index=316 color=2438269
+ index=318 color=925280
+ index=319 color=267090
+ index=321 color=139883
+ index=322 color=864394
+ index=324 color=1524387
+ index=325 color=2637733
+ index=327 color=2705074
+ index=329 color=3235249
+ index=330 color=4488375
+ index=332 color=6331093
+ index=333 color=6598621
+ index=335 color=5944554
+ index=336 color=6272756
+ index=338 color=5747176
+ index=340 color=4894961
+ index=341 color=4238048
+ index=343 color=3643879
+ index=344 color=3512811
+ index=346 color=3973107
+ index=347 color=4170747
+ index=349 color=3779570
+ index=350 color=3255016
+ index=352 color=3383263
+ index=354 color=3707579
+ index=355 color=4357812
+ index=357 color=6261667
+ index=358 color=7507078
+ index=360 color=7510671
+ index=361 color=7973083
+ index=363 color=8432865
+ index=365 color=7781854
+ index=366 color=6863334
+ index=368 color=6337758
+ index=369 color=6529749
+ index=371 color=5670338
+ index=372 color=5269939
+ index=374 color=6455443
+ index=376 color=5342089
+ index=377 color=3836819
+ index=379 color=3442599
+ index=380 color=2716867
+ index=382 color=1862351
+ index=383 color=1860030
+ index=385 color=1463494
+ index=386 color=1329853
+ index=388 color=866742
+ index=390 color=996271
+ index=391 color=1651875
+ index=393 color=2176418
+ index=394 color=3751832
+ index=396 color=2836651
+ index=397 color=3624873
+ index=399 color=4412340
 
 }
  

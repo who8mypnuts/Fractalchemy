@@ -6,62 +6,94 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>900</width>
-    <height>320</height>
+    <width>1100</width>
+    <height>520</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>HueClid</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QVBoxLayout" name="rootLayout">
+   <layout class="QHBoxLayout" name="rootLayout">
+    <property name="leftMargin"><number>0</number></property>
+    <property name="topMargin"><number>0</number></property>
+    <property name="rightMargin"><number>0</number></property>
+    <property name="bottomMargin"><number>0</number></property>
     <item>
-     <widget class="QLabel" name="lblGradientName">
-      <property name="text">
-       <string>No gradient loaded</string>
-      </property>
+     <widget class="CollapsibleSplitter" name="splitter">
+      <widget class="LibraryPanel" name="libraryPanel" native="true"/>
+      <widget class="QWidget" name="editorPane" native="true">
+       <layout class="QVBoxLayout" name="editorLayout">
+        <item>
+         <widget class="GradientBrowser" name="gradientBrowser"/>
+        </item>
+        <item>
+         <widget class="QLabel" name="lblGradientName">
+          <property name="text">
+           <string>No gradient loaded</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="GradientEditor" name="gradientEditor" native="true">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="buttonRow">
+          <item>
+           <widget class="QPushButton" name="btnOpen">
+            <property name="text">
+             <string>Open…</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnSave">
+            <property name="text">
+             <string>Save</string>
+            </property>
+            <property name="toolTip">
+             <string>Write this gradient back into its file</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QToolButton" name="btnSaveAs">
+            <property name="text">
+             <string>Save As</string>
+            </property>
+            <property name="popupMode">
+             <enum>QToolButton::InstantPopup</enum>
+            </property>
+            <property name="toolButtonStyle">
+             <enum>Qt::ToolButtonTextOnly</enum>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="buttonSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
      </widget>
-    </item>
-    <item>
-     <widget class="GradientEditor" name="gradientEditor" native="true">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-     </widget>
-    </item>
-    <item>
-     <layout class="QHBoxLayout" name="buttonRow">
-      <item>
-       <widget class="QPushButton" name="btnOpen">
-        <property name="text">
-         <string>Open…</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btnSaveAs">
-        <property name="text">
-         <string>Save As…</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <spacer name="buttonSpacer">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>40</width>
-          <height>20</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-     </layout>
     </item>
    </layout>
   </widget>
@@ -70,7 +102,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>900</width>
+     <width>1100</width>
      <height>30</height>
     </rect>
    </property>
@@ -78,9 +110,17 @@
     <property name="title">
      <string>File</string>
     </property>
+    <widget class="QMenu" name="menuSaveAs">
+     <property name="title">
+      <string>Save As</string>
+     </property>
+     <addaction name="actionSaveAsNewEntry"/>
+     <addaction name="actionSaveAsNewFile"/>
+     <addaction name="actionSaveAsIntoFile"/>
+    </widget>
     <addaction name="actionOpen"/>
     <addaction name="actionSave"/>
-    <addaction name="actionSaveAs"/>
+    <addaction name="menuSaveAs"/>
     <addaction name="separator"/>
     <addaction name="actionExit"/>
    </widget>
@@ -88,11 +128,14 @@
     <property name="title">
      <string>Edit</string>
     </property>
+    <addaction name="actionEditLibrary"/>
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title">
      <string>View</string>
     </property>
+    <addaction name="actionToggleLibrary"/>
+    <addaction name="actionRefreshLibrary"/>
    </widget>
    <widget class="QMenu" name="menuWindows">
     <property name="title">
@@ -112,43 +155,64 @@
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionOpen">
-   <property name="text">
-    <string>Open…</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+O</string>
-   </property>
+   <property name="text"><string>Open…</string></property>
+   <property name="shortcut"><string>Ctrl+O</string></property>
   </action>
   <action name="actionSave">
-   <property name="text">
-    <string>Save</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+S</string>
-   </property>
+   <property name="text"><string>Save</string></property>
+   <property name="shortcut"><string>Ctrl+S</string></property>
   </action>
-  <action name="actionSaveAs">
-   <property name="text">
-    <string>Save As…</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+Shift+S</string>
-   </property>
+  <action name="actionSaveAsNewEntry">
+   <property name="text"><string>Add to This File as New Gradient…</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+A</string></property>
+  </action>
+  <action name="actionSaveAsNewFile">
+   <property name="text"><string>New File…</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+S</string></property>
+  </action>
+  <action name="actionSaveAsIntoFile">
+   <property name="text"><string>Add to Another File…</string></property>
   </action>
   <action name="actionExit">
-   <property name="text">
-    <string>Exit</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+Q</string>
-   </property>
+   <property name="text"><string>Exit</string></property>
+   <property name="shortcut"><string>Ctrl+Q</string></property>
+  </action>
+  <action name="actionEditLibrary">
+   <property name="text"><string>Edit Library…</string></property>
+  </action>
+  <action name="actionToggleLibrary">
+   <property name="checkable"><bool>true</bool></property>
+   <property name="checked"><bool>true</bool></property>
+   <property name="text"><string>Show/Hide Library</string></property>
+   <property name="shortcut"><string>Ctrl+L</string></property>
+  </action>
+  <action name="actionRefreshLibrary">
+   <property name="text"><string>Refresh Library</string></property>
+   <property name="shortcut"><string>F5</string></property>
   </action>
  </widget>
  <customwidgets>
   <customwidget>
+   <class>GradientBrowser</class>
+   <extends>QListWidget</extends>
+   <header>hueclid/widgets/gradient_browser.h</header>
+  </customwidget>
+  <customwidget>
    <class>GradientEditor</class>
    <extends>QWidget</extends>
    <header>hueclid/widgets/gradient_editor.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>LibraryPanel</class>
+   <extends>QWidget</extends>
+   <header>hueclid/library/panel.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>CollapsibleSplitter</class>
+   <extends>QSplitter</extends>
+   <header>hueclid/widgets/collapsible_splitter.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>
