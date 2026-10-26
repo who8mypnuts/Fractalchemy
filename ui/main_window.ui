@@ -24,7 +24,7 @@
      </rect>
     </property>
    </widget>
-<widget class="QPushButton" name="btnLoadGradient">
+   <widget class="QPushButton" name="btnLoadGradient">
     <property name="geometry">
      <rect>
       <x>90</x>
@@ -37,7 +37,7 @@
      <string>Load Gradient</string>
     </property>
    </widget>
-</widget>
+  </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
     <rect>
@@ -47,8 +47,44 @@
      <height>30</height>
     </rect>
    </property>
+   <widget class="QMenu" name="menuFile_2">
+    <property name="title">
+     <string>File</string>
+    </property>
+    <addaction name="actionExit"/>
+   </widget>
+   <widget class="QMenu" name="menuEdit_2">
+    <property name="title">
+     <string>Edit</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuView_2">
+    <property name="title">
+     <string>View</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuWindows_2">
+    <property name="title">
+     <string>Windows</string>
+    </property>
+   </widget>
+   <widget class="QMenu" name="menuHelp_2">
+    <property name="title">
+     <string>Help</string>
+    </property>
+   </widget>
+   <addaction name="menuFile_2"/>
+   <addaction name="menuEdit_2"/>
+   <addaction name="menuView_2"/>
+   <addaction name="menuWindows_2"/>
+   <addaction name="menuHelp_2"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionExit">
+   <property name="text">
+    <string>Exit</string>
+   </property>
+  </action>
  </widget>
  <resources/>
  <connections/>
