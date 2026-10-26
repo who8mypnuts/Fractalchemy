@@ -27,6 +27,7 @@ def window(qapp, tmp_path, samples):
     spin(50)
     yield win
     win.gradient_library.document.modified = False
+    win.document.undo_stack.setClean()   # never prompt on teardown
     win.close()
 
 

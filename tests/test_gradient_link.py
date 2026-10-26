@@ -35,6 +35,7 @@ def window(qapp, workdir):
     win.show()
     yield win
     win.gradient_library.document.modified = False
+    win.document.undo_stack.setClean()   # never prompt on teardown
     win.close()
 
 

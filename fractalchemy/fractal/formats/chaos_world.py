@@ -61,6 +61,7 @@ def _flame_from_ifs(ifs: ET.Element) -> Flame:
     if viewing is not None:
         flame.final = _xform_from_transform(viewing, unsupported)
         flame.final.weight = 0.0
+        flame.final.color_speed = 0.0   # a viewing transform has no shader: it never recolours
     palette = ifs.find("colouring/table[@name='flam3_palette']/values")
     if palette is not None and palette.text:
         floats = [float(v) for v in palette.text.split()]
@@ -157,7 +158,12 @@ def _affine(affine: ET.Element) -> Affine:
     xa, xl = math.radians(_real(affine, "x_axis_angle", 0.0)), _real(affine, "x_axis_length", 1.0)
     ya, yl = math.radians(_real(affine, "y_axis_angle", 90.0)), _real(affine, "y_axis_length", 1.0)
     ox, oy = _vec(affine, "offset", (0.0, 0.0))[:2]
-    return (math.cos(xa) * xl, math.sin(xa) * xl, math.cos(ya) * yl, math.sin(ya) * yl, ox, oy)
+    return tuple(_tidy(v) for v in (math.cos(xa) * xl, math.sin(xa) * xl, math.cos(ya) * yl, math.sin(ya) * yl, ox, oy))
+
+
+def _tidy(value: float) -> float:
+    """Kill the 6e-17 left by cos(90°) so axis-aligned affines stay exact."""
+    return 0.0 if abs(value) < 1e-12 else value
 
 
 def _real(el: ET.Element | None, name: str, default: float) -> float:
@@ -192,4 +198,104 @@ def _vec(el: ET.Element, name: str, default: tuple) -> tuple:
     return default
 
 
-__all__ = ["parse_file", "flame_names", "ChaosParseError"]
+__all__ = ["parse_file", "parse_text", "flame_names", "flame_to_ifs", "flames_to_world", "ChaosParseError"]
+
+
+# --- writing ------------------------------------------------------------------
+def flame_to_ifs(flame: Flame, indent: str = "\t") -> str:
+    """An `<IFS>` element for `flame` in Chaotica's format (flam3 camera, iterators, palette)."""
+    cam, col = flame.camera, flame.coloring
+    ppu = cam.scale * (2.0 ** cam.zoom)
+    lines = [f'{indent}<IFS name="{_attr(flame.name)}">', f'{indent}\t<camera name="flam3 camera">',
+             f'{indent}\t\t<vec2 name="pos">{_g(cam.center[0])} {_g(cam.center[1])}</vec2>',
+             f'{indent}\t\t<real name="rotate">{_g(cam.rotate)}</real>',
+             f'{indent}\t\t<real name="sensor_width">{_g(cam.width / ppu if ppu else 1.0)}</real>']
+    if flame.final is not None:
+        lines.append(f'{indent}\t\t<flam3_transform name="Viewing transform">')
+        lines += _transform_body(flame.final, indent + "\t\t\t", include_post=True)
+        lines.append(f"{indent}\t\t</flam3_transform>")
+    lines += [f"{indent}\t</camera>", f'{indent}\t<imaging name="img">',
+              f'{indent}\t\t<int name="image_width">{cam.width}</int>', f'{indent}\t\t<int name="image_height">{cam.height}</int>',
+              f'{indent}\t\t<int name="image_aa_level">2</int>', f'{indent}\t\t<int name="image_layers">1</int>',
+              f'{indent}\t\t<int name="image_quality">0</int>', f'{indent}\t\t<string name="antialiasing_mode">fine</string>',
+              f'{indent}\t\t<real name="brightness">{_g(col.brightness / BRIGHTNESS_SCALE)}</real>',
+              f'{indent}\t\t<vec4 name="background_colour">{_g(col.background[0] / 255)} {_g(col.background[1] / 255)} {_g(col.background[2] / 255)} 1</vec4>',
+              f'{indent}\t\t<real name="flam3_gamma">{_g(col.gamma)}</real>', f'{indent}\t\t<real name="flam3_vibrancy">{_g(col.vibrancy)}</real>',
+              f'{indent}\t\t<bool name="flam3_use_highlight_power">false</bool>', f'{indent}\t\t<real name="flam3_highlight_power">0.01</real>',
+              f'{indent}\t\t<real name="flam3_gamma_linear_threshold">{_g(col.gamma_threshold)}</real>',
+              f"{indent}\t</imaging>", f"{indent}\t<colouring>", f'{indent}\t\t<table name="flam3_palette">',
+              f"{indent}\t\t\t<values>" + " ".join(_g(c / 255.0) for rgb in flame.palette for c in rgb) + "</values>",
+              f"{indent}\t\t</table>", f"{indent}\t</colouring>", f'{indent}\t<node name="iterators">']
+    for i, xform in enumerate(flame.xforms):
+        lines.append(f'{indent}\t\t<iterator name="Iterator {i}">')
+        lines.append(f'{indent}\t\t\t<flam3_transform name="flam3_xform {i}">')
+        lines += _transform_body(xform, indent + "\t\t\t\t", include_post=True)
+        lines += [f"{indent}\t\t\t</flam3_transform>", f'{indent}\t\t\t<flam3_shader name="flam3 shader">',
+                  f'{indent}\t\t\t\t<real name="palette_index">{_g(xform.color)}</real>',
+                  f'{indent}\t\t\t\t<real name="blend_speed">{_g(xform.color_speed)}</real>',
+                  f'{indent}\t\t\t\t<real name="opacity">{_g(xform.opacity)}</real>',
+                  f'{indent}\t\t\t\t<table name="layer_weights">', f"{indent}\t\t\t\t\t<values>1 1 1 1</values>",
+                  f"{indent}\t\t\t\t</table>", f"{indent}\t\t\t</flam3_shader>",
+                  f'{indent}\t\t\t<weights_selector name="Iterator selection weights">',
+                  f'{indent}\t\t\t\t<real name="base_weight">{_g(xform.weight)}</real>',
+                  f'{indent}\t\t\t\t<node name="per_iterator_weights">']
+        for j, other in enumerate(flame.xforms):   # Chaotica lists the weight *into* this iterator from each other one
+            weight = 1.0 if other.chaos is None or i >= len(other.chaos) else other.chaos[i]
+            lines.append(f'{indent}\t\t\t\t\t<real name="iter {j} weight">{_g(weight)}</real>')
+        lines += [f"{indent}\t\t\t\t</node>", f"{indent}\t\t\t</weights_selector>", f"{indent}\t\t</iterator>"]
+    lines += [f"{indent}\t</node>", f"{indent}</IFS>"]
+    return "\n".join(lines) + "\n"
+
+
+def flames_to_world(flames: list[Flame], name: str = "World") -> str:
+    """A complete `.chaos` document."""
+    body = "".join(flame_to_ifs(f) for f in flames)
+    return f'<?xml version="1.0" encoding="utf-8"?>\n<world name="{_attr(name)}">\n\t<int name="format_version">1</int>\n{body}</world>\n'
+
+
+def _transform_body(xform: XForm, indent: str, include_post: bool) -> list[str]:
+    lines = _affine_lines("Pre affine", xform.coefs, indent)
+    if include_post and xform.has_post():
+        lines += _affine_lines("Post affine", xform.post, indent)
+    lines.append(f'{indent}<node name="transforms">')
+    variations = dict(xform.variations)
+    for k, name in enumerate(variations):
+        lines.append(f'{indent}\t<transform name="Transform {k}">')
+        lines.append(f'{indent}\t\t<string name="type_name">{name}</string>')
+        lines.append(f"{indent}\t\t<params>")
+        lines.append(f'{indent}\t\t\t<real name="{name}">{_g(variations[name])}</real>')
+        for key, value in xform.params.items():
+            if key.startswith(name + "_"):
+                lines.append(f'{indent}\t\t\t<real name="{key}">{_g(value)}</real>')
+        lines += [f"{indent}\t\t</params>", f"{indent}\t</transform>"]
+    lines.append(f"{indent}</node>")
+    return lines
+
+
+def _affine_lines(name: str, coefs, indent: str) -> list[str]:
+    a, b, c, d, e, f = coefs
+    return [f'{indent}<affine2 name="{name}">',
+            f'{indent}\t<real name="x_axis_angle">{_g(math.degrees(math.atan2(b, a)))}</real>',
+            f'{indent}\t<real name="x_axis_length">{_g(math.hypot(a, b))}</real>',
+            f'{indent}\t<real name="y_axis_angle">{_g(math.degrees(math.atan2(d, c)))}</real>',
+            f'{indent}\t<real name="y_axis_length">{_g(math.hypot(c, d))}</real>',
+            f'{indent}\t<vec2 name="offset">{_g(e)} {_g(f)}</vec2>', f"{indent}</affine2>"]
+
+
+def parse_text(text: str) -> list[Flame]:
+    """Flames from Chaotica XML text (clipboard)."""
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ChaosParseError(f"not valid Chaotica XML: {exc}") from exc
+    elements = [root] if root.tag in IFS_TAGS else [el for tag in IFS_TAGS for el in root.iter(tag)]
+    return [f for f in (_flame_from_ifs(e) for e in elements) if f.xforms]
+
+
+def _g(value: float) -> str:
+    text = repr(float(value))
+    return text[:-2] if text.endswith(".0") else text
+
+
+def _attr(text: str) -> str:
+    return text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")

@@ -324,11 +324,11 @@ class FractalViewport(QWidget):
         anchor = self.fractal_point_at(pos)
         if anchor is None:
             return
-        camera = self._document.flame.camera
-        camera.zoom += delta_zoom
-        moved = self.fractal_point_at(pos)
-        cx, cy = camera.center
-        self._document.set_view(center=(cx + anchor[0] - moved[0], cy + anchor[1] - moved[1]))
+        zoomed = self._document.flame.camera.copy()   # work on a copy: the document records the edit as one step
+        zoomed.zoom += delta_zoom
+        moved = self.fractal_point_at(pos, zoomed.at_size(*self.image_size))
+        cx, cy = zoomed.center
+        self._document.set_view(center=(cx + anchor[0] - moved[0], cy + anchor[1] - moved[1]), zoom=zoomed.zoom)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton or self._document is None or self._document.flame is None:

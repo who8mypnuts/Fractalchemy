@@ -52,12 +52,51 @@ class LibraryController(QObject):
         self.roots = roots
         self._generation: dict[Path, int] = defaultdict(int)
         self._pending = 0
+        self._opened: Path | None = None
         self.watcher = LibraryWatcher(self)
         roots.added.connect(self.rescan_root)
         roots.removed.connect(self._on_root_removed)
         model.drop_requested.connect(self.drop)
         self.watcher.root_changed.connect(self.rescan_root)
         self.watcher.file_changed.connect(self.file_changed_externally)
+        self.watcher.file_changed.connect(self._on_file_changed)
+
+    # --- the opened file --------------------------------------------------------
+    @property
+    def opened_file(self) -> Path | None:
+        """File shown in the temporary section above the roots, or None."""
+        return self._opened
+
+    def set_opened_file(self, path: Path | None) -> None:
+        """Show `path`'s entries above the roots (replacing any previous opened file); None clears."""
+        self._opened = Path(path).resolve() if path is not None else None
+        self.watcher.watch_file(self._opened)
+        if self._opened is None:
+            self.model.clear_opened_file()
+            return
+        self.refresh_opened_file()
+
+    def refresh_opened_file(self) -> None:
+        """Re-list the opened file's entries (after it changed)."""
+        path = self._opened
+        if path is None:
+            return
+        run_in_background(self.catalog.entry_names, path,
+                          on_done=lambda names: self._apply_opened(path, names),
+                          on_error=lambda exc: self._apply_opened(path, []))
+
+    def _apply_opened(self, path: Path, names: list[str]) -> None:
+        if path != self._opened:
+            return
+        if names:
+            self.model.set_opened_file(path, names)
+        else:
+            self.model.clear_opened_file()
+            self.failed.emit(f"{path.name} holds no {self.catalog.entry_label}s")
+
+    def _on_file_changed(self, path: Path) -> None:
+        if self._opened is not None and Path(path).resolve() == self._opened:
+            self.refresh_opened_file()
 
     # --- scanning -----------------------------------------------------------
     def rescan_all(self) -> None:
@@ -143,13 +182,18 @@ class LibraryController(QObject):
     def _run(self, fn: Callable, *args, affected: list[Path]) -> None:
         def done(message: str) -> None:
             self.status.emit(message)
-            self.rescan_containing(*affected)
+            self._refresh(affected)
 
         def error(exc: Exception) -> None:
             self.failed.emit(str(exc))
-            self.rescan_containing(*affected)
+            self._refresh(affected)
 
         run_in_background(fn, *args, on_done=done, on_error=error)
+
+    def _refresh(self, affected: list[Path]) -> None:
+        self.rescan_containing(*affected)
+        if self._opened is not None and any(Path(p).resolve() == self._opened for p in affected):
+            self.refresh_opened_file()
 
     def _apply_scan(self, scanned: ScannedDir, generation: int) -> None:
         self._set_pending(-1)

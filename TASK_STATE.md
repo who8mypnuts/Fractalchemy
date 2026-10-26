@@ -149,3 +149,17 @@ fixed before polish (docstrings, comment pruning, layout-method splits). No code
 - `MainWindow(..., settings=)`; View menu: Show/Hide Settings Panel (Ctrl+Shift+L), Zoom to Fit (Ctrl+0), Zoom 100% (Ctrl+1).
 - Tests: `tests/test_viewer_controls.py` (11). Suite: 284 passed, pyflakes clean. Tests must pass `settings=` to
   MainWindow or they write to the real QSettings store.
+
+## Undo/redo, copy/paste, save, opened-file section
+- `FractalDocument` now owns a `QUndoStack` of whole-flame snapshots (`edit()`, merge ids for camera / gradient sweeps);
+  `modified` = not clean; `mark_saved` → `source_changed`; `flame_edited(str)` after edits/undo/redo.
+- `ui/fractal_file_actions.py`: open (announces `file_opened`), save (replace entry; lossy warning for unsupported
+  variations; .chaos → Save As), save_as (.fa default, append to existing multi-flame files, whole-file write otherwise),
+  copy (fa/flame/chaos), paste (auto-detect), confirm_discard, wrote_recently.
+- `fractal/formats/clipboard.py`; Chaotica writer `flame_to_ifs` / `flames_to_world` + `parse_text`; `write_file` on all formats.
+- Library: `Kind.SEPARATOR`, `LibraryModel.set_opened_file/clear_opened_file/opened_file/root_rows`, separator delegate
+  in `LibraryTree`, `LibraryWatcher.watch_file`, `LibraryController.set_opened_file/refresh_opened_file`.
+- `GradientLink` tracks `_synced_palette` (editor ↔ flame) so undo/redo refresh the editor without false prompts.
+- `widgets/icons.action_icon()` (theme icon or painted glyph); toolbar: open, save, save-as, undo, redo, copy, paste, gradient.
+- Tests: `tests/test_fractal_files.py` (13). Suite: 297 passed, pyflakes clean. Test fixtures must `undo_stack.setClean()`
+  before closing windows (closeEvent prompts for unsaved fractal edits).

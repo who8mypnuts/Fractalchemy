@@ -43,6 +43,10 @@ class FractalFormat:
     def names(self, path: Path) -> list[str]:
         return [f.name for f in self.load(path)]
 
+    def write_file(self, flames: list[Flame], path: Path) -> None:
+        """Write a whole new file holding `flames` (every format can)."""
+        raise NotImplementedError(f"{self.name} files cannot be written")
+
     def append(self, flame: Flame, path: Path) -> int:
         raise NotImplementedError(f"{self.name} files cannot be written")
 
@@ -72,6 +76,9 @@ class FlameFileFormat(FractalFormat):
 
     def names(self, path: Path) -> list[str]:
         return flame_xml.flame_names(path)
+
+    def write_file(self, flames: list[Flame], path: Path) -> None:
+        path.write_text(flame_xml.flames_to_xml(flames, path.stem), encoding="utf-8")
 
     def append(self, flame: Flame, path: Path) -> int:
         _append_text(path, flame_xml.flame_to_xml(flame))
@@ -105,6 +112,9 @@ class ChaosFileFormat(FractalFormat):
     def names(self, path: Path) -> list[str]:
         return chaos_world.flame_names(path)
 
+    def write_file(self, flames: list[Flame], path: Path) -> None:
+        path.write_text(chaos_world.flames_to_world(flames, path.stem), encoding="utf-8")
+
     def rename(self, path: Path, index: int, name: str) -> None:
         self._text.rename(path, index, name)
 
@@ -120,6 +130,9 @@ class FaFileFormat(FractalFormat):
 
     def names(self, path: Path) -> list[str]:
         return fa.flame_names(path)
+
+    def write_file(self, flames: list[Flame], path: Path) -> None:
+        fa.write_file(flames, path)
 
     def append(self, flame: Flame, path: Path) -> int:
         return fa.append_flame(flame, path)
@@ -186,6 +199,11 @@ def flame_names(path: Path | str) -> list[str]:
     return fractal_format_for(path).names(Path(path))
 
 
+def save_dialog_filter() -> str:
+    """QFileDialog filter for saving: Fractalchemy first, then the others."""
+    return ";;".join(f.dialog_filter() for f in FORMATS)
+
+
 def open_dialog_filter() -> str:
     """QFileDialog filter for every readable fractal type."""
     all_patterns = " ".join(f"*{e}" for f in FORMATS for e in f.extensions)
@@ -195,4 +213,5 @@ def open_dialog_filter() -> str:
 __all__ = [
     "FORMATS", "DEFAULT_SAVE_FORMAT", "PARSE_ERRORS", "FractalFormat", "UnsupportedFractalFormat",
     "fractal_format_for", "is_fractal_file", "load_flames", "load_flame", "flame_names", "open_dialog_filter",
+    "save_dialog_filter",
 ]

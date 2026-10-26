@@ -14,6 +14,7 @@ from PySide6.QtCore import QFileSystemWatcher, QObject, QTimer, Signal
 from .scanner import ScannedDir
 
 DEBOUNCE_MS = 600
+_EXTRA = Path("<opened-file>")   # pseudo-root key for the single watched file
 MAX_WATCHED_FILES = 4000  # stay well under typical inotify limits; dirs are always watched
 
 
@@ -49,6 +50,13 @@ class LibraryWatcher(QObject):
             self._watcher.addPaths(sorted(wanted - current))
         self._roots[scanned.path] = wanted
 
+    def watch_file(self, path: Path | None) -> None:
+        """Watch one file outside the roots (the opened file); None stops."""
+        self.forget(_EXTRA)
+        if path is not None:
+            self._watcher.addPath(str(path))
+            self._roots[_EXTRA] = {str(path)}
+
     def forget(self, root: Path) -> None:
         """Stop watching everything under `root`."""
         paths = self._roots.pop(root, set())
@@ -64,7 +72,8 @@ class LibraryWatcher(QObject):
 
     def _on_file_changed(self, changed: str) -> None:
         self.file_changed.emit(Path(changed))
-        self._on_changed(changed)
+        if self._root_for(Path(changed)) != _EXTRA:
+            self._on_changed(changed)
 
     def _flush(self) -> None:
         dirty, self._dirty = self._dirty, set()

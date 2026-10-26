@@ -21,7 +21,8 @@ def window(qapp, tmp_path):
                      settings=settings)
     win.show()
     yield win
-    win.gradient_library.document.modified = False  # never prompt on teardown
+    win.gradient_library.document.modified = False
+    win.document.undo_stack.setClean()   # never prompt on teardown
     win.close()
 
 
@@ -41,7 +42,10 @@ def test_menu_bar_has_windows_and_help_menus(window):
     assert [a.text() for a in window.menuWindows.actions()] == ["Gradient Library"]
     assert [a.text() for a in window.menuHelp.actions()] == ["About Fractalchemy…", "About Qt…"]
     assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
-    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Exit"]
+    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save", "Save As…", "Exit"]
+    assert [a.text() for a in window.menuEdit.actions() if a.text()] == [
+        "Undo", "Redo", "Copy", "Copy As", "Paste", "Edit Fractal Library…"]
+    assert [a.text() for a in window.menuCopyAs.actions()] == ["Apophysis Parameters", "Chaotica Parameters"]
 
 
 def test_toolbar_holds_the_gradient_library_button_with_popup_text(window):
@@ -173,6 +177,7 @@ def fractal_window(qapp, tmp_path, samples):
     wait_until(lambda: win.fractalLibraryPanel.model.rowCount() == 1 and not win.fractal_library._pending)
     yield win
     win.gradient_library.document.modified = False
+    win.document.undo_stack.setClean()   # never prompt on teardown
     win.close()
 
 
@@ -185,7 +190,7 @@ def test_fractal_library_lists_flames_and_has_search_collapse_and_view_buttons(f
     assert [candy.child(i).text() for i in range(candy.rowCount())] == ["original", "outlined", "rotated", "pearl", "obsession"]
     assert panel.search.placeholderText() and panel.collapse_button.toolTip() == "Collapse All"
     assert panel.list_button.isChecked() and not panel.thumb_button.isChecked()
-    assert [a.text() for a in fractal_window.menuEdit.actions()] == ["Edit Fractal Library…"]
+    assert fractal_window.menuEdit.actions()[-1].text() == "Edit Fractal Library…"
     assert fractal_window.actionToggleFractalLibrary.isChecked()
     fractal_window.actionToggleFractalLibrary.setChecked(False)
     assert fractal_window.splitter.is_collapsed()
@@ -206,7 +211,7 @@ def test_opening_a_flame_renders_it_in_the_viewport_with_status(fractal_window, 
     assert "Pass 6 of 6" in win.status.passes.text()
     assert win.status.progress.value() == win.status.progress.maximum() == 6
     assert "samples" in win.status.render.text() and win.status.render.text().startswith("CPU")
-    assert win.windowTitle() == "Fractalchemy — rotated"
+    assert win.windowTitle() == "Fractalchemy — rotated[*]" and not win.isWindowModified()
 
 
 def test_choosing_a_library_row_loads_it(fractal_window):

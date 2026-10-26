@@ -14,7 +14,6 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from .. import config
-from ..fractal.formats import load_flame, open_dialog_filter
 from ..fractal.scene import Flame
 from ..library.catalog import FRACTAL_CATALOG
 from ..library.context_menu import LibraryContextMenu
@@ -24,9 +23,9 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import gradient_icon
-from .background import run_in_background
+from ..widgets.icons import action_icon, gradient_icon
 from .fractal_document import FractalDocument
+from .fractal_file_actions import FractalFileActions
 from .fractal_library_panel import LIST_ICON_SIZE, FractalLibraryPanel
 from .fractal_viewport import FractalViewport
 from .gradient_library_window import GradientLibraryWindow
@@ -72,6 +71,7 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(gradient_icon())
         self.render_service = RenderService(self, prefer_gpu=prefer_gpu)
         self.document = FractalDocument(self)
+        self.files = FractalFileActions(self.document, self)
         self.status = RenderStatus(self.statusBar())
         self.viewport.bind(self.document, self.render_service)
         self.fractal_library = LibraryController(
@@ -97,7 +97,26 @@ class MainWindow(QMainWindow):
     # --- wiring -------------------------------------------------------------
     def _connect_actions(self) -> None:
         self.actionOpenFractal.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_DialogOpenButton))
-        self.actionOpenFractal.triggered.connect(self.open_file)
+        self.actionOpenFractal.triggered.connect(self.files.open)
+        for action, name in ((self.actionSave, "save"), (self.actionSaveAs, "save-as"), (self.actionUndo, "undo"),
+                             (self.actionRedo, "redo"), (self.actionCopy, "copy"), (self.actionPaste, "paste")):
+            action.setIcon(action_icon(name))
+        self.actionSave.triggered.connect(self.files.save)
+        self.actionSaveAs.triggered.connect(self.files.save_as)
+        self.actionCopy.triggered.connect(lambda: self.files.copy("fa"))
+        self.actionCopyApophysis.triggered.connect(lambda: self.files.copy("flame"))
+        self.actionCopyChaotica.triggered.connect(lambda: self.files.copy("chaos"))
+        self.actionPaste.triggered.connect(self.files.paste)
+        stack = self.document.undo_stack
+        self.actionUndo.triggered.connect(stack.undo)
+        self.actionRedo.triggered.connect(stack.redo)
+        stack.canUndoChanged.connect(self.actionUndo.setEnabled)
+        stack.canRedoChanged.connect(self.actionRedo.setEnabled)
+        stack.undoTextChanged.connect(self._set_undo_text)   # bound methods auto-disconnect on destruction; lambdas don't
+        stack.redoTextChanged.connect(self._set_redo_text)
+        self.files.status.connect(self._message)
+        self.files.file_opened.connect(self.fractal_library.set_opened_file)
+        self.files.file_written.connect(self.fractal_library.rescan_containing)
         self.actionGradientLibrary.setIcon(gradient_icon())
         self.actionGradientLibrary.triggered.connect(self.show_gradient_library)
         self.actionEditFractalLibrary.triggered.connect(self.edit_fractal_library)
@@ -119,6 +138,7 @@ class MainWindow(QMainWindow):
         self.document.flame_replaced.connect(self._on_flame_replaced)
         self.document.camera_changed.connect(self._on_camera_changed)
         self.document.palette_changed.connect(self._on_palette_changed)
+        self.document.modified_changed.connect(self._on_modified_changed)
 
     def _connect_library(self) -> None:
         panel = self.fractalLibraryPanel
@@ -154,31 +174,23 @@ class MainWindow(QMainWindow):
 
     # --- fractal loading ----------------------------------------------------
     def open_file(self) -> None:
-        """Prompt for a fractal file and show its first flame."""
-        start = str(self.document.source_path.parent) if self.document.source_path else ""
-        path, _ = QFileDialog.getOpenFileName(self, "Open fractal", start, open_dialog_filter())
-        if path:
-            self.open_path(Path(path), 0)
+        """Prompt for a fractal file and show its first flame (its flames appear at the top of the library)."""
+        self.files.open()
 
     def open_item(self, item: LibraryItem) -> None:
-        """Show the flame a library row refers to."""
-        if not self.document.is_showing(item.path, item.index):
-            self.open_path(item.path, item.index)
+        """Show the flame a library row refers to (asks about unsaved edits first)."""
+        if self.document.is_showing(item.path, item.index) and not self.document.modified:
+            return
+        if self.files.confirm_discard():
+            self.files.open_path(item.path, item.index)
 
     def open_path(self, path: Path, index: int = 0) -> None:
         """Load flame `index` of `path` on a worker thread, then show it."""
-        self._message(f"Loading {path.name}…")
-        run_in_background(load_flame, path, index,
-                          on_done=lambda flame: self._loaded(flame, path, index),
-                          on_error=lambda exc: self._report_error("Could not open fractal", exc))
+        self.files.open_path(path, index)
 
     def show_flame(self, flame: Flame) -> None:
         """Show a flame that did not come from a file."""
         self.document.replace(flame)
-
-    def _loaded(self, flame: Flame, path: Path, index: int) -> None:
-        self.document.replace(flame, path, index)
-        self._message(f"Loaded '{flame.name}' from {path.name}")
 
     # --- library slots ------------------------------------------------------
     def add_fractal_folder(self) -> None:
@@ -202,9 +214,12 @@ class MainWindow(QMainWindow):
             self.statusBar().clearMessage()
 
     def _on_external_change(self, path: Path) -> None:
-        """Reload the shown flame if another program changed its file (not our own gradient saves)."""
-        if path == self.document.source_path and not self.gradient_library.files.wrote_recently(path):
-            self.open_path(path, self.document.source_index)
+        """Reload the shown flame if another program changed its file (not our own saves), unless it has unsaved edits."""
+        if path != self.document.source_path or self.document.modified:
+            return
+        if self.files.wrote_recently(path) or self.gradient_library.files.wrote_recently(path):
+            return
+        self.open_path(path, self.document.source_index)
 
     # --- other slots --------------------------------------------------------
     def show_gradient_library(self) -> None:
@@ -220,7 +235,21 @@ class MainWindow(QMainWindow):
         self.status.show_fractal(flame, source)
         self.status.show_idle()
         self.viewerBar.show_flame(flame)
-        self.setWindowTitle(f"{config.APP_NAME} — {flame.name}" if flame else config.APP_NAME)
+        self._refresh_title()
+
+    def _set_undo_text(self, text: str) -> None:
+        self.actionUndo.setText(f"Undo {text}" if text else "Undo")
+
+    def _set_redo_text(self, text: str) -> None:
+        self.actionRedo.setText(f"Redo {text}" if text else "Redo")
+
+    def _on_modified_changed(self, _modified: bool) -> None:
+        self._refresh_title()
+
+    def _refresh_title(self) -> None:
+        flame = self.document.flame
+        self.setWindowTitle(f"{config.APP_NAME} — {flame.name}[*]" if flame else f"{config.APP_NAME}[*]")
+        self.setWindowModified(self.document.modified)
 
     def _on_camera_changed(self) -> None:
         flame = self.document.flame
@@ -234,18 +263,14 @@ class MainWindow(QMainWindow):
     def _message(self, text: str, ms: int = MESSAGE_MS) -> None:
         self.statusBar().showMessage(text, ms)
 
-    def _report_error(self, title: str, exc: Exception) -> None:
-        self._message(f"{title}: {exc}")
-        QMessageBox.warning(self, title, str(exc))
-
     def _report_library_error(self, message: str) -> None:
         self._message(message)
         QMessageBox.warning(self, "Fractal Library", message)
 
     # --- Qt overrides -------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:
-        """Quitting closes the tool windows too, so check for unsaved gradient edits first."""
-        if not self.gradient_library.files.confirm_discard():
+        """Quitting closes the tool windows too, so check for unsaved fractal and gradient edits first."""
+        if not self.files.confirm_discard() or not self.gradient_library.files.confirm_discard():
             event.ignore()
             return
         self.gradient_library.close()

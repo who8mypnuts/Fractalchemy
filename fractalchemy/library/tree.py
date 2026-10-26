@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QModelIndex, QPoint, Qt, QTimer, Signal
-from PySide6.QtWidgets import QAbstractItemView, QTreeView
+from PySide6.QtCore import QModelIndex, QPoint, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QPen
+from PySide6.QtWidgets import QAbstractItemView, QStyledItemDelegate, QTreeView
 
 from .filter import LibraryFilter
-from .items import LibraryItem
-from .model import LibraryModel
+from .items import Kind, LibraryItem
+from .model import ITEM_ROLE, LibraryModel
+
+SEPARATOR_HEIGHT = 9
 
 
 class LibraryTree(QTreeView):
@@ -31,6 +34,7 @@ class LibraryTree(QTreeView):
         self._expanded: set[Path] = set()
         self._seen_roots: set[Path] = set()
         self.setModel(self._proxy)
+        self.setItemDelegate(_SeparatorDelegate(self))
         self._configure()
         self.selectionModel().currentChanged.connect(self._on_current_changed)
         self.customContextMenuRequested.connect(self._on_menu)
@@ -115,3 +119,24 @@ def _walk(model, parent: QModelIndex):
         index = model.index(row, 0, parent)
         yield index
         yield from _walk(model, index)
+
+
+class _SeparatorDelegate(QStyledItemDelegate):
+    """Draws SEPARATOR rows as a thin horizontal line; everything else as usual."""
+
+    def paint(self, painter, option, index) -> None:
+        item = index.data(ITEM_ROLE)
+        if item is not None and item.kind == Kind.SEPARATOR:
+            painter.save()
+            painter.setPen(QPen(option.palette.mid().color(), 1))
+            y = option.rect.center().y()
+            painter.drawLine(option.rect.left() + 4, y, option.rect.right() - 4, y)
+            painter.restore()
+            return
+        super().paint(painter, option, index)
+
+    def sizeHint(self, option, index) -> QSize:
+        item = index.data(ITEM_ROLE)
+        if item is not None and item.kind == Kind.SEPARATOR:
+            return QSize(option.rect.width(), SEPARATOR_HEIGHT)
+        return super().sizeHint(option, index)

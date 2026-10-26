@@ -20,10 +20,22 @@ python -m pytest
 ## What it does today
 
 ### Main window
-* Menu bar: *File* (Open Fractal…, Exit), *Edit* (Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
-  Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
+* Menu bar: *File* (Open Fractal…, Save `Ctrl+S`, Save As… `Ctrl+Shift+S`, Exit), *Edit* (Undo `Ctrl+Z`, Redo `Ctrl+Y`,
+  Copy `Ctrl+C`, Copy As ▸ Apophysis / Chaotica Parameters, Paste `Ctrl+V`, Edit Fractal Library…), *View* (Show/Hide
+  Fractal Library `Ctrl+L`, Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
   *Windows* (Gradient Library `F6`), *Help*.
-* Toolbar: **Open Fractal**, **Gradient Library** (hover for tooltips).
+* Toolbar: Open · Save · Save As · Undo · Redo · Copy · Paste · Gradient Library (hover for tooltips).
+* **Open Fractal…** shows the file's first flame and lists *all* of the file's flames in a temporary section at the
+  top of the Fractal Library, above a separator; opening another file replaces it. The section follows the file:
+  rename / delete / duplicate its flames there, or drag them into library files.
+* **Undo / Redo** cover every edit to the fractal — camera moves (Ctrl+drag / Ctrl+wheel / double-click) and gradient
+  edits made in the Gradient Library; a drag or a slider sweep is one step. The title shows `*` while unsaved.
+* **Save** writes the flame back into its own entry (`.fa`, `.flame`); for a Chaotica world or a flame without a file
+  it becomes **Save As…**, which defaults to Fractalchemy `.fa` and also writes `.flame` and `.chaos`. Saving into an
+  existing multi-flame file adds an entry rather than replacing the file. Saving a flame that uses variations we
+  can't render yet back into its `.flame` warns first, because those variations would be dropped.
+* **Copy** puts the parameters (transforms, camera, colouring *and* gradient) on the clipboard as Fractalchemy
+  text; *Copy As* gives Apophysis `<flame>` XML or a Chaotica world instead. **Paste** accepts any of the three.
 * **Fractal Library** (left pane, collapsible via the divider arrow or `Ctrl+L`): folders of `.flame`
   (Apophysis / flam3, legacy files included), `.chaos` (Chaotica) and `.fa` (Fractalchemy) files, each file
   expanding into its flames. Search box, collapse-all, and two view buttons: **list** or **thumbnails**
@@ -75,11 +87,11 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
 * Tunables in `config.py`: `PREVIEW_PASSES` / `PREVIEW_QUALITY` (defaults for the settings panel),
   `INTERACTIVE_SCALE`, thumbnail size / quality.
 
-| Fractal format | Read | Entries | Rename | Add / remove / replace |
-|---|---|---|---|---|
-| `.flame` (Apophysis / flam3) | ✓ | many | ✓ | ✓ (in-place text edits; unknown data survives) |
-| `.fa` (Fractalchemy, JSON) | ✓ | many | ✓ | ✓ |
-| `.chaos` (Chaotica) | ✓ | many | ✓ | – |
+| Fractal format | Read | Entries | Rename | Add / remove / replace entry | Write whole file |
+|---|---|---|---|---|---|
+| `.flame` (Apophysis / flam3) | ✓ | many | ✓ | ✓ (in-place text edits; unknown data survives) | ✓ |
+| `.fa` (Fractalchemy, JSON) | ✓ | many | ✓ | ✓ | ✓ |
+| `.chaos` (Chaotica) | ✓ | many | ✓ | – | ✓ |
 
 ### Gradient Library window
 Its own *File* (Open, Save, Save As, Close Window), *Edit* (Edit Library…) and *View* (Show/Hide

@@ -13,6 +13,7 @@ class Kind(str, Enum):
     DIR = "dir"            # a sub-directory
     FILE = "file"          # a supported file (image / flame / ugr / fa ...)
     ENTRY = "entry"        # one named entry inside a multi-entry file (a gradient, a flame)
+    SEPARATOR = "separator"  # the line between the opened file and the library roots
 
 
 @dataclass(frozen=True)
