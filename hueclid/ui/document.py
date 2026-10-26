@@ -16,7 +16,7 @@ from ..model import RGB, Gradient
 
 class GradientDocument(QObject):
     gradient_replaced = Signal()          # a whole new gradient was loaded
-    stop_changed = Signal(int)            # a single stop moved / recoloured
+    stop_changed = Signal(int)            # a single stop moved / recoloured (its current index)
     selection_changed = Signal(int)       # -1 when nothing is selected
 
     def __init__(self, parent: QObject | None = None):
@@ -55,10 +55,13 @@ class GradientDocument(QObject):
         self._source_path = path
         self.modified = False
 
-    def move_stop(self, index: int, position: float) -> float:
-        applied = self._gradient.move_stop(index, position)
-        self._touch(index)
-        return applied
+    def move_stop(self, index: int, position: float) -> int:
+        """Move a stop; selection follows it. Returns its new index."""
+        new_index = self._gradient.move_stop(index, position)
+        if self._selected == index:
+            self.select(new_index)
+        self._touch(new_index)
+        return new_index
 
     def set_color(self, index: int, color: RGB) -> None:
         self._gradient.set_color(index, color)

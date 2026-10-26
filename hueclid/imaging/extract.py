@@ -7,21 +7,15 @@ from pathlib import Path
 from PIL import Image
 
 from ..model import RGB
+from .decode import load_for_analysis
 
 WeightedColor = tuple[RGB, int]  # (rgb, pixel count)
 
 
 def extract_palette(path: Path, color_count: int, analysis_size: int) -> list[WeightedColor]:
-    with Image.open(path) as source:
-        image = _prepare(source, analysis_size)
+    image = load_for_analysis(path, analysis_size)
     quantized = image.quantize(colors=color_count, method=Image.Quantize.MEDIANCUT)
     return _weighted_palette(quantized)
-
-
-def _prepare(image: Image.Image, max_edge: int) -> Image.Image:
-    rgb = image.convert("RGB")
-    rgb.thumbnail((max_edge, max_edge))
-    return rgb
 
 
 def _weighted_palette(quantized: Image.Image) -> list[WeightedColor]:

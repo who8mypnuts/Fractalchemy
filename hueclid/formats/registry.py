@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import config
+from ..imaging import decoder_hint
 from ..model import Gradient, simplify
 from .base import FormatError, GradientFormat
 from .flame import FlameFormat
@@ -24,7 +25,9 @@ def format_for(path: Path | str) -> GradientFormat:
     for fmt in FORMATS:
         if fmt.matches(path):
             return fmt
-    raise UnsupportedFormatError(f"No reader for '{path.suffix or path.name}'")
+    suffix = path.suffix or path.name
+    hint = decoder_hint(suffix)
+    raise UnsupportedFormatError(f"No reader for '{suffix}'" + (f" — needs {hint}" if hint else ""))
 
 
 def save_format_for(path: Path | str) -> GradientFormat:

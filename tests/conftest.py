@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def samples() -> Path:
     return SAMPLES
 

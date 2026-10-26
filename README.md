@@ -20,10 +20,11 @@ python -m pytest
 * **Open** (`File ▸ Open…`, `Ctrl+O`) any of:
   * `.flame` – the `<palette>` of the first `<flame>` in the file
   * `.ugr` / `.gradient` – the first gradient in the file (Ultra Fractal format)
-  * images (`.png .jpg .jpeg .bmp .gif .tif .webp`) – dominant colours are extracted
-    and ordered into a gradient
+  * images – dominant colours are extracted and ordered into a gradient:
+    PNG / APNG (first frame), JPEG, AVIF, HEIC/HEIF, JPEG XL, WebP, GIF, BMP, TIFF,
+    and SVG (rasterised via Qt). Transparent pixels are ignored.
 * The gradient is painted in the editor with one **node** beneath each colour stop.
-  Drag a node left/right to move its colour (nodes can't cross their neighbours).
+  Drag a node anywhere along the bar, including past other nodes; the others stay put.
 * **Save** (`Ctrl+S`) writes back to the source file when it is a flame/ugr
   (for a flame, only the first palette block is rewritten; everything else is preserved).
   **Save As…** lets you pick `.flame` or `.ugr`. Image-derived gradients save as `.ugr`.
@@ -37,7 +38,7 @@ hueclid/
   config.py             tunables: node counts, simplify tolerance, sizes
   model/                Qt-free data: colours, stops, Gradient, stop simplification
   formats/              one module per file type + registry (extension → format)
-  imaging/              palette extraction (Pillow) and colour ordering strategies
+  imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
   widgets/              GradientStrip, NodeBar, GradientEditor, position mapping
   ui/                   .ui loader, GradientDocument (state + signals), file actions, MainWindow
 tests/                  pytest suite
@@ -51,3 +52,6 @@ tests/                  pytest suite
   picks how they are sequenced (`path` = smooth nearest-neighbour walk from the darkest
   colour, or `luminance` / `hue`).
 * All loaders already return *every* gradient in a file; only the UI picks the first.
+* HEIC and JPEG XL need `pillow-heif` / `pillow-jxl-plugin`; if either is missing those
+  extensions simply disappear from the Open dialog, and opening such a file by path
+  reports which package to install.

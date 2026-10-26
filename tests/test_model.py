@@ -18,12 +18,26 @@ def test_stops_are_kept_sorted():
     assert [s.position for s in g.stops] == [0.1, 0.9]
 
 
-def test_move_stop_is_clamped_between_neighbours():
+def test_move_stop_clamps_to_unit_range():
     g = Gradient.from_colors("g", [(0, 0, 0), (9, 9, 9), (255, 255, 255)])
-    assert g.move_stop(1, 0.0) == 0.0
-    assert g.move_stop(1, 5.0) == 1.0
-    assert g.move_stop(0, 0.9) == 0.9  # neighbour now sits at 1.0
-    assert g.move_stop(2, 0.0) == g.stops[1].position
+    grey = g.stops[1]
+    g.move_stop(1, -3.0)
+    assert grey.position == 0.0 and g.index_of(grey) == 1  # tie with the black stop keeps prior order
+    g.move_stop(g.index_of(grey), 5.0)
+    assert grey.position == 1.0
+    assert [s.position for s in g.stops] == sorted(s.position for s in g.stops)
+
+
+def test_move_stop_can_pass_other_stops_and_leaves_them_untouched():
+    colors = [(0, 0, 0), (10, 10, 10), (20, 20, 20), (30, 30, 30), (40, 40, 40)]
+    g = Gradient.from_colors("g", colors)
+    before = [s.position for s in g.stops]
+    new_index = g.move_stop(1, 0.9)  # jump over stops 2 and 3
+    assert new_index == 3
+    assert g.stops[3].color == (10, 10, 10) and g.stops[3].position == 0.9
+    others = [s for s in g.stops if s.color != (10, 10, 10)]
+    assert [s.position for s in others] == [before[i] for i in (0, 2, 3, 4)]
+    assert [s.color for s in g.stops] == [(0, 0, 0), (20, 20, 20), (30, 30, 30), (10, 10, 10), (40, 40, 40)]
 
 
 def test_sample_matches_count():

@@ -15,7 +15,7 @@ class Gradient:
     stops: list[ColorStop] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        self.stops.sort(key=lambda s: s.position)
+        self._sort()
 
     # --- construction -------------------------------------------------------
     @classmethod
@@ -51,19 +51,24 @@ class Gradient:
             return [self.color_at(0.0)] * max(count, 0)
         return [self.color_at(i / (count - 1)) for i in range(count)]
 
-    def bounds_for(self, index: int) -> tuple[float, float]:
-        """Positions the stop at `index` may occupy without crossing neighbours."""
-        low = self.stops[index - 1].position if index > 0 else 0.0
-        high = self.stops[index + 1].position if index < len(self.stops) - 1 else 1.0
-        return low, high
+    def index_of(self, stop: ColorStop) -> int:
+        """Current index of this exact stop object (stops may be reordered by moves)."""
+        for i, candidate in enumerate(self.stops):
+            if candidate is stop:
+                return i
+        raise ValueError("stop does not belong to this gradient")
 
     # --- mutation -----------------------------------------------------------
-    def move_stop(self, index: int, position: float) -> float:
-        """Move a stop, clamped between its neighbours. Returns the applied position."""
-        low, high = self.bounds_for(index)
-        applied = max(low, min(high, clamp_unit(position)))
-        self.stops[index].position = applied
-        return applied
+    def move_stop(self, index: int, position: float) -> int:
+        """Move a stop anywhere in 0..1, passing over neighbours if needed.
+
+        Other stops keep their positions; the list is re-sorted so the
+        invariant holds. Returns the stop's new index.
+        """
+        stop = self.stops[index]
+        stop.position = clamp_unit(position)
+        self._sort()
+        return self.index_of(stop)
 
     def set_color(self, index: int, color: RGB) -> None:
         self.stops[index].color = color
@@ -72,6 +77,9 @@ class Gradient:
         return Gradient(self.name, [s.copy() for s in self.stops])
 
     # --- internals ----------------------------------------------------------
+    def _sort(self) -> None:
+        self.stops.sort(key=lambda s: s.position)  # stable: equal positions keep order
+
     def _neighbours(self, t: float) -> tuple[ColorStop, ColorStop]:
         for left, right in zip(self.stops, self.stops[1:]):
             if left.position <= t <= right.position:

@@ -80,7 +80,8 @@ class NodeBar(QWidget):
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._dragging < 0:
             return
-        self._document.move_stop(self._dragging, self.mapper().to_position(event.position().x()))
+        position = self.mapper().to_position(event.position().x())
+        self._dragging = self._document.move_stop(self._dragging, position)  # index may change when crossing
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self._dragging = -1
