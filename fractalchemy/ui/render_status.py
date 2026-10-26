@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QProgressBar, QStatusBar
+from PySide6.QtWidgets import QLabel, QProgressBar, QSizePolicy, QStatusBar
 
 from ..fractal.scene import Flame
 from ..render.settings import RenderStats
@@ -21,6 +21,10 @@ class RenderStatus:
         self.progress.setTextVisible(False)
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
+        # long texts must never force the window wider: these labels clip instead
+        self.fractal.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.render.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.render.setMinimumWidth(260)
         bar.addWidget(self.fractal, 1)
         bar.addPermanentWidget(self.render)
         bar.addPermanentWidget(self.passes)
@@ -42,9 +46,11 @@ class RenderStatus:
         if flame.unsupported:
             parts.append(f"ignored: {', '.join(flame.unsupported)}")
         self.fractal.setText("  ·  ".join(parts))
+        self.fractal.setToolTip(self.fractal.text())
 
     def set_engine(self, name: str) -> None:
         self.engine_name = name
+        self.render.setToolTip(name)
         if not self.render.text():
             self.render.setText(name)
 
@@ -56,10 +62,11 @@ class RenderStatus:
 
     def show_progress(self, stats: RenderStats) -> None:
         """Update after a pass: engine, samples, speed, pass counter and the bar."""
-        facts = [stats.engine, f"{stats.width}×{stats.height}", _count(stats.samples) + " samples"]
+        facts = [stats.engine.split(" (")[0], f"{stats.width}×{stats.height}", _count(stats.samples) + " samples"]
         if stats.seconds > 0:
             facts.append(f"{_count(stats.samples_per_second)}/s")
         self.render.setText("  ·  ".join(facts))
+        self.render.setToolTip(stats.engine)
         self.passes.setText(f"Pass {stats.passes_done} of {stats.passes_total}" + ("  ✓" if stats.finished else ""))
         self.progress.setRange(0, stats.passes_total)
         self.progress.setValue(stats.passes_done)

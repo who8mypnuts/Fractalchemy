@@ -126,3 +126,13 @@ fixed before polish (docstrings, comment pruning, layout-method splits). No code
 - Known gaps: Chaotica brightness scale is a heuristic (`BRIGHTNESS_SCALE`); Chaotica xaos direction assumed
   (column = "weights into iterator"); plugin variations not ported (collideoscope, crackle, bwraps7, …) are ignored;
   3D camera (pitch/yaw/perspective) ignored; no density-estimation filtering in the preview.
+
+## Gradient Library ⇄ viewport link
+- `ui/gradient_link.py: GradientLink` — fractal chosen → gradient editor shows the same (path, index) entry
+  (`files.open_path`) or a loose copy (`files.show_gradient`); gradient edits / other gradient chosen →
+  `FractalDocument.set_gradient` → `palette_changed` → viewport interactive re-render. Own-entry loads don't push back.
+- `formats/fa_palette.py`: `.fa` as a gradient format (same indices as the fractal side), registered in the gradient registry.
+- `widgets/fractal_preview.py`: mirror of the viewport image, placed right of the gradient strip (`fractalPreview` in the .ui).
+- Status-bar labels no longer force a minimum window width (engine name → tooltip); main splitter gives resizes to the viewport.
+- `FileActions._run_write` records the write before starting it (watcher event vs. completion callback race).
+- Tests: `tests/test_gradient_link.py` (10). Suite: 273 passed, pyflakes clean.

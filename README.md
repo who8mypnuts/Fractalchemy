@@ -39,6 +39,11 @@ python -m pytest
   the gradient editor described below. It is a tool window that stays above the main window; closing it
   only hides it, so the gradient you are editing (and any unsaved edits) stay put until you reopen it.
   Quitting the application asks about unsaved edits first.
+* **The two are linked.** Choosing a fractal loads its gradient into the Gradient Library — the same entry
+  of the same file, so *Save* writes the colours back into that flame. Every gradient edit (nodes, sliders,
+  node operations, or picking another gradient in the library) recolours the fractal and re-renders the
+  viewport. A small preview beside the gradient strip mirrors the viewport, so the effect is visible even
+  with the Gradient Library maximised. Switching fractals with unsaved gradient edits asks first.
 
 ### Rendering
 Two engines share one scene model (`fractalchemy/fractal`), so what you see in the viewport is a faithful
@@ -120,6 +125,7 @@ title shows the gradient's name and a `*` while it has unsaved edits.
   | `.ufr` (Ultra Fractal fractal) | one per layer | ✓ | – | – |
   | `.map` (Fractint / UF palette) | one | ✓ | – | ✓ |
   | `.chaos` (Chaotica world) | one per IFS | ✓ | – | – |
+  | `.fa` (Fractalchemy document) | one per flame | ✓ | ✓ | ✓ |
   | images | one (extracted) | – | – | – |
 
   `.ufr` files are binary containers (header + parameter text + cached render); only the

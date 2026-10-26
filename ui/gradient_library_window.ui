@@ -25,7 +25,14 @@
       <widget class="QWidget" name="editorPane" native="true">
        <layout class="QVBoxLayout" name="editorLayout">
         <item>
-         <widget class="GradientBrowser" name="gradientBrowser"/>
+         <layout class="QHBoxLayout" name="browserRow">
+          <item>
+           <widget class="GradientBrowser" name="gradientBrowser"/>
+          </item>
+          <item>
+           <widget class="FractalPreview" name="fractalPreview" native="true"/>
+          </item>
+         </layout>
         </item>
         <item>
          <widget class="QLabel" name="lblGradientName">
@@ -191,6 +198,11 @@
   </action>
  </widget>
  <customwidgets>
+  <customwidget>
+   <class>FractalPreview</class>
+   <extends>QWidget</extends>
+   <header>fractalchemy/widgets/fractal_preview.h</header>
+  </customwidget>
   <customwidget>
    <class>GradientBrowser</class>
    <extends>QListWidget</extends>

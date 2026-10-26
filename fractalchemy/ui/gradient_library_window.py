@@ -21,6 +21,7 @@ from ..library.roots import LibraryRoots
 from ..model import rgb_to_hex
 from ..widgets import GradientEditor
 from ..widgets.collapsible_splitter import CollapsibleSplitter
+from ..widgets.fractal_preview import FractalPreview
 from ..widgets.gradient_browser import GradientBrowser
 from ..widgets.icons import gradient_icon
 from ..widgets.node_panel import NodePanel
@@ -33,6 +34,7 @@ WINDOW_TITLE = "Gradient Library"
 SCANNING_MESSAGE = "Scanning library…"
 UI_FILE = Path(__file__).resolve().parents[2] / "ui" / "gradient_library_window.ui"
 CUSTOM_WIDGETS = {
+    "FractalPreview": FractalPreview,
     "GradientBrowser": GradientBrowser,
     "GradientEditor": GradientEditor,
     "NodePanel": NodePanel,
@@ -117,6 +119,10 @@ class GradientLibraryWindow(QMainWindow):
         self.library.scanning.connect(self._show_scanning)
 
     # --- window management --------------------------------------------------
+    def show_fractal_image(self, image) -> None:
+        """Mirror the main window's viewport in the small preview beside the gradient strip."""
+        self.fractalPreview.set_image(image)
+
     def bring_to_front(self) -> None:
         """Show the window (restoring it if minimised) and give it focus."""
         self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)

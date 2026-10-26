@@ -9,13 +9,14 @@ from ..imaging import decoder_hint
 from ..model import Gradient, simplify
 from .base import FormatError, GradientFormat
 from .chaos import ChaosFormat
+from .fa_palette import FaPaletteFormat
 from .flame import FlameFormat
 from .image import ImageFormat
 from .map import MapFormat
 from .ufr import UfrFormat
 from .ugr import UgrFormat
 
-FORMATS: tuple[GradientFormat, ...] = (FlameFormat(), UgrFormat(), UfrFormat(), MapFormat(), ChaosFormat(), ImageFormat())
+FORMATS: tuple[GradientFormat, ...] = (FlameFormat(), UgrFormat(), UfrFormat(), MapFormat(), ChaosFormat(), FaPaletteFormat(), ImageFormat())
 DEFAULT_SAVE_FORMAT: GradientFormat = FORMATS[1]  # UGR
 
 

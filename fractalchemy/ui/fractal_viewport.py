@@ -32,9 +32,11 @@ class FractalViewport(QWidget):
     Signals:
         render_progress(RenderStats): After every delivered pass (of the request being shown).
         render_failed(str): The render could not be set up (e.g. no usable transform).
+        image_changed(QImage | None): The picture on screen changed (other previews mirror it).
     """
     render_progress = Signal(object)
     render_failed = Signal(str)
+    image_changed = Signal(object)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -62,8 +64,9 @@ class FractalViewport(QWidget):
         """Attach the document to show and the service that renders it."""
         self._document = document
         self._service = service
-        document.flame_replaced.connect(self._render_full)
+        document.flame_replaced.connect(self._on_flame_replaced)
         document.camera_changed.connect(self._render_interactive)
+        document.palette_changed.connect(self._render_interactive)
         service.pass_done.connect(self._on_pass)
         service.job_failed.connect(self._on_failed)
 
@@ -82,6 +85,13 @@ class FractalViewport(QWidget):
         return self._generation
 
     # --- rendering ----------------------------------------------------------
+    def _on_flame_replaced(self) -> None:
+        self._image = None
+        self._stats = None
+        self.image_changed.emit(None)
+        self.update()
+        self._render_full()
+
     def _render_full(self) -> None:
         self._settle.stop()
         self._submit(1.0)
@@ -107,6 +117,7 @@ class FractalViewport(QWidget):
         self._image_is_preview = image.shape[1] < self.width()
         self._stats = stats
         self.render_progress.emit(stats)
+        self.image_changed.emit(self._image)
         self.update()
 
     def _on_failed(self, key: object, message: str) -> None:

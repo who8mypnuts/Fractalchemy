@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 
 from ..fractal.scene import Flame
+from ..model import Gradient
 
 
 class FractalDocument(QObject):
@@ -15,9 +16,11 @@ class FractalDocument(QObject):
     Signals:
         flame_replaced(): A different flame was loaded.
         camera_changed(): The view (center / zoom / rotation) of the current flame changed.
+        palette_changed(): The flame's colours changed (e.g. edited in the Gradient Library).
     """
     flame_replaced = Signal()
     camera_changed = Signal()
+    palette_changed = Signal()
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
@@ -59,3 +62,13 @@ class FractalDocument(QObject):
         if rotate is not None:
             camera.rotate = float(rotate)
         self.camera_changed.emit()
+
+    def set_gradient(self, gradient: Gradient) -> None:
+        """Recolour the current flame from a Gradient (no-op without a flame, or if nothing changes)."""
+        if self._flame is None:
+            return
+        palette = list(gradient.sample(len(self._flame.palette) or 256))
+        if palette == self._flame.palette:
+            return
+        self._flame.palette = palette
+        self.palette_changed.emit()

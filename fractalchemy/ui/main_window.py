@@ -29,6 +29,7 @@ from .fractal_document import FractalDocument
 from .fractal_library_panel import LIST_ICON_SIZE, FractalLibraryPanel
 from .fractal_viewport import FractalViewport
 from .gradient_library_window import GradientLibraryWindow
+from .gradient_link import GradientLink
 from .loader import load_ui
 from .render_status import RenderStatus
 from .thumbnails import ThumbnailProvider
@@ -71,7 +72,10 @@ class MainWindow(QMainWindow):
         self.fractal_menu = LibraryContextMenu(self.fractal_library, self.open_item, self)
         self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
         self.gradient_library = GradientLibraryWindow(roots, self)
+        self.gradient_link = GradientLink(self.document, self.gradient_library, self.viewport, self)
         self.splitter.set_first_width(LIBRARY_PANE_WIDTH)
+        self.splitter.setStretchFactor(0, 0)   # window resizes go to the viewport, not the library pane
+        self.splitter.setStretchFactor(1, 1)
         self._connect_actions()
         self._connect_document()
         self._connect_library()
@@ -99,6 +103,7 @@ class MainWindow(QMainWindow):
     def _connect_document(self) -> None:
         self.document.flame_replaced.connect(self._on_flame_replaced)
         self.document.camera_changed.connect(self._on_camera_changed)
+        self.document.palette_changed.connect(self._on_palette_changed)
 
     def _connect_library(self) -> None:
         panel = self.fractalLibraryPanel
@@ -167,7 +172,8 @@ class MainWindow(QMainWindow):
             self.statusBar().clearMessage()
 
     def _on_external_change(self, path: Path) -> None:
-        if path == self.document.source_path:
+        """Reload the shown flame if another program changed its file (not our own gradient saves)."""
+        if path == self.document.source_path and not self.gradient_library.files.wrote_recently(path):
             self.open_path(path, self.document.source_index)
 
     # --- other slots --------------------------------------------------------
@@ -190,6 +196,9 @@ class MainWindow(QMainWindow):
         if flame is not None:
             cx, cy = flame.camera.center
             self._message(f"center {cx:.4f}, {cy:.4f}   zoom {flame.camera.zoom:.2f}", 2000)
+
+    def _on_palette_changed(self) -> None:
+        self._message("Gradient applied to the fractal", 2000)
 
     def _message(self, text: str, ms: int = MESSAGE_MS) -> None:
         self.statusBar().showMessage(text, ms)

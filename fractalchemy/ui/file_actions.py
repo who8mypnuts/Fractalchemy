@@ -71,6 +71,13 @@ class FileActions(QObject):
             on_error=lambda exc: self._fail("Could not open file", exc),
         )
 
+    def show_gradient(self, gradient: Gradient) -> None:
+        """Show a gradient that did not come from a file (the strip lists just it)."""
+        self._load_ticket += 1   # a load still in flight must not replace this
+        self._entries = [gradient.copy()]
+        self.entries_loaded.emit(None, self._entries)
+        self._document.replace(gradient.copy())
+
     def show_entry(self, index: int) -> None:
         """Switch the editor to another already-loaded entry of the current file."""
         path = self._document.source_path
@@ -196,6 +203,8 @@ class FileActions(QObject):
             on_done(result)
             self.file_written.emit(path)
 
+        # recorded *before* the write too: the file watcher's event can reach the GUI thread before `done` runs
+        self._written[path] = time.monotonic()
         run_in_background(fn, *args, on_done=done, on_error=lambda exc: self._fail("Could not save file", exc))
 
     def _saved_in_place(self, gradient: Gradient, path: Path, index: int) -> None:
