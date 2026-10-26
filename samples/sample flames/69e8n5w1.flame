@@ -1,0 +1,59 @@
+<flame name="Apo3D-181008-2" version="Apophysis 7x Version 15B" size="600 600" center="0 0" scale="270" oversample="1" filter="0.2" quality="5" background="0 0 0" brightness="4" gamma="4" gamma_threshold="0.01" estimator_radius="9" estimator_minimum="0" estimator_curve="0.4" enable_de="0" plugins="" >
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0 -0.5 0.5 0 -0.62 -0.62" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0.35 0 0 0.35 0.23 -0.77" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="-0.27 0 0 -0.27 0.85 -0.85" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0 -0.08 0.08 0 0.66 -0.5" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0.19 0 0 0.19 0.93 -0.39" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0.15 0 0 0.15 0.03 -0.27" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0 -0.17 0.17 0 0.35 -0.25" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0 0.11 -0.11 0 0.63 -0.31" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0.06 0 0 0.06 0.58 -0.14" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0 0.29 -0.29 0 -0.83 0.17" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0.25 0 0 0.25 -0.29 0.13" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0.09 0 0 0.09 0.05 -0.03" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0.02 0 0 0.02 0.16 -0.1" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="-0.07 0 0 -0.07 0.21 -0.01" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0 -0.16 0.16 0 0.12 0.22" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0.18 0 0 0.18 0.46 0.1" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="-0.24 0 0 -0.24 0.88 0.04" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0.04 0 0 0.04 -0.5 0.42" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="-0.33 0 0 -0.33 -0.79 0.79" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0.37 0 0 0.37 -0.09 0.75" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" post="0 0.42 -0.42 0 0.7 0.7" modulus_x="1" modulus_y="1" chaos="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 " opacity="0" />
+   <xform weight="10" color="0" symmetry="1" modulus="1" coefs="-1 0 0 1 1.374582 -0.064712" modulus_x="1.12" modulus_y="1.12" chaos="1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 " opacity="1" />
+   <finalxform color="0" symmetry="1" modulus="1" coefs="1 0 0 1 0 0" modulus_x="1.12" modulus_y="1.12" />
+   <palette count="256" format="RGB">
+      95564F835B59806753886A4487682F79723B63633F506B3E
+      5D7440676F486993418FB6757BB29F7EBECA8EC8EDA6D6D8
+      C9C6C1D0B8A0C6B178B39B37C97515C45E0CA86E038C721E
+      804E117C510D7D52047C4B068C470C9B37039330067D0700
+      75240985330E72230549291E392832182B490A404A134C81
+      479A9E72A7B788CBF57DCAFE99C4EEA7C9CBB3D2D7BCD7E2
+      C1E7E8CDDFE1F1F1EFF9D9DCEFE1D6EAE8D1DEEDD6D7DDDB
+      DACEC2D6CFBFAEACADA99D879269579C513A8A462F864D3A
+      754D55745A5B603A6D746481796BA6699FB98BC4BEA0CBC2
+      A7C5A99BB9B1789CAA7396989B87A29E819D8A86958D9D93
+      94ABB9A6C6DDBCD7E0B8E6E3BBE6DDC0E0C8C7CFA8CEC27A
+      D2BD54D6B953DBA237E37037E34D12E84D0DD25005B63F00
+      AC411581322382452997562CA6601A9A631385530A744E0F
+      605B21344439315177193F8A0F3F811A558D348AC551958A
+      3768533F513B38351412140F0C1B1E01173C0C243E263049
+      352C474C34425A2D4E7D494BA43A22AD3E13BB3F19C02A09
+      B4300AB23A08B24212C05215C27348B7A871C1A39BB6A4B4
+      A8B38BA59F63C08D3ED26429C5561FC03518D41F02CB2815
+      C64C1BDE6618F69B30F19C41ED9D46E4CB66FFD967EABF94
+      EDCEA2EBD6B9EBCEC6E2C8ADEDC79AD8B796AEA86E738555
+      727047766C627C65575662322B602A29542729473D1E4B4E
+      30477347367D7C7175A6AD8EC6A39DCE9F99E4A467C59F3E
+      BD9A26A58822B37D37967234817A205D5D3B3C4B2C13442F
+      0C28340C2216121117320D07370C03512F02623820784621
+      713E1369430564270A4D11073C25054732152C3C2F20314B
+      0B4278155489369ABC3CA0EB67A5CE7AABB98CB4AB7EB55A
+      1D90421F81462B625C58854E728A36557F332F6E35396319
+      385C1E60501573481386430EA04006AC5317A05325864527
+      7E44367959428168268957348F4D33A16135995C3F947479
+      9C998A96A483867B898E7477977367B69141CA8E50EEA159
+      EAA85ABCAB439791436C7B404252353A2C3B281F341C1E2D
+      1B1435110E230501241211311B28392926373C31416C443C
+   </palette>
+</flame>
