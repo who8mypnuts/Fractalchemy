@@ -170,7 +170,7 @@ class InfoPanel(QWidget):
 
     def show_coloring(self) -> None:
         """Refresh the colouring rows (after brightness / gamma / background edits)."""
-        if self._flame is not None and "Colouring" in self._groups:
+        if self._flame is not None and "Coloring" in self._groups:
             self._fill_coloring(self._flame)
 
     def show_render(self, stats: RenderStats) -> None:
@@ -270,7 +270,7 @@ class InfoPanel(QWidget):
 
     def _fill_coloring(self, flame: Flame) -> None:
         col = flame.coloring
-        group = self._group("Colouring", "")
+        group = self._group("Coloring", "")
         _row(group, "Brightness", fmt(col.brightness))
         _row(group, "Gamma", fmt(col.gamma))
         _row(group, "Gamma threshold", fmt(col.gamma_threshold))
@@ -322,7 +322,9 @@ CAMERA_ROWS = {
     "Centre": lambda f: f"{fmt(f.camera.center[0])}, {fmt(f.camera.center[1])}",
     "Zoom": lambda f: f"{fmt(f.camera.zoom)}  ·  scale {fmt(f.camera.scale)}",
     "Rotate": lambda f: f"{fmt(f.camera.rotate)}°",
-    "3D camera": lambda f: (f"pitch {fmt(math.degrees(f.camera.pitch))}°  ·  yaw {fmt(math.degrees(f.camera.yaw))}°  ·  "
+    "3D camera": lambda f: (f"pitch {fmt(math.degrees(f.camera.pitch))}°"
+                            + (f" / y {fmt(math.degrees(f.camera.pitch_y))}°" if f.camera.pitch_y else "")
+                            + f"  ·  yaw {fmt(math.degrees(f.camera.yaw))}°  ·  "
                             f"perspective {fmt(f.camera.perspective)}  ·  z {fmt(f.camera.zpos)}  ·  dof {fmt(f.camera.dof)}")
                   if f.camera.is_3d() else "flat (2D)",
 }

@@ -36,6 +36,22 @@ def write_file(flames: list[Flame], path: Path) -> None:
     _write(path, {"format": FORMAT_ID, "version": FORMAT_VERSION, "flames": [f.to_dict() for f in flames]})
 
 
+def document_text(flames: list[Flame]) -> str:
+    """The JSON text of a document holding `flames`."""
+    return json.dumps({"format": FORMAT_ID, "version": FORMAT_VERSION, "flames": [f.to_dict() for f in flames]}, indent=1)
+
+
+def parse_text(text: str) -> list[Flame]:
+    """Every flame in a document given as text."""
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise FaParseError(f"not a Fractalchemy document: {exc}") from exc
+    if not isinstance(doc, dict) or doc.get("format") != FORMAT_ID or not isinstance(doc.get("flames"), list):
+        raise FaParseError("not a Fractalchemy document")
+    return [Flame.from_dict(d) for d in doc["flames"]]
+
+
 def append_flame(flame: Flame, path: Path) -> int:
     """Add a flame to the document (creating the file); returns its index."""
     doc = _document(path) if path.exists() else {"format": FORMAT_ID, "version": FORMAT_VERSION, "flames": []}

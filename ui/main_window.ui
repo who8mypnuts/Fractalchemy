@@ -55,8 +55,17 @@
     <property name="title">
      <string>File</string>
     </property>
+    <widget class="QMenu" name="menuSaveAs">
+     <property name="title">
+      <string>Save Fractal As</string>
+     </property>
+     <addaction name="actionSaveAsNewEntry"/>
+     <addaction name="actionSaveAsNewFile"/>
+     <addaction name="actionSaveAsIntoFile"/>
+    </widget>
     <addaction name="actionOpenFractal"/>
     <addaction name="actionSaveFractal"/>
+    <addaction name="menuSaveAs"/>
     <addaction name="separator"/>
     <addaction name="actionExit"/>
    </widget>
@@ -64,6 +73,12 @@
     <property name="title">
      <string>Edit</string>
     </property>
+    <addaction name="actionUndo"/>
+    <addaction name="actionRedo"/>
+    <addaction name="separator"/>
+    <addaction name="actionCopyParameters"/>
+    <addaction name="actionPasteParameters"/>
+    <addaction name="separator"/>
     <addaction name="actionEditFractalLibrary"/>
    </widget>
    <widget class="QMenu" name="menuView">
@@ -124,6 +139,14 @@
     <bool>false</bool>
    </attribute>
    <addaction name="actionOpenFractal"/>
+   <addaction name="actionSaveFractal"/>
+   <addaction name="actionSaveAs"/>
+   <addaction name="separator"/>
+   <addaction name="actionUndo"/>
+   <addaction name="actionRedo"/>
+   <addaction name="separator"/>
+   <addaction name="actionCopyParameters"/>
+   <addaction name="actionPasteParameters"/>
    <addaction name="separator"/>
    <addaction name="actionGradientLibrary"/>
   </widget>
@@ -136,10 +159,51 @@
   </action>
   <action name="actionSaveFractal">
    <property name="text"><string>Save Fractal</string></property>
-   <property name="toolTip"><string>Write the camera / colouring adjustments back into the fractal's file</string></property>
+   <property name="toolTip"><string>Save: overwrite the fractal's entry in its file (Ctrl+S)</string></property>
    <property name="shortcut"><string>Ctrl+S</string></property>
-   <property name="statusTip"><string>Write the adjusted fractal back into its entry of the file it came from</string></property>
+   <property name="statusTip"><string>Overwrite the entry the fractal came from; unsaved fractals ask for a file</string></property>
    <property name="enabled"><bool>false</bool></property>
+  </action>
+  <action name="actionSaveAs">
+   <property name="text"><string>Save Fractal As</string></property>
+   <property name="toolTip"><string>Save As: a new entry in this file, a new file, or into another file</string></property>
+   <property name="enabled"><bool>false</bool></property>
+  </action>
+  <action name="actionSaveAsNewEntry">
+   <property name="text"><string>As New Entry in This File…</string></property>
+   <property name="statusTip"><string>Append the fractal to its own file under a name of your choosing</string></property>
+  </action>
+  <action name="actionSaveAsNewFile">
+   <property name="text"><string>As New File…</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+S</string></property>
+   <property name="statusTip"><string>Write the fractal to a new .flame or .fa file (an existing file is appended to)</string></property>
+  </action>
+  <action name="actionSaveAsIntoFile">
+   <property name="text"><string>Into Existing File…</string></property>
+   <property name="statusTip"><string>Append the fractal to another .flame or .fa file</string></property>
+  </action>
+  <action name="actionUndo">
+   <property name="text"><string>Undo</string></property>
+   <property name="toolTip"><string>Undo the last change to the fractal (Ctrl+Z)</string></property>
+   <property name="shortcut"><string>Ctrl+Z</string></property>
+   <property name="enabled"><bool>false</bool></property>
+  </action>
+  <action name="actionRedo">
+   <property name="text"><string>Redo</string></property>
+   <property name="toolTip"><string>Redo the change you undid (Ctrl+Shift+Z)</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+Z</string></property>
+   <property name="enabled"><bool>false</bool></property>
+  </action>
+  <action name="actionCopyParameters">
+   <property name="text"><string>Copy Parameters</string></property>
+   <property name="toolTip"><string>Copy the fractal's parameters, gradient included, to the clipboard as .fa text (Ctrl+Shift+C)</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+C</string></property>
+   <property name="enabled"><bool>false</bool></property>
+  </action>
+  <action name="actionPasteParameters">
+   <property name="text"><string>Paste Parameters</string></property>
+   <property name="toolTip"><string>Replace the fractal with parameters from the clipboard: .fa, Apophysis &lt;flame&gt; XML or a Chaotica world (Ctrl+Shift+V)</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+V</string></property>
   </action>
   <action name="actionExit">
    <property name="text"><string>Exit</string></property>

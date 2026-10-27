@@ -1,6 +1,6 @@
 """The 3D camera projection (Apophysis `ControlPoint.Project*`), for numpy and GLSL.
 
-After the final transform a point `(x, y, z)` is rotated by the camera's pitch / yaw,
+After the final transform a point `(x, y, z)` is rotated by the camera's pitch / yaw (/ pitch_y),
 optionally blurred by depth of field, and divided by `1 − perspective · z'` before the
 flat 2D camera maps it to pixels. A camera with no 3D settings is the identity, so
 2D flames pay nothing.
@@ -21,7 +21,7 @@ def project(camera: Camera, x: np.ndarray, y: np.ndarray, z: np.ndarray, rng: np
         return x, y
     m = camera.matrix()
     zz = z - camera.zpos
-    px = m[0][0] * x + m[1][0] * y
+    px = m[0][0] * x + m[1][0] * y + m[2][0] * zz
     py = m[0][1] * x + m[1][1] * y + m[2][1] * zz
     pz = m[0][2] * x + m[1][2] * y + m[2][2] * zz
     zr = 1.0 - camera.perspective * pz
@@ -41,7 +41,7 @@ uniform bool u_cam_is3d;
 vec2 project3d(vec3 p, inout uint s) {
     if (!u_cam_is3d) return p.xy;
     float zz = p.z - u_cam_3d.y;
-    float px = u_cam_m[0][0] * p.x + u_cam_m[1][0] * p.y;
+    float px = u_cam_m[0][0] * p.x + u_cam_m[1][0] * p.y + u_cam_m[2][0] * zz;
     float py = u_cam_m[0][1] * p.x + u_cam_m[1][1] * p.y + u_cam_m[2][1] * zz;
     float pz = u_cam_m[0][2] * p.x + u_cam_m[1][2] * p.y + u_cam_m[2][2] * zz;
     float zr = 1.0 - u_cam_3d.x * pz;

@@ -77,8 +77,9 @@ def test_tonemap_numpy_behaves_like_apophysis():
     assert brighter[..., :3].mean() > image[..., :3].mean()
 
 
-def _glsl_tonemap(ctx, hist: np.ndarray, params: ToneParams, oversample: int, radius: float, size: tuple[int, int]) -> np.ndarray:
-    """Run the two GLSL passes (bucket log scale, then filter + gamma) on a histogram of buckets."""
+def _glsl_tonemap(ctx, hist: np.ndarray, params: ToneParams, oversample: int, radius: float, size: tuple[int, int],
+                  luts: np.ndarray | None = None) -> np.ndarray:
+    """Run the two GLSL passes (bucket log scale, then filter + gamma + curves) on a histogram of buckets."""
     import moderngl
     from fractalchemy.render.tonemap import SCALE_GLSL, filter_uniforms
     bh, bw = hist.shape[:2]
@@ -100,6 +101,16 @@ def _glsl_tonemap(ctx, hist: np.ndarray, params: ToneParams, oversample: int, ra
     ctx.viewport = (0, 0, *size)
     scaled_tex.use(1)
     prog["u_scaled"].value = 1
+    table = np.zeros((2, 256, 4), dtype=np.float32)
+    if luts is not None:
+        table[0, :, :] = luts[:4].T
+        table[1, :, 0] = luts[4]
+    curves_tex = ctx.texture((256, 2), 4, table.tobytes(), dtype="f4")
+    curves_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+    curves_tex.repeat_x = curves_tex.repeat_y = False
+    curves_tex.use(2)
+    prog["u_curves"].value = 2
+    prog["u_has_curves"].value = luts is not None
     for name, value in (params.as_uniforms() | filter_uniforms(oversample, radius)).items():
         if name in prog:
             prog[name].value = value
@@ -115,6 +126,29 @@ def test_tonemap_glsl_matches_numpy(gl_context):
     expected = tonemap(hist, params)
     actual = _glsl_tonemap(ctx, hist, params, 1, 0.2, (16, 8))
     assert np.abs(actual[..., :3].astype(int) - expected[..., :3].astype(int)).max() <= 2
+
+
+@needs_gl
+def test_tonemap_glsl_matches_numpy_with_curves(gl_context):
+    from fractalchemy.fractal.curves import Curves
+    from fractalchemy.render.tonemap import curve_luts
+    curves = Curves()
+    curves.set_points("overall", [(0, 0), (0.3, 0.6), (1, 1)])
+    curves.set_points("red", [(0, 0.1), (1, 0.7)])
+    curves.set_points("alpha", [(0, 0), (0.5, 0.2), (1, 1)])
+    luts = curve_luts(curves)
+    assert luts.shape == (5, 256) and curve_luts(Curves()) is None
+    hist = synthetic_histogram()
+    params = ToneParams.derive(Coloring(brightness=6, gamma=2.2, gamma_threshold=0.05, vibrancy=0.8, background=(0, 30, 60)), 40.0, 600_000)
+    plain = tonemap(hist, params)
+    expected = tonemap(hist, params, luts=luts)
+    assert not np.array_equal(plain, expected)
+    only_red = Curves()
+    only_red.set_points("red", [(0, 0), (1, 0.5)])
+    halved = tonemap(hist, params, luts=curve_luts(only_red))
+    assert halved[..., 0].mean() < plain[..., 0].mean() and np.array_equal(halved[..., 1:3], plain[..., 1:3])   # red only
+    actual = _glsl_tonemap(gl_context, hist, params, 1, 0.2, (16, 8), luts)
+    assert np.abs(actual[..., :3].astype(int) - expected[..., :3].astype(int)).max() <= 3
 
 
 @needs_gl
@@ -330,6 +364,8 @@ def test_engines_agree_on_3d_direct_colour_and_pre_post_variations():
     flame.xforms[2].variations = {"julia3D": 1.0, "crop": 0.5}
     flame.xforms[2].params = {"julia3D_power": 3, "crop_right": 0.8}
     flame.camera.pitch, flame.camera.yaw, flame.camera.perspective, flame.camera.zpos = 0.6, 0.3, 0.4, 0.1
+    flame.camera.pitch_y = -0.35
+    flame.coloring.curves.set_points("overall", [(0, 0), (0.4, 0.6), (1, 1)])
     cpu, gpu = _render_both(flame, quality=200)
     # the engines must agree as well as two CPU renders with different random seeds do
     settings = RenderSettings(96, 64, passes=1, quality=200, points=8192, fuse=12, seed=99)
@@ -351,3 +387,9 @@ def test_camera_matrix_and_projection_follow_apophysis():
     zr = 1 - cam.perspective * ez
     assert np.allclose(px, ex / zr) and np.allclose(py, ey / zr)
     assert not Camera().is_3d() and project(Camera(), x, y, z, np.random.default_rng(0)) == (x, y)
+    # pitch_y tilts about the vertical axis: the matrix stays a rotation and x picks up a depth term
+    tilted = Camera(pitch=0.5, yaw=0.25, pitch_y=0.7)
+    mt = np.array(tilted.matrix())
+    assert np.allclose(mt @ mt.T, np.eye(3)) and mt[2][0] != 0 and tilted.is_3d() and Camera(pitch_y=0.1).is_3d()
+    qx, qy = project(Camera(pitch_y=np.pi / 4), np.array([1.0, 0.0]), np.array([0.0, 1.0]), np.zeros(2), np.random.default_rng(0))
+    assert np.allclose(qx, [np.sqrt(0.5), 0.0]) and np.allclose(qy, [0.0, 1.0])

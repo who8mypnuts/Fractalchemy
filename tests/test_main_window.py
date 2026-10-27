@@ -41,8 +41,8 @@ def test_menu_bar_has_windows_and_help_menus(window):
     assert [a.text() for a in window.menuWindows.actions()] == ["Gradient Library"]
     assert [a.text() for a in window.menuHelp.actions()] == ["Formulas…", "", "About Fractalchemy…", "About Qt…"]
     assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
-    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save Fractal", "Exit"]
-    assert not window.actionSaveFractal.isEnabled()   # nothing loaded, nothing changed
+    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save Fractal", "Save Fractal As", "Exit"]
+    assert not window.actionSaveFractal.isEnabled() and not window.actionSaveAs.isEnabled()   # nothing loaded
 
 
 def test_toolbar_holds_the_gradient_library_button_with_popup_text(window):
@@ -186,7 +186,7 @@ def test_fractal_library_lists_flames_and_has_search_collapse_and_view_buttons(f
     assert [candy.child(i).text() for i in range(candy.rowCount())] == ["original", "outlined", "rotated", "pearl", "obsession"]
     assert panel.search.placeholderText() and panel.collapse_button.toolTip() == "Collapse All"
     assert panel.list_button.isChecked() and not panel.thumb_button.isChecked()
-    assert [a.text() for a in fractal_window.menuEdit.actions()] == ["Edit Fractal Library…"]
+    assert [a.text() for a in fractal_window.menuEdit.actions() if a.text()] == ["Undo", "Redo", "Copy Parameters", "Paste Parameters", "Edit Fractal Library…"]
     assert fractal_window.actionToggleFractalLibrary.isChecked()
     fractal_window.actionToggleFractalLibrary.setChecked(False)
     assert fractal_window.splitter.is_collapsed()

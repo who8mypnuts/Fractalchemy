@@ -101,6 +101,14 @@ plain 2×2 box (anti-aliasing of thin lines, slightly less speckle in faint area
 before averaging); larger radii soften. Oversample 1 / radius 0.2 is Apophysis's own preview (no filter).
 No density estimation or other denoising is done anywhere.
 
+### Tone curves
+
+`fractal/curves.py` holds five control-point curves (overall, red, green, blue, alpha) interpolated with a
+monotone cubic; `render/tonemap.py` applies them after gamma / vibrancy: the alpha curve remaps the coverage
+before the background is composited, then every channel goes through *overall* and its own curve
+(`r' = red(overall(r))`, as Apophysis's `csa[ch][csa[0][v]]`). GLSL reads the same 256-entry tables from a
+256×2 texture. Apophysis 7X's 48-number `curves` attribute is imported by sampling its rational Béziers.
+
 ## Preview quality: samples, refinement, zoom
 
 Graininess is only ever sample count: at quality *q* a pixel of average density has seen *q* samples, so
@@ -117,6 +125,14 @@ each other and a high-quality reference). Three faithful things make the preview
   (where most iterations land outside the frame) is not starved; `RenderSettings.for_zoom` does the
   same (never fewer than nominal, capped at 64× = zoom 3).
 * **Oversample / filter** as above (defaults 2 / 0.5, `MAX_BUCKETS` lowers the oversample for huge viewports).
+* **Detail** (viewer bar): `FractalViewport.render_scale` renders at ½ or ¼ of the screen resolution.
+
+## When the GPU rejects a shader
+
+`GpuEngine.programs()` raises `ShaderBuildError`; the service renders that flame on the CPU and notes it in
+the Info tab's *Render* group. The generated vertex/plot shaders and the driver's compiler log are written to
+`<cache dir>/Fractalchemy/glsl-failures/<timestamp>.txt` (`~/.cache` on Linux, `%LOCALAPPDATA%` on Windows,
+`~/Library/Caches` on macOS) — please attach that file when reporting a formula the GPU will not take.
 
 ## Responsiveness
 

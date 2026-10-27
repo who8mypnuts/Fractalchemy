@@ -22,10 +22,23 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ..fractal.curves import CHANNELS, LUT_SIZE, Curves
 from ..fractal.scene import Coloring
 from .filtering import filter_width, kernel_adjust, kernel_norm, spatial_filter
 
 K1_FACTOR = 268.0 / 256.0
+
+
+def curve_luts(curves: Curves | None) -> np.ndarray | None:
+    """(5, 256) lookup tables in `CHANNELS` order, or None when every curve is the identity."""
+    if curves is None or curves.is_default():
+        return None
+    return np.array([curves.lut(c, LUT_SIZE) for c in CHANNELS], dtype=np.float64)
+
+
+def apply_luts(values: np.ndarray, lut: np.ndarray) -> np.ndarray:
+    """Map 0..1 values through a 256-entry table with linear interpolation."""
+    return np.interp(np.clip(values, 0.0, 1.0), np.linspace(0.0, 1.0, lut.shape[0]), lut)
 
 
 @dataclass(frozen=True)
@@ -96,20 +109,21 @@ def filter_buckets(scaled: np.ndarray, oversample: int, filter_radius: float, wi
 
 
 def tonemap(histogram: np.ndarray, params: ToneParams, oversample: int = 1, filter_radius: float = 0.0,
-            size: tuple[int, int] | None = None) -> np.ndarray:
+            size: tuple[int, int] | None = None, luts: np.ndarray | None = None) -> np.ndarray:
     """Map a float histogram to a (H, W, 4) uint8 RGBA image (alpha = 255).
 
     With `oversample` / `filter_radius` the histogram is the supersampled bucket grid (gutter included)
     and `size` = (width, height) of the output; otherwise the histogram is the image itself.
+    `luts` are the tone curves from `curve_luts()` (None = identity).
     """
     scaled = log_scale(histogram, params)
     if size is not None and (oversample > 1 or filter_width(oversample, filter_radius) > 1):
         scaled = filter_buckets(scaled, oversample, filter_radius, size[0], size[1])
-    return finish(scaled, params)
+    return finish(scaled, params, luts)
 
 
-def finish(scaled: np.ndarray, params: ToneParams) -> np.ndarray:
-    """Gamma, vibrancy and background for filtered (rgb, L) pixels."""
+def finish(scaled: np.ndarray, params: ToneParams, luts: np.ndarray | None = None) -> np.ndarray:
+    """Gamma, vibrancy, background and the tone curves for filtered (rgb, L) pixels."""
     L = scaled[..., 3]
     lit = L > 0
     rgb = scaled[..., :3]
@@ -123,8 +137,16 @@ def finish(scaled: np.ndarray, params: ToneParams) -> np.ndarray:
     safe_L = np.where(L > 0, L, 1.0)
     ls = params.vibrancy * alpha / safe_L
     out = ls[..., None] * rgb + (1.0 - params.vibrancy) * np.power(np.maximum(rgb, 0.0), params.inv_gamma)
+    if luts is not None:
+        coverage = apply_luts(alpha, luts[4])                    # the alpha curve remaps how much background shows
+        out = out * np.where(alpha > 0, coverage / np.where(alpha > 0, alpha, 1.0), 0.0)[..., None]
+        alpha = coverage
     out += (1.0 - alpha)[..., None] * np.asarray(params.background)
     out = np.where(lit[..., None], out, np.asarray(params.background))
+    if luts is not None:
+        out = np.clip(out, 0.0, 1.0)
+        overall = apply_luts(out, luts[0])
+        out = np.stack([apply_luts(overall[..., ch], luts[1 + ch]) for ch in range(3)], axis=-1)
     image = np.empty(scaled.shape[:2] + (4,), dtype=np.uint8)
     image[..., :3] = np.clip(out * 255.0 + 0.5, 0, 255).astype(np.uint8)
     image[..., 3] = 255
@@ -156,7 +178,14 @@ uniform int u_oversample, u_fwidth;
 uniform float u_adjust, u_norm;  // kernel coordinate scale and 1 / weight sum (filtering.py)
 uniform float u_inv_gamma, u_threshold, u_funcval, u_vibrancy;
 uniform vec3 u_background;
+uniform sampler2D u_curves;      // 256 x 2: row 0 = (overall, red, green, blue) tables, row 1 = (alpha, -, -, -)
+uniform bool u_has_curves;
 out vec4 f_color;
+
+float curve(float v, int channel, float row) {
+    vec4 t = texture(u_curves, vec2((clamp(v, 0.0, 1.0) * 255.0 + 0.5) / 256.0, row));
+    return channel == 0 ? t.r : channel == 1 ? t.g : channel == 2 ? t.b : t.a;
+}
 
 void main() {
     ivec2 bsize = textureSize(u_scaled, 0);
@@ -172,7 +201,15 @@ void main() {
     }
     acc *= u_norm;
     float L = acc.a;
-    if (L <= 0.0) { f_color = vec4(u_background, 1.0); return; }
+    if (L <= 0.0) {
+        vec3 bg = u_background;   // empty pixel: the background, still through the overall / colour curves
+        if (u_has_curves) {
+            bg = vec3(curve(bg.r, 0, 0.25), curve(bg.g, 0, 0.25), curve(bg.b, 0, 0.25));
+            bg = vec3(curve(bg.r, 1, 0.25), curve(bg.g, 2, 0.25), curve(bg.b, 3, 0.25));
+        }
+        f_color = vec4(bg, 1.0);
+        return;
+    }
     vec3 rgb = acc.rgb;
     float alpha = pow(max(L, 0.0), u_inv_gamma);
     if (u_threshold > 0.0 && L <= u_threshold) {
@@ -182,8 +219,18 @@ void main() {
     alpha = clamp(alpha, 0.0, 1.0);
     float ls = L > 0.0 ? u_vibrancy * alpha / L : 0.0;
     vec3 outc = ls * rgb + (1.0 - u_vibrancy) * pow(max(rgb, vec3(0.0)), vec3(u_inv_gamma));
+    if (u_has_curves) {
+        float coverage = curve(alpha, 0, 0.75);
+        outc *= alpha > 0.0 ? coverage / alpha : 0.0;
+        alpha = coverage;
+    }
     outc += (1.0 - alpha) * u_background;
-    f_color = vec4(clamp(outc, 0.0, 1.0), 1.0);
+    outc = clamp(outc, 0.0, 1.0);
+    if (u_has_curves) {
+        outc = vec3(curve(outc.r, 0, 0.25), curve(outc.g, 0, 0.25), curve(outc.b, 0, 0.25));
+        outc = vec3(curve(outc.r, 1, 0.25), curve(outc.g, 2, 0.25), curve(outc.b, 3, 0.25));
+    }
+    f_color = vec4(outc, 1.0);
 }
 """
 
@@ -198,5 +245,5 @@ void main() {
 }
 """
 
-__all__ = ["ToneParams", "tonemap", "log_scale", "filter_buckets", "finish", "filter_uniforms", "SCALE_GLSL", "TONEMAP_GLSL",
-           "FULLSCREEN_VERTEX_GLSL"]
+__all__ = ["ToneParams", "tonemap", "log_scale", "filter_buckets", "finish", "filter_uniforms", "curve_luts", "apply_luts",
+           "SCALE_GLSL", "TONEMAP_GLSL", "FULLSCREEN_VERTEX_GLSL"]

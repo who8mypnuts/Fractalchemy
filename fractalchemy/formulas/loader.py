@@ -59,15 +59,20 @@ def user_formula_dir() -> Path:
     return base / "Fractalchemy" / "formulas"
 
 
-def cache_file() -> Path:
-    """Where compiled formula artefacts are cached between runs."""
+def cache_dir() -> Path:
+    """The per-user cache folder (compiled formulas, GPU diagnostics)."""
     if sys.platform.startswith("win"):
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
     elif sys.platform == "darwin":
         base = Path.home() / "Library" / "Caches"
     else:
         base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return base / "Fractalchemy" / f"formulas-py{sys.version_info[0]}{sys.version_info[1]}.cache"
+    return base / "Fractalchemy"
+
+
+def cache_file() -> Path:
+    """Where compiled formula artefacts are cached between runs."""
+    return cache_dir() / f"formulas-py{sys.version_info[0]}{sys.version_info[1]}.cache"
 
 
 class _Cache:

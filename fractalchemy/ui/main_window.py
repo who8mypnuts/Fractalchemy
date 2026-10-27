@@ -7,15 +7,14 @@ Gradient Library is a separate tool window opened from *Windows* or the toolbar.
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 from PySide6.QtCore import QSettings
-from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
+from PySide6.QtGui import QCloseEvent, QGuiApplication
+from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QToolButton
 
 from .. import config
-from ..fractal.formats import fractal_format_for, load_flame, open_dialog_filter
+from ..fractal.formats import flame_from_text, flame_to_text, load_flame, open_dialog_filter
 from ..fractal.scene import Flame
 from ..library.catalog import FRACTAL_CATALOG
 from ..library.context_menu import LibraryContextMenu
@@ -28,8 +27,8 @@ from ..widgets.collapsible_splitter import CollapsibleSplitter
 from ..widgets.icons import gradient_icon
 from .background import run_in_background
 from .fractal_document import FractalDocument
+from .fractal_file_actions import FractalFileActions
 from .fractal_library_panel import LIST_ICON_SIZE, FractalLibraryPanel
-from .file_actions import RECENT_WRITE_SECONDS
 from .fractal_viewport import FractalViewport
 from .gradient_library_window import GradientLibraryWindow
 from .gradient_link import GradientLink
@@ -81,7 +80,7 @@ class MainWindow(QMainWindow):
         self.fractal_menu = LibraryContextMenu(self.fractal_library, self.open_item, self)
         self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
         self._formula_browser = None
-        self._fractal_writes: dict[Path, float] = {}   # our own saves, so the file watcher does not reload them
+        self.files = FractalFileActions(self.document, self)
         self.gradient_library = GradientLibraryWindow(roots, self)
         self.gradient_link = GradientLink(self.document, self.gradient_library, self.viewport, self)
         self.splitter.first_label, self.splitter.last_label = "fractal library", "settings panel"
@@ -103,7 +102,28 @@ class MainWindow(QMainWindow):
     def _connect_actions(self) -> None:
         self.actionOpenFractal.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_DialogOpenButton))
         self.actionOpenFractal.triggered.connect(self.open_file)
-        self.actionSaveFractal.triggered.connect(self.save_fractal)
+        style = self.style().StandardPixmap
+        self.actionSaveFractal.setIcon(self.style().standardIcon(style.SP_DialogSaveButton))
+        self.actionSaveFractal.triggered.connect(self.files.save)
+        self.actionSaveAs.setIcon(self.style().standardIcon(style.SP_DriveFDIcon))
+        self.actionSaveAs.setMenu(self.menuSaveAs)
+        self.actionSaveAs.triggered.connect(self.files.save_as_new_file)
+        save_as_button = self.toolBar.widgetForAction(self.actionSaveAs)
+        if isinstance(save_as_button, QToolButton):
+            save_as_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.actionSaveAsNewEntry.triggered.connect(self.files.save_as_new_entry)
+        self.actionSaveAsNewFile.triggered.connect(self.files.save_as_new_file)
+        self.actionSaveAsIntoFile.triggered.connect(self.files.save_as_into_file)
+        self.actionUndo.setIcon(self.style().standardIcon(style.SP_ArrowBack))
+        self.actionRedo.setIcon(self.style().standardIcon(style.SP_ArrowForward))
+        self.actionUndo.triggered.connect(self.document.undo)
+        self.actionRedo.triggered.connect(self.document.redo)
+        self.actionCopyParameters.setIcon(self.style().standardIcon(style.SP_FileDialogDetailedView))
+        self.actionPasteParameters.setIcon(self.style().standardIcon(style.SP_FileDialogContentsView))
+        self.actionCopyParameters.triggered.connect(self.copy_parameters)
+        self.actionPasteParameters.triggered.connect(self.paste_parameters)
+        self.files.status.connect(self._message)
+        self.files.file_written.connect(self._on_fractal_written)
         self.actionGradientLibrary.setIcon(gradient_icon())
         self.actionGradientLibrary.triggered.connect(self.show_gradient_library)
         self.actionEditFractalLibrary.triggered.connect(self.edit_fractal_library)
@@ -128,6 +148,8 @@ class MainWindow(QMainWindow):
         self.document.palette_changed.connect(self._on_palette_changed)
         self.document.coloring_changed.connect(self.settingsPanel.info.show_coloring)
         self.document.modified_changed.connect(self._on_modified_changed)
+        self.document.undo_changed.connect(self._on_undo_changed)
+        self.document.flame_restored.connect(self._on_flame_restored)
         self.settingsPanel.info.formula_activated.connect(self.show_formulas)
 
     def _connect_library(self) -> None:
@@ -152,6 +174,7 @@ class MainWindow(QMainWindow):
         bar, panel, view = self.viewerBar, self.settingsPanel, self.viewport
         bar.zoom_requested.connect(view.set_zoom)
         bar.resolution_chosen.connect(self.document.set_image_size)
+        bar.detail_chosen.connect(view.set_render_scale)
         view.view_changed.connect(bar.show_zoom)
         panel.render_settings_changed.connect(self._apply_render_settings)
         panel.render_options_changed.connect(self._apply_render_options)
@@ -198,28 +221,42 @@ class MainWindow(QMainWindow):
         self.document.replace(flame, path, index)
         self._message(f"Loaded '{flame.name}' from {path.name}")
 
-    def can_save_fractal(self) -> bool:
-        """True when the shown flame came from a file entry that can be rewritten (.flame / .fa)."""
-        path = self.document.source_path
-        return path is not None and self.document.flame is not None and fractal_format_for(path).can_replace
+    def copy_parameters(self) -> None:
+        """Put the fractal's parameters (gradient included) on the clipboard as .fa text."""
+        flame = self.document.flame
+        if flame is None:
+            return
+        QGuiApplication.clipboard().setText(flame_to_text(flame))
+        self._message(f"Copied the parameters of '{flame.name}'")
 
-    def save_fractal(self) -> None:
-        """Write the adjusted flame back into its entry of the file it came from (Ctrl+S)."""
-        if not self.can_save_fractal():
-            self._message("This fractal did not come from a file that can be written")
-            return
-        path, index, flame = self.document.source_path, self.document.source_index, self.document.flame
+    def paste_parameters(self) -> None:
+        """Replace the shown fractal with parameters from the clipboard (.fa, <flame> XML or a Chaotica world)."""
+        text = QGuiApplication.clipboard().text()
         try:
-            fractal_format_for(path).replace(flame, path, index)
-        except (OSError, ValueError) as exc:
-            self._report_error("Could not save fractal", exc)
+            flame = flame_from_text(text)
+        except Exception as exc:  # noqa: BLE001 - parse errors of any of the formats
+            self._report_error("Cannot paste parameters", exc)
             return
-        self._fractal_writes[path] = time.monotonic()
-        self.document.mark_saved()
-        self._message(f"Saved '{flame.name}' into {path.name}")
+        self.document.paste(flame)
+        self._message(f"Pasted '{flame.name}'" + (f" — ignored: {', '.join(flame.unsupported)}" if flame.unsupported else ""))
+
+    def _on_fractal_written(self, path: Path, _index: int) -> None:
+        self.fractal_library.rescan_containing(path)
+        self._on_flame_replaced()   # the source (file, entry) changed: status bar, Info tab, title
 
     def _on_modified_changed(self, modified: bool) -> None:
-        self.actionSaveFractal.setEnabled(modified and self.can_save_fractal())
+        self.actionSaveFractal.setEnabled(self.document.flame is not None)
+        self._update_title()
+
+    def _on_undo_changed(self, can_undo: bool, can_redo: bool) -> None:
+        self.actionUndo.setEnabled(can_undo)
+        self.actionRedo.setEnabled(can_redo)
+
+    def _on_flame_restored(self) -> None:
+        """Undo / redo / paste: everything may have changed."""
+        flame = self.document.flame
+        self.status.show_fractal(flame, self.document.source_path.name if self.document.source_path else "")
+        self.settingsPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
         self._update_title()
 
     def _update_title(self) -> None:
@@ -251,7 +288,7 @@ class MainWindow(QMainWindow):
     def _on_external_change(self, path: Path) -> None:
         """Reload the shown flame if another program changed its file (not our own gradient saves)."""
         if path == self.document.source_path and not self.gradient_library.files.wrote_recently(path) \
-                and time.monotonic() - self._fractal_writes.get(path, -1e9) > RECENT_WRITE_SECONDS:
+                and not self.files.wrote_recently(path):
             self.open_path(path, self.document.source_index)
 
     # --- other slots --------------------------------------------------------
@@ -280,7 +317,8 @@ class MainWindow(QMainWindow):
         self.status.show_idle()
         self.viewerBar.show_flame(flame)
         self.settingsPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
-        self.actionSaveFractal.setEnabled(False)
+        for action in (self.actionSaveFractal, self.actionSaveAs, self.actionCopyParameters):
+            action.setEnabled(flame is not None)
         self._update_title()
 
     def _on_camera_changed(self) -> None:

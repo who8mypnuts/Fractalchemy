@@ -22,7 +22,7 @@ from .compiled import CompiledFlame, CompiledXForm
 from .filtering import bucket_transform
 from .projection import project
 from .settings import RenderSettings, RenderStats
-from .tonemap import ToneParams, tonemap
+from .tonemap import ToneParams, curve_luts, tonemap
 
 ITERATIONS_PER_CHUNK = 8      # plotted iterations between cancellation checks / histogram flushes
 RESET_LIMIT = 1e10            # |x| beyond this (or NaN) re-seeds the point
@@ -58,6 +58,7 @@ class CpuRenderJob:
         self.pixel_transform = bucket_transform(flame.camera.pixel_transform(settings.width, settings.height),
                                                 settings.oversample, settings.gutter)
         self.coloring = flame.coloring
+        self.luts = curve_luts(flame.coloring.curves)
         self.histogram = np.zeros((self.bucket_size[1], self.bucket_size[0], 4), dtype=np.float64)
         self.stats = RenderStats(engine=f"CPU (numpy, {self.threads} threads)", passes_total=settings.passes,
                                  width=settings.width, height=settings.height, notes=list(self.compiled.notes),
@@ -93,7 +94,7 @@ class CpuRenderJob:
         """The current histogram tone-mapped to RGBA8."""
         s = self.settings
         params = ToneParams.derive(self.coloring, self.ppu, self.stats.samples, s.oversample)
-        return tonemap(self.histogram, params, s.oversample, s.filter_radius, (s.width, s.height))
+        return tonemap(self.histogram, params, s.oversample, s.filter_radius, (s.width, s.height), self.luts)
 
     def close(self) -> None:
         self._pool.shutdown(wait=False)

@@ -73,6 +73,7 @@ class FractalViewport(QWidget):
         self._resize_timer = QTimer(self, singleShot=True, interval=150)
         self._resize_timer.timeout.connect(self._on_resized)
         self.settings = RenderSettings()
+        self.render_scale = 1.0   # preview detail: fraction of the screen resolution the render uses
 
     # --- wiring -------------------------------------------------------------
     def bind(self, document: FractalDocument, service: RenderService) -> None:
@@ -86,6 +87,13 @@ class FractalViewport(QWidget):
         document.image_size_changed.connect(self._on_image_size_changed)
         service.pass_done.connect(self._on_pass)
         service.job_failed.connect(self._on_failed)
+
+    def set_render_scale(self, fraction: float) -> None:
+        """Render the preview at `fraction` of the screen resolution (scaled up on screen) and re-render."""
+        fraction = max(0.05, min(1.0, float(fraction)))
+        if fraction != self.render_scale:
+            self.render_scale = fraction
+            self._render_full()
 
     def set_render_settings(self, settings: RenderSettings) -> None:
         """Change passes / quality etc.; re-renders the current view."""
@@ -263,7 +271,8 @@ class FractalViewport(QWidget):
                                                    rect.width() / z, rect.height() / z)}
         flame = self._document.flame.copy()
         flame.camera = camera
-        settings = self.settings.with_size(width, height).scaled(scale).for_zoom(self._document.flame.camera.zoom).within_bucket_limit()
+        settings = (self.settings.with_size(width, height).scaled(scale * self.render_scale)
+                    .for_zoom(self._document.flame.camera.zoom).within_bucket_limit())
         if scale < 1.0:
             settings = settings.with_refine(0.0)   # the transient low-resolution render: the full one follows
         self._service.submit(self._current_key, flame, settings, PRIORITY_VIEWPORT)

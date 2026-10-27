@@ -95,9 +95,9 @@ class RenderStatus:
             self.passes.setText(f"Pass {stats.passes_done} of {stats.passes_total}")
         self.passes.setToolTip(f"{quality}: samples per pixel so far"
                                + (f"; refining towards q {stats.samples_target / max(1, stats.width * stats.height):.0f}" if stats.refining else ""))
-        if stats.refining:
-            self.progress.setRange(0, max(1, stats.samples_target))
-            self.progress.setValue(min(stats.samples, stats.samples_target))
+        if stats.refining:   # permille: sample counts can exceed what a QProgressBar (int32) holds
+            self.progress.setRange(0, 1000)
+            self.progress.setValue(int(1000 * min(stats.samples, stats.samples_target) / max(1, stats.samples_target)))
         else:
             self.progress.setRange(0, stats.passes_total)
             self.progress.setValue(stats.passes_done)

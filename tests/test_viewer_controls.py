@@ -200,7 +200,9 @@ def test_status_bar_shows_quality_and_refinement(window):
     status = window.status
     status.show_progress(RenderStats("CPU", 6, 6, 3_000_000, 0, 2.0, 500, 300, [], samples_target=30_000_000))
     assert status.passes.text() == "Refining  ·  q 20" and "towards q 200" in status.passes.toolTip()
-    assert status.progress.maximum() == 30_000_000 and status.progress.value() == 3_000_000
+    assert status.progress.maximum() == 1000 and status.progress.value() == 100
+    status.show_progress(RenderStats("GPU", 6, 6, 4_912_080_671, 0, 2.0, 4000, 3000, [], samples_target=9_000_000_000))
+    assert status.progress.value() == 545   # sample counts beyond int32 (zoomed-in refinement) must not overflow the bar
     status.show_progress(RenderStats("CPU", 6, 6, 30_000_000, 0, 9.0, 500, 300, [], samples_target=30_000_000))
     assert status.passes.text() == "q 200  ✓"
     status.show_progress(RenderStats("CPU", 2, 6, 600_000, 0, 1.0, 500, 300))

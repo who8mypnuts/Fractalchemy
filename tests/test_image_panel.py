@@ -11,7 +11,7 @@ from fractalchemy.fractal.formats import load_flames
 from fractalchemy.ui.fractal_document import FractalDocument
 from fractalchemy.ui.image_panel import PAN_STEP, ImagePanel
 from fractalchemy.widgets.float_row import FloatRow
-from tests.conftest import copy_samples, spin, wait_until
+from tests.conftest import copy_samples, wait_until
 
 
 def sierpinski() -> Flame:
@@ -188,7 +188,7 @@ def test_save_fractal_writes_the_adjusted_flame_back_into_its_entry(qapp, tmp_pa
     try:
         win.open_path(path, 7)
         wait_until(lambda: win.document.flame is not None and win.document.flame.name == "3d musk sphere")
-        assert not win.actionSaveFractal.isEnabled() and win.windowTitle() == "Fractalchemy — 3d musk sphere"
+        assert win.actionSaveFractal.isEnabled() and win.windowTitle() == "Fractalchemy — 3d musk sphere"
         assert win.document.flame.camera.is_3d() and win.settingsPanel.image.pitch.value() == pytest.approx(60.9, abs=0.05)
         panel = win.settingsPanel.image
         panel.pitch.spin.setValue(30.0)
@@ -196,16 +196,16 @@ def test_save_fractal_writes_the_adjusted_flame_back_into_its_entry(qapp, tmp_pa
         panel.background.picker.set_color((5, 6, 7), as_original=True)
         panel.background.picker.blue.setValue(8)
         assert win.actionSaveFractal.isEnabled() and win.windowTitle() == "Fractalchemy — 3d musk sphere*"
-        win.actionSaveFractal.trigger()
-        spin(50)
-        assert not win.document.modified and not win.actionSaveFractal.isEnabled() and win.windowTitle().endswith("sphere")
+        win.actionSaveFractal.trigger()   # written on the thread pool
+        wait_until(lambda: not win.document.modified)
+        assert win.windowTitle().endswith("sphere")
         saved = load_flames(path)[7]
         assert saved.name == "3d musk sphere" and saved.camera.pitch == pytest.approx(math.radians(30))
         assert saved.coloring.brightness == 12.0 and saved.coloring.background == (5, 6, 8)
         assert saved.camera.yaw == pytest.approx(win.document.original.camera.yaw) and len(load_flames(path)) == 27
         assert Path(path).read_text().count("<flame ") == 27
         win.document.set_view(zoom=0.5)
-        assert win.actionSaveFractal.isEnabled()
+        assert win.document.modified and win.windowTitle().endswith("*")
     finally:
         win.gradient_library.document.modified = False
         win.close()
@@ -244,6 +244,232 @@ def test_main_window_applies_preview_options_to_the_viewport(qapp, tmp_path):
         assert (win.viewport.settings.oversample, win.viewport.settings.filter_radius, win.viewport.settings.refine_to) == (2, 0.5, 0.0)
         win.settingsPanel.set_options(1, 0.2, 150.0)
         assert (win.viewport.settings.oversample, win.viewport.settings.filter_radius, win.viewport.settings.refine_to) == (1, 0.2, 150.0)
+    finally:
+        win.gradient_library.document.modified = False
+        win.close()
+
+
+# --- undo / redo / paste ----------------------------------------------------------------------------------
+def test_document_undo_redo_coalesces_drags_and_paste_is_undoable(qapp):
+    from fractalchemy.ui import fractal_document as FD
+
+    doc = FractalDocument()
+    states = []
+    doc.undo_changed.connect(lambda u, r: states.append((u, r)))
+    restored = []
+    doc.flame_restored.connect(lambda: restored.append(1))
+    doc.replace(sierpinski())
+    assert not doc.can_undo and not doc.undo() and not doc.redo()
+    doc.set_coloring(brightness=5.0)
+    doc.set_coloring(brightness=6.0)      # same kind, right away: one undo step (a slider drag)
+    doc.set_coloring(gamma=3.0)           # different kind: a new step
+    assert doc.can_undo and states[-1] == (True, False) and len(doc._undo) == 2
+    assert doc.undo() and doc.flame.coloring.gamma == 4.0 and doc.flame.coloring.brightness == 6.0 and restored == [1]
+    assert doc.undo() and doc.flame.coloring.brightness == 4.0 and not doc.can_undo and doc.can_redo
+    assert doc.redo() and doc.flame.coloring.brightness == 6.0 and doc.redo() and doc.flame.coloring.gamma == 3.0 and not doc.can_redo
+    FD.UNDO_COALESCE_SECONDS, saved = 0.0, FD.UNDO_COALESCE_SECONDS
+    try:
+        doc.set_view(zoom=1.0)
+        doc.set_view(zoom=2.0)
+        assert len(doc._undo) == 4      # no coalescing when the window is zero
+    finally:
+        FD.UNDO_COALESCE_SECONDS = saved
+    doc.set_curve("red", [(0, 0), (0.5, 0.7), (1, 1)])
+    assert not doc.flame.coloring.curves.is_default("red")
+    doc.reset_curves("red")
+    assert doc.flame.coloring.curves.is_default() and doc.undo() and not doc.flame.coloring.curves.is_default("red")
+    other = sierpinski()
+    other.name = "pasted"
+    other.coloring.brightness = 9.0
+    doc.paste(other)
+    assert doc.flame.name == "pasted" and doc.modified and doc.can_undo and doc.undo() and doc.flame.name == "s"
+    doc.replace(sierpinski())
+    assert not doc.can_undo and not doc.can_redo and states[-1] == (False, False)
+
+
+def test_pan_units_and_modifier_steps(qapp):
+    from PySide6.QtCore import Qt
+    from fractalchemy.ui.image_panel import PAN_STEP, PAN_STEP_COARSE, PAN_STEP_FINE
+
+    doc = FractalDocument()
+    doc.replace(sierpinski())
+    doc.pan_units(0.1, 0.0)
+    assert doc.flame.camera.center == pytest.approx((0.6, 0.25))
+    doc.pan_units(0.0, -1.0)
+    assert doc.flame.camera.center == pytest.approx((0.6, -0.75))          # screen "up" is −y
+    doc.set_view(center=(0.0, 0.0), rotate=90.0)
+    doc.pan_units(1.0, 0.0)
+    assert abs(doc.flame.camera.center[0]) < 1e-9 and abs(abs(doc.flame.camera.center[1]) - 1.0) < 1e-9
+    assert ImagePanel.pan_step(Qt.KeyboardModifier.NoModifier) == PAN_STEP == 0.1
+    assert ImagePanel.pan_step(Qt.KeyboardModifier.ShiftModifier) == PAN_STEP_COARSE == 1.0
+    assert ImagePanel.pan_step(Qt.KeyboardModifier.ControlModifier) == PAN_STEP_FINE == 0.01
+
+
+def test_panel_contrast_y_pitch_and_curves_edit_the_document(bound):
+    from fractalchemy.fractal.curves import DEFAULT_POINTS
+    doc, panel = bound
+    doc.replace(sierpinski())
+    panel.contrast.spin.setValue(1.5)
+    assert doc.flame.coloring.contrast == 1.5
+    panel.pitch_y.spin.setValue(-25.0)
+    assert doc.flame.camera.pitch_y == pytest.approx(math.radians(-25)) and panel.flat_note.text() == "3D camera active."
+    assert panel.pitch.label.text() == "X pitch" and panel.pitch_y.label.text() == "Y pitch" and panel.yaw.label.text() == "Yaw"
+    editor = panel.curves
+    editor.select("green")
+    editor.canvas._commit([(0, 0), (0.5, 0.9), (1, 1)])
+    assert doc.flame.coloring.curves.points["green"] == [(0.0, 0.0), (0.5, 0.9), (1.0, 1.0)]
+    assert editor.buttons["green"].text().endswith("•") and editor.buttons["red"].text() == "R"
+    editor.reset_button.click()
+    assert doc.flame.coloring.curves.is_default("green") and editor.buttons["green"].text() == "G"
+    editor.canvas._commit([(0, 0), (0.5, 0.9), (1, 1)])
+    editor.select("overall")
+    editor.canvas._commit([(0, 0.2), (1, 1)])
+    editor.reset_all_button.click()
+    assert doc.flame.coloring.curves.is_default()
+    doc.undo()
+    assert doc.flame.coloring.curves.points["overall"] == [(0.0, 0.2), (1.0, 1.0)] and editor.curves().points["overall"] == [(0.0, 0.2), (1.0, 1.0)]
+    panel.revert_coloring.click()
+    assert doc.flame.coloring.curves.is_default() and doc.flame.coloring.contrast == 1.0 and editor.curves().points["green"] == DEFAULT_POINTS
+
+
+def test_curve_canvas_mouse_adds_moves_and_removes_points(qapp):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QMouseEvent
+    from fractalchemy.widgets.curve_editor import CurveCanvas
+
+    canvas = CurveCanvas()
+    canvas.resize(200, 200)
+    canvas.show()
+    seen = []
+    canvas.points_changed.connect(lambda ch, pts: seen.append((ch, pts)))
+    centre = canvas._to_screen(0.5, 0.5)
+
+    def press(pos, button=Qt.MouseButton.LeftButton):
+        canvas.mousePressEvent(QMouseEvent(QMouseEvent.Type.MouseButtonPress, pos, pos, button, button, Qt.KeyboardModifier.NoModifier))
+
+    press(centre)                                  # click on empty canvas: a new point
+    assert len(canvas.points()) == 3 and seen[-1][0] == "overall" and seen[-1][1][1] == pytest.approx((0.5, 0.5), abs=0.02)
+    target = canvas._to_screen(0.5, 0.8)
+    canvas.mouseMoveEvent(QMouseEvent(QMouseEvent.Type.MouseMove, target, target, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+    canvas.mouseReleaseEvent(QMouseEvent(QMouseEvent.Type.MouseButtonRelease, target, target, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+    assert canvas.points()[1] == pytest.approx((0.5, 0.8), abs=0.02)
+    press(canvas._to_screen(0.5, 0.8), Qt.MouseButton.RightButton)   # right-click removes it
+    assert len(canvas.points()) == 2
+    press(canvas._to_screen(0.0, 0.0), Qt.MouseButton.RightButton)   # end points stay
+    assert len(canvas.points()) == 2
+    canvas.close()
+
+
+# --- files and clipboard ----------------------------------------------------------------------------------
+def test_clipboard_round_trip_and_paste_formats(qapp, samples):
+    from fractalchemy.fractal.formats import flame_from_text, flame_to_text
+    from fractalchemy.fractal.formats.flame_xml import flame_to_xml
+
+    flame = load_flames(samples / "sample flames" / "candy.flame")[2]
+    again = flame_from_text(flame_to_text(flame))
+    assert again.name == "rotated" and again.xforms[2].variations == flame.xforms[2].variations and again.palette == flame.palette
+    assert flame_from_text(flame_to_xml(flame)).name == "rotated"
+    chaos = next(p for p in (samples / "sample flames").iterdir() if p.suffix == ".chaos")
+    assert flame_from_text(chaos.read_text()).xforms
+    with pytest.raises(ValueError):
+        flame_from_text("not parameters at all")
+
+
+def test_main_window_toolbar_undo_copy_paste_and_save_flows(qapp, tmp_path, samples, monkeypatch):
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+    from fractalchemy.library.catalog import FRACTAL_CATALOG
+    from fractalchemy.library.roots import LibraryRoots
+    from fractalchemy.ui.main_window import MainWindow
+
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda parent, title, text, *a: warnings.append((title, text))))
+    library = copy_samples(samples, tmp_path / "lib")
+    path = library / "sample flames" / "candy.flame"
+    settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+    win = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key), prefer_gpu=False, settings=settings)
+    win.show()
+    try:
+        names = [a.text() for a in win.toolBar.actions() if a.text()]
+        assert names[:7] == ["Open Fractal…", "Save Fractal", "Save Fractal As", "Undo", "Redo", "Copy Parameters", "Paste Parameters"]
+        assert [a.text() for a in win.menuSaveAs.actions()] == ["As New Entry in This File…", "As New File…", "Into Existing File…"]
+        assert [a.text() for a in win.menuEdit.actions() if a.text()] == ["Undo", "Redo", "Copy Parameters", "Paste Parameters", "Edit Fractal Library…"]
+        assert not win.actionUndo.isEnabled() and not win.actionCopyParameters.isEnabled() and not win.actionSaveFractal.isEnabled()
+        win.open_path(path, 2)
+        wait_until(lambda: win.document.flame is not None and win.document.flame.name == "rotated")
+        assert win.actionSaveFractal.isEnabled() and win.actionSaveAs.isEnabled() and win.actionCopyParameters.isEnabled()
+        # an edit: undo / redo through the actions, nothing written by itself
+        before = path.read_bytes()
+        win.settingsPanel.image.brightness.spin.setValue(12.0)
+        assert win.actionUndo.isEnabled() and win.windowTitle().endswith("*")
+        win.actionUndo.trigger()
+        assert win.document.flame.coloring.brightness == 4.0 and win.actionRedo.isEnabled()
+        win.actionRedo.trigger()
+        assert win.document.flame.coloring.brightness == 12.0 and path.read_bytes() == before
+        # copy → clipboard holds .fa text; paste replaces the parameters (undoable)
+        win.actionCopyParameters.trigger()
+        text = QGuiApplication.clipboard().text()
+        assert text.startswith("{") and '"rotated"' in text
+        QGuiApplication.clipboard().setText(text.replace('"rotated"', '"pasted copy"'))
+        win.actionPasteParameters.trigger()
+        assert win.document.flame.name == "pasted copy" and win.document.flame.coloring.brightness == 12.0
+        win.actionUndo.trigger()
+        assert win.document.flame.name == "rotated"
+        QGuiApplication.clipboard().setText("garbage")
+        win.actionPasteParameters.trigger()          # reports, keeps the flame
+        assert win.document.flame.name == "rotated" and warnings and warnings[-1][0] == "Cannot paste parameters"
+        # Save: overwrite the entry
+        win.actionSaveFractal.trigger()
+        wait_until(lambda: not win.document.modified)
+        assert load_flames(path)[2].coloring.brightness == 12.0 and len(load_flames(path)) == 5
+        # Save As ▸ new entry in this file (name prompt)
+        monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("rotated copy", True)))
+        win.settingsPanel.image.gamma.spin.setValue(2.0)
+        win.actionSaveAsNewEntry.trigger()
+        wait_until(lambda: win.document.source_index == 5)
+        entries = load_flames(path)
+        assert len(entries) == 6 and entries[5].name == "rotated copy" and entries[5].coloring.gamma == 2.0
+        assert entries[2].coloring.gamma != 2.0 and win.document.flame.name == "rotated copy" and not win.document.modified
+        # Save As ▸ new file (.fa)
+        target = tmp_path / "mine.fa"
+        monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(target), "")))
+        win.actionSaveAsNewFile.trigger()
+        wait_until(lambda: win.document.source_path == target)
+        assert load_flames(target)[0].name == "rotated copy" and win.document.source_index == 0
+        win.actionSaveAsNewFile.trigger()           # an existing file is appended to, never wiped
+        wait_until(lambda: win.document.source_index == 1)
+        assert len(load_flames(target)) == 2
+        # Save As ▸ into an existing file
+        monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(path), "")))
+        monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("into candy", True)))
+        win.actionSaveAsIntoFile.trigger()
+        wait_until(lambda: win.document.source_path == path and win.document.source_index == 6)
+        assert load_flames(path)[6].name == "into candy"
+    finally:
+        win.gradient_library.document.modified = False
+        win.close()
+
+
+def test_viewer_bar_detail_scales_the_render(qapp, tmp_path):
+    from fractalchemy.library.catalog import FRACTAL_CATALOG
+    from fractalchemy.library.roots import LibraryRoots
+    from fractalchemy.ui.main_window import MainWindow
+
+    settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+    win = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key), prefer_gpu=False, settings=settings)
+    win.show()
+    try:
+        assert win.viewerBar.detail() == 1.0 and win.viewport.render_scale == 1.0
+        win.document.replace(sierpinski())
+        submitted = []
+        win.render_service.submit = lambda key, flame, s, priority=0: submitted.append(s)
+        win.viewerBar.select_detail(0.5)
+        assert win.viewport.render_scale == 0.5
+        wait_until(lambda: bool(submitted))
+        full = win.viewport.render_camera()[1]
+        assert submitted[-1].width == max(1, int(full * 0.5))
+        win.viewerBar.select_detail(1.0)
+        wait_until(lambda: submitted[-1].width == full)
     finally:
         win.gradient_library.document.modified = False
         win.close()

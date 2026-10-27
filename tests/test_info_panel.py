@@ -42,7 +42,7 @@ def test_panel_describes_file_camera_transforms_formulas_and_colouring(panel, sa
     flame = load_flames(path)[2]
     panel.show_flame(flame, path, 2)
     groups = panel._groups
-    assert list(groups) == ["Fractal", "Transforms", "Formulas", "Colouring", "Render"]
+    assert list(groups) == ["Fractal", "Transforms", "Formulas", "Coloring", "Render"]
     fractal = rows(groups["Fractal"])
     assert fractal["Name"] == "rotated" and fractal["File"] == "candy.flame" and fractal["Entry"] == "#3"
     assert fractal["Format"].startswith("Apophysis / flam3") and "Apophysis 2.09" in fractal["Format"]
@@ -65,7 +65,7 @@ def test_panel_describes_file_camera_transforms_formulas_and_colouring(panel, sa
     formulas = rows(groups["Formulas"])
     assert formulas["pre_blur"].startswith("×3  ·  pre  ·  random") and formulas["linear"].startswith("×2  ·  normal")
     assert "5 parameters" in formulas["lazysusan"] and child(groups["Formulas"], "lazysusan").toolTip(1).startswith("lazysusan")
-    colouring = rows(groups["Colouring"])
+    colouring = rows(groups["Coloring"])
     assert colouring["Gamma threshold"] == "0.04" and colouring["Background"] == "#000000"
     assert panel.palette_label is not None and not panel.palette_label.pixmap().isNull()
     assert rows(groups["Render"]) == {"Status": "not rendered yet"}
@@ -104,7 +104,7 @@ def test_unavailable_formulas_are_flagged_and_double_click_emits_the_name(panel)
     seen = []
     panel.formula_activated.connect(seen.append)
     panel._activated(child(panel._groups["Formulas"], "linear"), 0)
-    panel._activated(panel._groups["Colouring"], 0)   # not a formula row: nothing
+    panel._activated(panel._groups["Coloring"], 0)   # not a formula row: nothing
     assert seen == ["linear"]
 
 

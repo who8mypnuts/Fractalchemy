@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from ... import config
+from ..curves import Curves
 from ..scene import Affine, Camera, Coloring, Flame, XForm, identity_affine
 from ..variations import REGISTRY, canonical_name, normalize, parameter_owner
 
@@ -70,11 +71,12 @@ def flame_from_element(el: ET.Element) -> Flame:
         name=el.get("name", "flame"),
         camera=Camera((cx, cy), _float(el.get("scale"), 200.0), _float(el.get("zoom"), 0.0), rotate, width, height,
                       _float(el.get("cam_pitch"), 0.0), _float(el.get("cam_yaw"), 0.0), perspective,
-                      _float(el.get("cam_zpos"), 0.0), abs(_float(el.get("cam_dof"), 0.0))),
+                      _float(el.get("cam_zpos"), 0.0), abs(_float(el.get("cam_dof"), 0.0)), _float(el.get("cam_pitch_y"), 0.0)),
         coloring=Coloring(
             brightness=_float(el.get("brightness"), 4.0), gamma=_float(el.get("gamma"), 4.0),
             gamma_threshold=_float(el.get("gamma_threshold"), 0.01), vibrancy=_float(el.get("vibrancy"), 1.0),
             contrast=_float(el.get("contrast"), 1.0), background=_background(el.get("background", "0 0 0")),
+            curves=_curves(el),
         ),
         source_version=el.get("version", ""),
         oversample=max(1, int(_float(el.get("oversample", el.get("supersample")), 1.0))),
@@ -160,7 +162,8 @@ def flame_to_xml(flame: Flame, indent: str = "") -> str:
         f'zoom="{_g(cam.zoom)}" rotate="{_g(cam.rotate)}" {_camera_3d_attrs(cam)}oversample="{flame.oversample}" filter="{_g(flame.filter_radius)}" quality="5" '
         f'background="{_g(col.background[0] / 255)} {_g(col.background[1] / 255)} {_g(col.background[2] / 255)}" '
         f'brightness="{_g(col.brightness)}" gamma="{_g(col.gamma)}" gamma_threshold="{_g(col.gamma_threshold)}" '
-        f'vibrancy="{_g(col.vibrancy)}" contrast="{_g(col.contrast)}">'
+        f'vibrancy="{_g(col.vibrancy)}" contrast="{_g(col.contrast)}"'
+        + (f' fa_curves="{_attr(col.curves.to_text())}"' if not col.curves.is_default() else "") + ">"
     )
     lines = [indent + head]
     for x in flame.xforms:
@@ -183,12 +186,22 @@ def flames_to_xml(flames: list[Flame], name: str = "Fractalchemy") -> str:
     return f'<Flames name="{_attr(name)}">\n{body}</Flames>\n'
 
 
+def _curves(el: ET.Element) -> Curves:
+    """Our own `fa_curves` (exact) or Apophysis 7X's `curves` (sampled)."""
+    if el.get("fa_curves"):
+        return Curves.from_text(el.get("fa_curves", ""))
+    if el.get("curves"):
+        return Curves.from_apophysis(el.get("curves", ""))
+    return Curves()
+
+
 def _camera_3d_attrs(cam: Camera) -> str:
     """`cam_*` attributes, only when the camera is not flat (keeps 2D files as Apophysis writes them)."""
     if not cam.is_3d():
         return ""
     return (f'cam_pitch="{_g(cam.pitch)}" cam_yaw="{_g(cam.yaw)}" cam_perspective="{_g(cam.perspective)}" '
-            f'cam_zpos="{_g(cam.zpos)}" cam_dof="{_g(cam.dof)}" ')
+            f'cam_zpos="{_g(cam.zpos)}" cam_dof="{_g(cam.dof)}" '
+            + (f'cam_pitch_y="{_g(cam.pitch_y)}" ' if cam.pitch_y else ""))
 
 
 def _xform_attrs(x: XForm, final: bool) -> str:

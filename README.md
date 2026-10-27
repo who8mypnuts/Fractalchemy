@@ -20,17 +20,25 @@ python -m pytest
 ## What it does today
 
 ### Main window
-* Menu bar: *File* (Open Fractal…, Save Fractal `Ctrl+S`, Exit), *Edit* (Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
+* Menu bar: *File* (Open Fractal…, Save Fractal `Ctrl+S`, Save Fractal As ▸ New Entry / New File `Ctrl+Shift+S` /
+  Into Existing File, Exit), *Edit* (Undo `Ctrl+Z`, Redo `Ctrl+Shift+Z`, Copy Parameters `Ctrl+Shift+C`, Paste
+  Parameters `Ctrl+Shift+V`, Edit Fractal Library…), … (Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
   Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
   *Windows* (Gradient Library `F6`), *Help* (Formulas…, About).
-* Toolbar: **Open Fractal**, **Gradient Library** (hover for tooltips).
+* Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
+  **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
+  (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Gradient Library**.
+  Nothing is ever written unless you save: edits only change the preview, the title shows `*`, and Save / Save As
+  let you keep as many versions as you like.
 * **Fractal Library** (left pane, collapsible via the divider arrow or `Ctrl+L`): folders of `.flame`
   (Apophysis / flam3, legacy files included), `.chaos` (Chaotica) and `.fa` (Fractalchemy) files, each file
   expanding into its flames. Search box, collapse-all, and two view buttons: **list** or **thumbnails**
   (rendered on demand by the preview engine, at low priority so the viewport always comes first).
   Folders are watched, and the right-click menu / drag-and-drop file operations are the same as in the
   Gradient Library. It has its own folder list (*Edit ▸ Edit Fractal Library…*, or **+** / ✎ in the pane).
-* **Viewport** (the centre): click a flame and it renders progressively in passes. The flame is framed as an
+* **Viewport** (the centre): click a flame and it renders progressively in passes. The **Detail** box under it
+  (Full / ½ / ¼) renders the preview at a fraction of the screen resolution — 4× / 16× faster while editing —
+  and scales it up; the saved image size is untouched. The flame is framed as an
   *image* of the chosen **Image size** (dropdown under the viewer, far right: the flame's own size, common
   screen and print sizes, or Custom… with width × height). Changing it only changes the image's aspect and
   framing inside the viewer — never the window.
@@ -54,13 +62,16 @@ python -m pytest
     nothing changes, each extra pass doubling the samples; **Oversample** and **Filter** are Apophysis's
     supersampling and Gaussian filter radius, 2 / 0.5 = plain 2×2 anti-aliasing; all persist between runs);
     **Camera** (zoom slider + box, Apophysis log2 zoom around the image centre; pan arrows moving the view
-    by 10% of the image along the screen axes, rotation respected; centre x / y and rotation boxes);
-    **3D camera** (pitch, yaw, perspective, z position, depth blur — Apophysis's `cam_*` attributes, so a
-    2D flame becomes a tilted plane and variations with depth — `julia3D`, `curl3D`, `ztranslate`,
-    `zcone`, `blur3D`, `zblur`, `zscale`, `pre_`/`post_rotate_x/y`, `linear3D`, … — show real 3D);
-    **Colouring** (brightness, gamma, gamma threshold, vibrancy, background colour via the live picker).
-  Every change re-renders; the title shows `*` until *File ▸ Save Fractal* writes the adjusted flame back
-  into its entry of the `.flame` / `.fa` file it came from. The tab you were on persists between runs.
+    by 0.1 fractal units along the screen axes — **Shift** 1.0, **Ctrl** 0.01 — rotation respected; centre x / y
+    and rotation boxes); **3D camera** (**X pitch** tilts about the horizontal axis, **Y pitch** about the vertical
+    one, **yaw** spins the plane, plus perspective, z position, depth blur — Apophysis's `cam_*` attributes, so a
+    2D flame becomes a tilted plane and variations with depth — `julia3D`, `curl3D`, `ztranslate`, `zcone`,
+    `blur3D`, `zblur`, `zscale`, `pre_`/`post_rotate_x/y`, `linear3D`, … — show real 3D; Y pitch is saved as
+    `cam_pitch_y`, which Apophysis ignores); **Coloring** (brightness, gamma, gamma threshold, vibrancy,
+    contrast, background colour via the live picker); **Curves** (Chaotica-style tone curves — overall, R, G, B
+    and alpha/coverage — click to add points, drag, right-click to remove, *Reset* per channel and *Reset all*;
+    Apophysis 7X `curves` are read, ours are saved as `fa_curves`).
+  Every change re-renders and is undoable; nothing is written until you save. The tab you were on persists.
 * **Status bar** across the bottom: the loaded fractal (name, transform count, size, file, ignored
   variations), render facts (engine, render size, samples, samples/second — the full GPU name is in the
   tooltip), **Pass n of N** → **Refining · q 64** → **q 500 ✓** (samples per pixel), and a progress bar.

@@ -59,7 +59,8 @@ formulas of Fractalchemy. Design and reference: **docs/formulas.md** (read it fi
    cache, errors), `test_variations.py` now runs every registered formula through both engines (one of twelve
    points may differ: float32 discontinuities), engine 3D/DC/pre-post tests, flame 3D attribute round trip,
    formula browser test, `test_info_panel.py` (6), `test_image_panel.py` (8: document setters, pan geometry,
-   FloatRow, panel ↔ document, save round trip, preview options). **1360 passed** at the last full run.
+   FloatRow, panel ↔ document, save round trip, preview options, undo/paste, curves, file flows). **1369 passed** at the
+   last full run.
 
 Also fixed: the `.flame` reader treated `modulus` / `modulus_x` / `modulus_y` as transform attributes (a
 baseline assumption); they are the `modulus` plugin, which is now in the library — flames using it rendered
@@ -75,6 +76,17 @@ black before.
    `Flame.oversample/filter_radius` round-trip the file's own hints. Tests run with `PREVIEW_REFINE_TO = 0`
    (conftest) so GUI renders finish quickly; `test_render.py` covers refinement + yielding.
 
+9. **Image tab round 2**: `Camera.pitch_y` (tilt about the vertical axis; full 3×3 matrix in `projection.py`
+   numpy + GLSL; `cam_pitch_y` in .flame, `pitch_y` in .fa); contrast control; "Coloring"; pan arrows move
+   0.1 / Shift 1 / Ctrl 0.01 fractal units (`FractalDocument.pan_units`, `ImagePanel.pan_step`); tone curves
+   (`fractal/curves.py` model + monotone cubic, `widgets/curve_editor.py`, tonemap LUTs numpy + GLSL,
+   `fa_curves` attribute, Apophysis `curves` import); undo/redo (`FractalDocument._record` with 1 s
+   coalescing, `flame_restored`, `undo_changed`); Save / Save As ▾ (`ui/fractal_file_actions.py`: replace /
+   append / new file / into file, background writes, `file_written`), Copy / Paste Parameters
+   (`formats.flame_to_text/flame_from_text`: .fa JSON, `<flame>` XML, Chaotica world); viewer-bar **Detail**
+   (`FractalViewport.render_scale`); progress bar in permille (int32 overflow at zoom); GPU shader build
+   failures dump sources + log to `cache_dir()/glsl-failures` (`ShaderBuildError`).
+
 ## Known gaps / next steps
 * Not available (see `tools/apo_decompile.py --batch` report): DLL-only plugins with loops (tile, tile_hyp,
   tile_plane, hy2, disc2square, fibonacci_blur, bubbleT3D, pre/post_hexcrop, jac_cn/dn/sn/elk, swirl3sin,
@@ -88,9 +100,11 @@ black before.
 * The editor that lets users pick formulas and edit parameters (incl. the z / 3D variations such as
   `ztranslate`, `zscale`, `zcone`, `julia3D_power`, `curl3D_cz`) is the next feature; `Variation.param_info`
   (type, default, min/max, cyclic, non-zero) is ready for it, and `FormulaBrowser` shows the catalogue.
-* *Save Fractal* rewrites the `<flame>` element from the model, so attributes we do not model
-  (`plotmode`, `animate`, motion, `estimator_*`) are dropped from that entry; colouring edits re-render
-  instead of re-tonemapping the kept histogram (a possible speed-up, now that jobs can be kept alive).
+* *Save* rewrites the `<flame>` element from the model, so attributes we do not model (`plotmode`, `animate`,
+  motion, `estimator_*`) are dropped from that entry; coloring / curve edits re-render instead of
+  re-tonemapping the kept histogram (a possible speed-up, now that jobs can be kept alive).
+* The user reports rare GPU shader build failures (crackle, edisc) on their driver that fall back to the CPU;
+  not reproducible on llvmpipe (40 random crackle/edisc flames compiled) — the diagnostics file is the next step.
 * On software OpenGL (llvmpipe, as in the test sandbox) refinement to q 500 takes minutes; on a real GPU
   seconds. The GPU plot pass is one draw of `PREVIEW_POINTS` points per iteration — batching several
   iterations per draw would cut driver overhead further if throughput matters.

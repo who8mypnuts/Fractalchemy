@@ -185,7 +185,7 @@ class RenderService(QThread):
                 job = self._fallback_engine().start(request.flame, request.settings)
             except Exception as exc2:  # noqa: BLE001 - report the more telling error
                 raise exc2 if self.engine.name == "CPU" else exc
-            job.stats.notes.append(f"rendered on the CPU: {str(exc).splitlines()[0][:120]}")
+            job.stats.notes.append(f"rendered on the CPU — the GPU rejected the shader: {str(exc).splitlines()[0][:200]}")
             return job
 
     def _render(self, request: _Request) -> None:

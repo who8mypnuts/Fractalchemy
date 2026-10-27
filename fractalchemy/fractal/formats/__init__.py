@@ -192,7 +192,38 @@ def open_dialog_filter() -> str:
     return ";;".join([f"All fractals ({all_patterns})", *(f.dialog_filter() for f in FORMATS)])
 
 
+def save_dialog_filter() -> str:
+    """QFileDialog filter for the writable fractal types (.flame first, as most tools read it)."""
+    return ";;".join(f.dialog_filter() for f in FORMATS if f.can_append)
+
+
+def flame_to_text(flame: Flame) -> str:
+    """The flame as a `.fa` document (JSON) — what the clipboard carries."""
+    return fa.document_text([flame])
+
+
+def flame_from_text(text: str) -> Flame:
+    """A flame from pasted text: a `.fa` document, `<flame>` XML (Apophysis / flam3) or a Chaotica world.
+
+    Raises:
+        ValueError: If the text is none of those.
+    """
+    stripped = text.strip()
+    if stripped.startswith("{"):
+        return fa.parse_text(stripped)[0]
+    if "<flame" in stripped:
+        flames = flame_xml.parse_text(stripped)
+        if flames:
+            return flames[0]
+    if "<world" in stripped or "<IFS" in stripped or "<ifs" in stripped:
+        flames = chaos_world.parse_text(stripped)
+        if flames:
+            return flames[0]
+    raise ValueError("the clipboard holds no fractal parameters (.fa, <flame> XML or a Chaotica world)")
+
+
 __all__ = [
     "FORMATS", "DEFAULT_SAVE_FORMAT", "PARSE_ERRORS", "FractalFormat", "UnsupportedFractalFormat",
     "fractal_format_for", "is_fractal_file", "load_flames", "load_flame", "flame_names", "open_dialog_filter",
+    "save_dialog_filter", "flame_to_text", "flame_from_text",
 ]

@@ -14,7 +14,9 @@ thread-bound), so the render service owns one engine on its worker thread.
 
 from __future__ import annotations
 
+import logging
 import time
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -22,10 +24,12 @@ import numpy as np
 from ..fractal.scene import Flame
 from .codegen import STATE_BYTES, GeneratedProgram, generate
 from .compiled import CompiledFlame
+from .filtering import bucket_transform
 from .projection import glsl_uniforms
 from .settings import RenderSettings, RenderStats
-from .filtering import bucket_transform
-from .tonemap import FULLSCREEN_VERTEX_GLSL, SCALE_GLSL, TONEMAP_GLSL, ToneParams, filter_uniforms
+from .tonemap import FULLSCREEN_VERTEX_GLSL, SCALE_GLSL, TONEMAP_GLSL, ToneParams, curve_luts, filter_uniforms
+
+log = logging.getLogger(__name__)
 
 _probe_result: tuple[bool, str] | None = None
 
@@ -54,6 +58,37 @@ def _create_context():
         return moderngl.create_standalone_context(require=330, backend="egl")
 
 
+class ShaderBuildError(RuntimeError):
+    """The GPU driver rejected a generated shader; `report` is the diagnostics file written (or None)."""
+
+    def __init__(self, message: str, report: Path | None):
+        lines = [ln.strip() for ln in message.splitlines() if ln.strip()]
+        first = next((ln for ln in lines if "error" in ln.lower() and "failed" not in ln.lower()), lines[0] if lines else "shader build failed")
+        super().__init__(first + (f" (details in {report})" if report else ""))
+        self.log = message
+        self.report = report
+
+
+def glsl_failure_dir() -> Path:
+    from ..formulas.loader import cache_dir
+    return cache_dir() / "glsl-failures"
+
+
+def _dump_failure(generated: GeneratedProgram, exc: Exception, renderer: str) -> Path | None:
+    """Write the shader sources and the compiler output for a failed build; returns the report path."""
+    try:
+        folder = glsl_failure_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        report = folder / time.strftime("%Y%m%d-%H%M%S.txt")
+        report.write_text(f"renderer: {renderer}\n\n=== compiler output ===\n{exc}\n\n=== iterate shader ===\n{generated.iterate_vertex}\n\n"
+                          f"=== plot shader ===\n{generated.plot_vertex}\n", encoding="utf-8")
+        log.warning("GPU shader build failed on %s; sources and compiler log written to %s", renderer, report)
+        return report
+    except OSError:
+        log.warning("GPU shader build failed on %s: %s", renderer, str(exc).splitlines()[0] if str(exc) else exc)
+        return None
+
+
 class GpuEngine:
     """Owns the OpenGL context and the compiled programs; creates render jobs."""
     name = "GPU"
@@ -74,11 +109,19 @@ class GpuEngine:
         return GpuRenderJob(self, flame, settings)
 
     def programs(self, generated: GeneratedProgram):
-        """Compiled (iterate, plot) programs, cached by source text."""
+        """Compiled (iterate, plot) programs, cached by source text.
+
+        Raises:
+            ShaderBuildError: The driver rejected the generated GLSL; the sources and the compiler log
+                are written to `glsl_failure_dir()` so the problem can be reported and reproduced.
+        """
         key = generated.iterate_vertex + generated.plot_vertex
         if key not in self._programs:
-            iterate = self.ctx.program(vertex_shader=generated.iterate_vertex, varyings=["out_state", "out_xi", "out_seed"])
-            plot = self.ctx.program(vertex_shader=generated.plot_vertex, fragment_shader=_PLOT_FRAGMENT)
+            try:
+                iterate = self.ctx.program(vertex_shader=generated.iterate_vertex, varyings=["out_state", "out_xi", "out_seed"])
+                plot = self.ctx.program(vertex_shader=generated.plot_vertex, fragment_shader=_PLOT_FRAGMENT)
+            except Exception as exc:  # noqa: BLE001 - moderngl.Error carries the compiler log
+                raise ShaderBuildError(str(exc), _dump_failure(generated, exc, self.renderer)) from exc
             self._programs[key] = (iterate, plot)
             if len(self._programs) > 32:
                 self._programs.pop(next(iter(self._programs)))
@@ -134,6 +177,15 @@ class GpuRenderJob:
         self.params_tex.filter = (self.engine.gl.NEAREST, self.engine.gl.NEAREST)
         self.palette_tex = self.ctx.texture((256, 1), 3, self.compiled.palette.astype(np.float32).tobytes(), dtype="f4")
         self.palette_tex.filter = (self.engine.gl.NEAREST, self.engine.gl.NEAREST)
+        luts = curve_luts(self.coloring.curves)
+        self.has_curves = luts is not None
+        table = np.zeros((2, 256, 4), dtype=np.float32)
+        if luts is not None:
+            table[0, :, :] = luts[:4].T          # row 0: overall, red, green, blue
+            table[1, :, 0] = luts[4]             # row 1: alpha
+        self.curves_tex = self.ctx.texture((256, 2), 4, table.tobytes(), dtype="f4")
+        self.curves_tex.filter = (self.engine.gl.LINEAR, self.engine.gl.LINEAR)
+        self.curves_tex.repeat_x = self.curves_tex.repeat_y = False
 
     def _create_population(self) -> None:
         n = self.settings.points
@@ -229,8 +281,11 @@ class GpuRenderJob:
         self.out_fbo.use()
         self.ctx.viewport = (0, 0, s.width, s.height)
         self.scaled_tex.use(3)
+        self.curves_tex.use(4)
         prog = self.engine._tonemap
         _set(prog, "u_scaled", 3)
+        _set(prog, "u_curves", 4)
+        _set(prog, "u_has_curves", self.has_curves)
         for name, value in uniforms.items():
             _set(prog, name, value)
         self.engine._tonemap_vao.render(mode=self.engine.gl.TRIANGLES, vertices=3)
@@ -244,6 +299,6 @@ class GpuRenderJob:
         if self._closed:
             return
         self._closed = True
-        for obj in (*self.iterate_vaos, *self.plot_vaos, *self.buffers, self.params_tex, self.palette_tex,
+        for obj in (*self.iterate_vaos, *self.plot_vaos, *self.buffers, self.params_tex, self.palette_tex, self.curves_tex,
                     self.hist_fbo, self.hist_tex, self.scaled_fbo, self.scaled_tex, self.out_fbo, self.out_tex):
             obj.release()

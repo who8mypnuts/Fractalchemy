@@ -187,3 +187,23 @@ def test_flame_files_keep_their_oversample_and_filter_hints():
     assert (again.oversample, again.filter_radius) == (3, 0.7) and 'oversample="3" filter="0.7"' in flame_to_xml(flame)
     assert Flame.from_dict(flame.to_dict()).filter_radius == 0.7 and flame.copy().oversample == 3
     assert parse_text('<flame name="b" size="10 10"><xform weight="1" coefs="1 0 0 1 0 0"/></flame>')[0].oversample == 1
+
+
+def test_flame_xml_keeps_y_pitch_and_curves():
+    from fractalchemy.fractal.curves import Curves
+    flame = Flame("c", [XForm()])
+    flame.camera.pitch, flame.camera.pitch_y = 0.3, -0.4
+    flame.coloring.curves.set_points("blue", [(0, 0), (0.5, 0.25), (1, 1)])
+    flame.coloring.curves.set_points("alpha", [(0, 0.1), (1, 1)])
+    text = flame_to_xml(flame)
+    assert 'cam_pitch_y="-0.4"' in text and "fa_curves=" in text
+    again = parse_text(text)[0]
+    assert again.camera.pitch_y == -0.4 and again.coloring.curves == flame.coloring.curves
+    assert Flame.from_dict(flame.to_dict()).coloring.curves == flame.coloring.curves
+    assert Flame.from_dict(flame.to_dict()).camera.pitch_y == -0.4
+    flat = flame_to_xml(Flame("f", [XForm()]))
+    assert "cam_pitch_y" not in flat and "fa_curves" not in flat
+    apo = '<flame name="a" size="8 8" curves="0 0 1 0 0 1 1 1 1 1 1 1 0 0 1 0.2 0.6 1 0.8 0.9 1 1 1 1 0 0 1 0 0 1 1 1 1 1 1 1 0 0 1 0 0 1 1 1 1 1 1 1"><xform weight="1" coefs="1 0 0 1 0 0"/></flame>'
+    curves = parse_text(apo)[0].coloring.curves
+    assert curves.is_default("overall") and not curves.is_default("red") and curves.evaluate("red", 0.5) > 0.5
+    assert Curves.from_apophysis("1 2 3").is_default()

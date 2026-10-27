@@ -36,6 +36,16 @@ def flame_names(path: Path) -> list[str]:
     return [ifs.get("name", "IFS") for ifs in _ifs_elements(path) if ifs.find("node[@name='iterators']/iterator") is not None]
 
 
+def parse_text(text: str) -> list[Flame]:
+    """Every IFS in a world given as text (e.g. pasted)."""
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ChaosParseError(f"not valid Chaotica XML: {exc}") from exc
+    elements = [el for tag in IFS_TAGS for el in root.iter(tag)]
+    return [f for f in (_flame_from_ifs(ifs) for ifs in elements) if f.xforms]
+
+
 def _ifs_elements(path: Path) -> list[ET.Element]:
     try:
         root = ET.parse(path).getroot()

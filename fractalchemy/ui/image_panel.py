@@ -16,12 +16,13 @@ import math
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QScrollArea,
-    QSpinBox, QToolButton, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton,
+    QScrollArea, QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .. import config
 from ..widgets.color_dialog import ColorPickerDialog
+from ..widgets.curve_editor import CurveEditor
 from ..widgets.float_row import FloatRow
 from ..widgets.silent import set_value_silently
 from .fractal_document import FractalDocument
@@ -29,9 +30,12 @@ from .fractal_document import FractalDocument
 PASSES_RANGE = (1, 50)
 QUALITY_RANGE = (0.5, 500.0)
 ZOOM_RANGE = (-4.0, 8.0)
-PAN_STEP = 0.1          # fraction of the image moved per arrow click
+PAN_STEP = 0.1          # fractal units moved per arrow click; Shift = PAN_STEP_COARSE, Ctrl = PAN_STEP_FINE
+PAN_STEP_COARSE = 1.0
+PAN_STEP_FINE = 0.01
 PITCH_RANGE = (-180.0, 180.0)
 YAW_RANGE = (-180.0, 180.0)
+CONTRAST_RANGE = (0.1, 5.0)
 PERSPECTIVE_RANGE = (0.0, 1.0)
 ZPOS_RANGE = (-5.0, 5.0)
 DOF_RANGE = (0.0, 2.0)
@@ -115,7 +119,8 @@ class ImagePanel(QWidget):
         self.pan_right = QToolButton(self)
         self.revert_view = QToolButton(self)
         # 3D camera
-        self.pitch = FloatRow("Pitch", *PITCH_RANGE, decimals=1, step=1.0, suffix="°", spin_range=(-3600.0, 3600.0), parent=self)
+        self.pitch = FloatRow("X pitch", *PITCH_RANGE, decimals=1, step=1.0, suffix="°", spin_range=(-3600.0, 3600.0), parent=self)
+        self.pitch_y = FloatRow("Y pitch", *PITCH_RANGE, decimals=1, step=1.0, suffix="°", spin_range=(-3600.0, 3600.0), parent=self)
         self.yaw = FloatRow("Yaw", *YAW_RANGE, decimals=1, step=1.0, suffix="°", spin_range=(-3600.0, 3600.0), parent=self)
         self.perspective = FloatRow("Perspective", *PERSPECTIVE_RANGE, decimals=3, step=0.01, spin_range=(-10.0, 10.0), parent=self)
         self.zpos = FloatRow("Z position", *ZPOS_RANGE, decimals=2, step=0.1, spin_range=(-1000.0, 1000.0), parent=self)
@@ -127,8 +132,10 @@ class ImagePanel(QWidget):
         self.gamma = FloatRow("Gamma", *GAMMA_RANGE, decimals=2, step=0.1, spin_range=(0.01, 100.0), parent=self)
         self.threshold = FloatRow("Threshold", *THRESHOLD_RANGE, decimals=3, step=0.01, parent=self)
         self.vibrancy = FloatRow("Vibrancy", *VIBRANCY_RANGE, decimals=2, step=0.05, parent=self)
+        self.contrast = FloatRow("Contrast", *CONTRAST_RANGE, decimals=2, step=0.1, spin_range=(0.01, 100.0), parent=self)
         self.background = ColorButton(self)
         self.revert_coloring = QToolButton(self)
+        self.curves = CurveEditor(self)
         self._build()
         self._connect()
         self.set_enabled_for_flame(False)
@@ -142,6 +149,7 @@ class ImagePanel(QWidget):
         layout.addWidget(self._camera_group())
         layout.addWidget(self._camera_3d_group())
         layout.addWidget(self._coloring_group())
+        layout.addWidget(self._curves_group())
         layout.addStretch(1)
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
@@ -202,7 +210,7 @@ class ImagePanel(QWidget):
                                         (self.pan_right, Qt.ArrowType.RightArrow, "Pan right", (1, 2)),
                                         (self.pan_down, Qt.ArrowType.DownArrow, "Pan down", (2, 1))):
             button.setArrowType(arrow)
-            button.setToolTip(f"{tip} by {PAN_STEP:.0%} of the image")
+            button.setToolTip(f"{tip} by {PAN_STEP:g} (Shift: {PAN_STEP_COARSE:g}, Ctrl: {PAN_STEP_FINE:g}) fractal units")
             button.setAutoRepeat(True)
             arrows.addWidget(button, *pos)
         self._revert_icon(self.revert_view, "Revert: centre, zoom and rotation as loaded from the file")
@@ -233,12 +241,13 @@ class ImagePanel(QWidget):
     def _camera_3d_group(self) -> QGroupBox:
         group = QGroupBox("3D camera", self)
         layout = QVBoxLayout(group)
-        self.pitch.set_tooltip("Tilt of the plane towards the viewer (Apophysis cam_pitch)")
-        self.yaw.set_tooltip("Turn around the vertical axis (Apophysis cam_yaw)")
+        self.pitch.set_tooltip("Tilt of the plane about the screen's horizontal axis (Apophysis cam_pitch)")
+        self.pitch_y.set_tooltip("Tilt of the plane about the screen's vertical axis (Fractalchemy cam_pitch_y)")
+        self.yaw.set_tooltip("Spin of the plane about its own normal (Apophysis cam_yaw)")
         self.perspective.set_tooltip("Strength of the perspective: points further away shrink (cam_perspective)")
         self.zpos.set_tooltip("Depth of the plane the camera looks at (cam_zpos); points in front / behind it get perspective")
         self.dof.set_tooltip("Depth of field: blur growing with the distance from the z position (cam_dof)")
-        for row in (self.pitch, self.yaw, self.perspective, self.zpos, self.dof):
+        for row in (self.pitch, self.pitch_y, self.yaw, self.perspective, self.zpos, self.dof):
             layout.addWidget(row)
         self.flat_note.setWordWrap(True)
         self.flat_note.setEnabled(False)
@@ -250,13 +259,14 @@ class ImagePanel(QWidget):
         return group
 
     def _coloring_group(self) -> QGroupBox:
-        group = QGroupBox("Colouring", self)
+        group = QGroupBox("Coloring", self)
         layout = QVBoxLayout(group)
         self.brightness.set_tooltip("Overall brightness of the log-density image")
         self.gamma.set_tooltip("Display gamma: higher lifts the faint parts")
         self.threshold.set_tooltip("Gamma threshold: densities below it are blended linearly (kills speckle)")
         self.vibrancy.set_tooltip("1 = colour from the palette, 0 = per-channel gamma (washes out)")
-        for row in (self.brightness, self.gamma, self.threshold, self.vibrancy):
+        self.contrast.set_tooltip("Density contrast (Apophysis 'contrast'): scales the log-density before brightness")
+        for row in (self.brightness, self.gamma, self.threshold, self.vibrancy, self.contrast):
             layout.addWidget(row)
         bottom = QHBoxLayout()
         label = QLabel("Background", self)
@@ -264,9 +274,17 @@ class ImagePanel(QWidget):
         bottom.addWidget(label)
         self.background.setToolTip("Background colour of the image")
         bottom.addWidget(self.background, 1)
-        self._revert_icon(self.revert_coloring, "Revert: colouring as loaded from the file")
+        self._revert_icon(self.revert_coloring, "Revert: coloring as loaded from the file")
         bottom.addWidget(self.revert_coloring)
         layout.addLayout(bottom)
+        return group
+
+    def _curves_group(self) -> QGroupBox:
+        group = QGroupBox("Curves", self)
+        group.setToolTip("Tone curves on the finished image: overall first, then red / green / blue; "
+                         "alpha remaps how much background shows through")
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.curves)
         return group
 
     # --- wiring --------------------------------------------------------------------------------------------
@@ -281,12 +299,13 @@ class ImagePanel(QWidget):
         self.center_x.valueChanged.connect(lambda v: self._edit(lambda d: d.set_view(center=(v, d.flame.camera.center[1]))))
         self.center_y.valueChanged.connect(lambda v: self._edit(lambda d: d.set_view(center=(d.flame.camera.center[0], v))))
         self.rotate.valueChanged.connect(lambda v: self._edit(lambda d: d.set_view(rotate=v)))
-        self.pan_up.clicked.connect(lambda: self._edit(lambda d: d.pan(0.0, -PAN_STEP)))
-        self.pan_down.clicked.connect(lambda: self._edit(lambda d: d.pan(0.0, PAN_STEP)))
-        self.pan_left.clicked.connect(lambda: self._edit(lambda d: d.pan(-PAN_STEP, 0.0)))
-        self.pan_right.clicked.connect(lambda: self._edit(lambda d: d.pan(PAN_STEP, 0.0)))
+        self.pan_up.clicked.connect(lambda: self._pan(0, -1))
+        self.pan_down.clicked.connect(lambda: self._pan(0, 1))
+        self.pan_left.clicked.connect(lambda: self._pan(-1, 0))
+        self.pan_right.clicked.connect(lambda: self._pan(1, 0))
         self.revert_view.clicked.connect(lambda: self._edit(lambda d: d.revert_view()))
         self.pitch.value_changed.connect(lambda v: self._edit(lambda d: d.set_camera_3d(pitch=math.radians(v))))
+        self.pitch_y.value_changed.connect(lambda v: self._edit(lambda d: d.set_camera_3d(pitch_y=math.radians(v))))
         self.yaw.value_changed.connect(lambda v: self._edit(lambda d: d.set_camera_3d(yaw=math.radians(v))))
         self.perspective.value_changed.connect(lambda v: self._edit(lambda d: d.set_camera_3d(perspective=v)))
         self.zpos.value_changed.connect(lambda v: self._edit(lambda d: d.set_camera_3d(zpos=v)))
@@ -296,13 +315,17 @@ class ImagePanel(QWidget):
         self.gamma.value_changed.connect(lambda v: self._edit(lambda d: d.set_coloring(gamma=v)))
         self.threshold.value_changed.connect(lambda v: self._edit(lambda d: d.set_coloring(gamma_threshold=v)))
         self.vibrancy.value_changed.connect(lambda v: self._edit(lambda d: d.set_coloring(vibrancy=v)))
+        self.contrast.value_changed.connect(lambda v: self._edit(lambda d: d.set_coloring(contrast=v)))
         self.background.color_changed.connect(lambda c: self._edit(lambda d: d.set_coloring(background=c)))
         self.revert_coloring.clicked.connect(lambda: self._edit(lambda d: d.revert_coloring()))
+        self.curves.curve_changed.connect(lambda channel, points: self._edit(lambda d: d.set_curve(channel, points)))
+        self.curves.channel_reset.connect(lambda channel: self._edit(lambda d: d.reset_curves(None if channel == "all" else channel)))
 
     def bind(self, document: FractalDocument) -> None:
         """Follow `document`: refresh on every change, edit it from the controls."""
         self._document = document
         document.flame_replaced.connect(self.refresh)
+        document.flame_restored.connect(self.refresh)
         document.camera_changed.connect(self.refresh_camera)
         document.coloring_changed.connect(self.refresh_coloring)
         self.refresh()
@@ -311,6 +334,21 @@ class ImagePanel(QWidget):
         if self._document is None or self._document.flame is None or self._updating:
             return
         action(self._document)
+
+    @staticmethod
+    def pan_step(modifiers=None) -> float:
+        """Fractal units per arrow click: plain, Shift (coarse) or Ctrl (fine)."""
+        if modifiers is None:
+            modifiers = QApplication.keyboardModifiers()
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            return PAN_STEP_COARSE
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            return PAN_STEP_FINE
+        return PAN_STEP
+
+    def _pan(self, dx: int, dy: int) -> None:
+        step = self.pan_step()
+        self._edit(lambda d: d.pan_units(dx * step, dy * step))
 
     # --- model → controls ----------------------------------------------------------------------------------
     def refresh(self) -> None:
@@ -333,11 +371,12 @@ class ImagePanel(QWidget):
             set_value_silently(self.center_y, cam.center[1])
             set_value_silently(self.rotate, cam.rotate)
             self.pitch.set_value(math.degrees(cam.pitch))
+            self.pitch_y.set_value(math.degrees(cam.pitch_y))
             self.yaw.set_value(math.degrees(cam.yaw))
             self.perspective.set_value(cam.perspective)
             self.zpos.set_value(cam.zpos)
             self.dof.set_value(cam.dof)
-            self.flat_note.setText("Flat: all zero — tilt the plane with pitch / yaw, or give depth with perspective."
+            self.flat_note.setText("Flat: all zero — tilt the plane with the pitches, spin it with yaw, add depth with perspective."
                                    if not cam.is_3d() else "3D camera active.")
         finally:
             self._updating = False
@@ -353,14 +392,18 @@ class ImagePanel(QWidget):
             self.gamma.set_value(col.gamma)
             self.threshold.set_value(col.gamma_threshold)
             self.vibrancy.set_value(col.vibrancy)
+            self.contrast.set_value(col.contrast)
+            if self.curves.curves() != col.curves:
+                self.curves.set_curves(col.curves)
             self.background.set_color(col.background)
         finally:
             self._updating = False
 
     def set_enabled_for_flame(self, enabled: bool) -> None:
         for w in (self.zoom, self.center_x, self.center_y, self.rotate, self.pan_up, self.pan_down, self.pan_left, self.pan_right,
-                  self.revert_view, self.pitch, self.yaw, self.perspective, self.zpos, self.dof, self.revert_3d,
-                  self.brightness, self.gamma, self.threshold, self.vibrancy, self.background, self.revert_coloring):
+                  self.revert_view, self.pitch, self.pitch_y, self.yaw, self.perspective, self.zpos, self.dof, self.revert_3d,
+                  self.brightness, self.gamma, self.threshold, self.vibrancy, self.contrast, self.background,
+                  self.revert_coloring, self.curves):
             w.setEnabled(enabled)
 
     # --- preview effort ------------------------------------------------------------------------------------
