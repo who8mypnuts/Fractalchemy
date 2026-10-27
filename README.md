@@ -53,12 +53,12 @@ python -m pytest
   (rendered on demand by the preview engine, at low priority so the viewport always comes first).
   Folders are watched, and the right-click menu / drag-and-drop file operations are the same as in the
   Gradient Library. It has its own folder list (*Edit ▸ Edit Fractal Library…*, or **+** / ✎ in the pane).
-* **Viewport** (the centre): click a flame and it renders progressively in passes. The **Detail** box under it
-  (Full / ½ / ¼) renders the preview at a fraction of the screen resolution — 4× / 16× faster while editing —
-  and scales it up; the saved image size is untouched. The flame is framed as an
+* **Viewport** (the centre): click a flame and it renders progressively in passes. The flame is framed as an
   *image* of the chosen **Image size** (dropdown under the viewer, far right: the flame's own size, common
   screen and print sizes, or Custom… with width × height). Changing it only changes the image's aspect and
-  framing inside the viewer — never the window.
+  framing inside the viewer — never the window. **Guides** (button under the viewer, *View ▸ Show Guides*
+  `Ctrl+G`) overlays composition lines on the whole image like Apophysis's guidelines — the rule of thirds,
+  the golden ratio (38.2 % / 61.8 %) and the centre lines, each switchable from the button's menu; the choice persists.
   * **Look around without changing the fractal**: left-drag pans, the wheel zooms about the cursor, and the
     **Zoom** box (bottom left) lists Fit / 25–200 % or takes any typed value up to 300 %; zooming out stops once
     the whole image is visible (*View ▸ Zoom to Fit* `Ctrl+0`, *Zoom 100%* `Ctrl+1`). Only the visible part of

@@ -14,6 +14,9 @@ no more than the widget's pixels, and zooming in genuinely reveals more detail.
 Mouse: left-drag pans the view, wheel zooms the view about the cursor. With **Ctrl** the same
 gestures move/zoom the flame's camera instead (changing the composition). Double-click re-centres
 the composition. Interaction renders at `INTERACTIVE_SCALE`; full resolution follows once it settles.
+
+Composition guides (`set_guides`): rule-of-thirds, golden-ratio and centre lines drawn over the whole
+image (not just the visible part), as Apophysis's guidelines do.
 """
 
 from __future__ import annotations
@@ -35,6 +38,18 @@ VIEW_ZOOM_STEP = 1.25           # per wheel notch
 CAMERA_ZOOM_PER_NOTCH = 0.25    # Apophysis zoom units (powers of two)
 EMPTY_BACKGROUND = QColor(24, 24, 24)
 FRAME_COLOR = QColor(70, 70, 70)
+GOLDEN = (3 - 5 ** 0.5) / 2     # 0.381966…: the golden section of a length (1 − 1/φ)
+GUIDE_FRACTIONS: dict[str, tuple[float, ...]] = {
+    "thirds": (1 / 3, 2 / 3),
+    "golden": (GOLDEN, 1 - GOLDEN),
+    "center": (0.5,),
+}
+GUIDE_COLORS: dict[str, QColor] = {
+    "thirds": QColor(255, 255, 255, 150),
+    "golden": QColor(255, 208, 64, 170),
+    "center": QColor(96, 200, 255, 150),
+}
+GUIDE_SHADOW = QColor(0, 0, 0, 110)
 
 
 class FractalViewport(QWidget):
@@ -73,7 +88,8 @@ class FractalViewport(QWidget):
         self._resize_timer = QTimer(self, singleShot=True, interval=150)
         self._resize_timer.timeout.connect(self._on_resized)
         self.settings = RenderSettings()
-        self.render_scale = 1.0   # preview detail: fraction of the screen resolution the render uses
+        self._guides_shown = False
+        self._guide_kinds: tuple[str, ...] = ("thirds",)
 
     # --- wiring -------------------------------------------------------------
     def bind(self, document: FractalDocument, service: RenderService) -> None:
@@ -89,12 +105,41 @@ class FractalViewport(QWidget):
         service.pass_done.connect(self._on_pass)
         service.job_failed.connect(self._on_failed)
 
-    def set_render_scale(self, fraction: float) -> None:
-        """Render the preview at `fraction` of the screen resolution (scaled up on screen) and re-render."""
-        fraction = max(0.05, min(1.0, float(fraction)))
-        if fraction != self.render_scale:
-            self.render_scale = fraction
-            self._render_full()
+    def set_guides(self, shown: bool, kinds=None) -> None:
+        """Show / hide the composition guides and choose which (`thirds`, `golden`, `center`); repaints only."""
+        self._guides_shown = bool(shown)
+        if kinds is not None:
+            self._guide_kinds = tuple(k for k in GUIDE_FRACTIONS if k in set(kinds))
+        self.update()
+
+    @property
+    def guides_shown(self) -> bool:
+        return self._guides_shown
+
+    @property
+    def guide_kinds(self) -> tuple[str, ...]:
+        return self._guide_kinds
+
+    def guide_lines(self) -> list[tuple[str, float, float, float, float]]:
+        """The guide lines as (kind, x1, y1, x2, y2) in screen coordinates, clipped to the widget (empty when hidden)."""
+        if not self._guides_shown or self._document is None or self._document.flame is None:
+            return []
+        iw, ih = self.image_size
+        z = self.zoom()
+        left, top = self._offset.x(), self._offset.y()
+        right, bottom = left + iw * z, top + ih * z
+        x0, y0 = max(0.0, left), max(0.0, top)
+        x1, y1 = min(float(self.width()), right), min(float(self.height()), bottom)
+        lines = []
+        for kind in self._guide_kinds:
+            for f in GUIDE_FRACTIONS[kind]:
+                x = left + iw * z * f
+                y = top + ih * z * f
+                if x0 <= x <= x1:
+                    lines.append((kind, x, y0, x, y1))
+                if y0 <= y <= y1:
+                    lines.append((kind, x0, y, x1, y))
+        return lines
 
     def set_render_settings(self, settings: RenderSettings) -> None:
         """Change passes / quality etc.; re-renders the current view."""
@@ -279,7 +324,7 @@ class FractalViewport(QWidget):
                                                    rect.width() / z, rect.height() / z)}
         flame = self._document.flame.copy()
         flame.camera = camera
-        settings = (self.settings.with_size(width, height).scaled(scale * self.render_scale)
+        settings = (self.settings.with_size(width, height).scaled(scale)
                     .for_zoom(self._document.flame.camera.zoom).within_bucket_limit())
         if scale < 1.0:
             settings = settings.with_refine(0.0)   # the transient low-resolution render: the full one follows
@@ -316,7 +361,19 @@ class FractalViewport(QWidget):
         if self._document is not None and self._document.flame is not None:
             painter.setPen(QPen(FRAME_COLOR, 1))
             painter.drawRect(self._image_rect.adjusted(0, 0, -1, -1))
+        self._paint_guides(painter)
         painter.end()
+
+    def _paint_guides(self, painter: QPainter) -> None:
+        lines = self.guide_lines()
+        if not lines:
+            return
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        for kind, x1, y1, x2, y2 in lines:
+            painter.setPen(QPen(GUIDE_SHADOW, 3))               # a dark halo keeps the line visible on bright areas
+            painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+            painter.setPen(QPen(GUIDE_COLORS[kind], 1))
+            painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)

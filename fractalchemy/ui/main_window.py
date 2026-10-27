@@ -52,6 +52,8 @@ SCANNING_MESSAGE = "Scanning fractal library…"
 LIBRARY_PANE_WIDTH = 300
 SETTINGS_PANE_WIDTH = 320
 MESSAGE_MS = 6000
+GUIDES_KEY = "viewer/guides"
+GUIDE_KINDS_KEY = "viewer/guide_kinds"
 ABOUT_TEXT = (
     f"<h3>{config.APP_NAME} {config.APP_VERSION}</h3>"
     "<p>A fractal flame viewer, gradient editor and library, growing into a full fractal editor.</p>"
@@ -190,12 +192,29 @@ class MainWindow(QMainWindow):
         bar, panel, view = self.viewerBar, self.settingsPanel, self.viewport
         bar.zoom_requested.connect(view.set_zoom)
         bar.resolution_chosen.connect(self.document.set_image_size)
-        bar.detail_chosen.connect(view.set_render_scale)
+        bar.guides_changed.connect(self._on_guides_changed)
+        self.actionShowGuides.toggled.connect(lambda shown: bar.set_guides(shown) if shown != bar.guides_shown else None)
         view.view_changed.connect(bar.show_zoom)
+        self._load_guides()
         panel.render_settings_changed.connect(self._apply_render_settings)
         panel.render_options_changed.connect(self._apply_render_options)
         self._apply_render_settings(panel.passes, panel.quality, render=False)
         self._apply_render_options(panel.oversample, panel.filter_radius, panel.refine_to, render=False)
+
+    def _load_guides(self) -> None:
+        """Restore the guides overlay (shown / which lines) from the settings."""
+        kinds = self._settings.value(GUIDE_KINDS_KEY, None)
+        shown = self._settings.value(GUIDES_KEY, "false") in ("true", True, "True")
+        if isinstance(kinds, str):
+            kinds = [k for k in kinds.split(",") if k]
+        self.viewerBar.set_guides(shown, None if kinds is None else tuple(kinds))
+
+    def _on_guides_changed(self, shown: bool, kinds) -> None:
+        self.viewport.set_guides(shown, kinds)
+        if self.actionShowGuides.isChecked() != shown:
+            self.actionShowGuides.setChecked(shown)
+        self._settings.setValue(GUIDES_KEY, shown)
+        self._settings.setValue(GUIDE_KINDS_KEY, ",".join(kinds))
 
     def _apply_render_settings(self, passes: int, quality: float, render: bool = True) -> None:
         self._set_render_settings(self.viewport.settings.with_effort(passes, quality), render)

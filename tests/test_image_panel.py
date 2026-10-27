@@ -452,7 +452,7 @@ def test_main_window_toolbar_undo_copy_paste_and_save_flows(qapp, tmp_path, samp
         win.close()
 
 
-def test_viewer_bar_detail_scales_the_render(qapp, tmp_path):
+def test_viewer_bar_guides_overlay_rule_of_thirds_golden_ratio_and_centre(qapp, tmp_path):
     from fractalchemy.library.catalog import FRACTAL_CATALOG
     from fractalchemy.library.roots import LibraryRoots
     from fractalchemy.ui.main_window import MainWindow
@@ -461,17 +461,37 @@ def test_viewer_bar_detail_scales_the_render(qapp, tmp_path):
     win = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key), prefer_gpu=False, settings=settings)
     win.show()
     try:
-        assert win.viewerBar.detail() == 1.0 and win.viewport.render_scale == 1.0
+        bar, view = win.viewerBar, win.viewport
+        assert not hasattr(bar, "detail_box")                     # the Detail dropdown is gone
+        assert not bar.guides_shown and bar.guide_kinds() == ("thirds",) and view.guide_lines() == []
         win.document.replace(sierpinski())
-        submitted = []
-        win.render_service.submit = lambda key, flame, s, priority=0: submitted.append(s)
-        win.viewerBar.select_detail(0.5)
-        assert win.viewport.render_scale == 0.5
-        wait_until(lambda: bool(submitted))
-        full = win.viewport.render_camera()[1]
-        assert submitted[-1].width == max(1, int(full * 0.5))
-        win.viewerBar.select_detail(1.0)
-        wait_until(lambda: submitted[-1].width == full)
+        win.document.set_image_size((600, 300))
+        bar.guides_button.setChecked(True)                          # the button toggles the overlay
+        assert view.guides_shown and win.actionShowGuides.isChecked()
+        lines = view.guide_lines()
+        assert len(lines) == 4 and {k for k, *_ in lines} == {"thirds"}
+        rect = view.image_rect
+        xs = sorted(x1 for _k, x1, _y1, x2, _y2 in lines if x1 == x2)
+        assert xs == pytest.approx([rect.left() + rect.width() / 3, rect.left() + 2 * rect.width() / 3], abs=1.5)
+        bar.guide_actions["golden"].setChecked(True)
+        bar.guide_actions["center"].setChecked(True)
+        assert bar.guide_kinds() == ("thirds", "golden", "center") and len(view.guide_lines()) == 10
+        golden = sorted(x1 for k, x1, _y1, x2, _y2 in view.guide_lines() if k == "golden" and x1 == x2)
+        assert golden[0] == pytest.approx(rect.left() + rect.width() * 0.381966, abs=1.5)
+        win.actionShowGuides.trigger()                               # View ▸ Show Guides toggles it too
+        assert not bar.guides_shown and not view.guides_shown and view.guide_lines() == []
+        bar.guides_button.setChecked(False)
+        bar.guide_actions["golden"].setChecked(False)               # ticking a kind while hidden shows the overlay
+        bar.guide_actions["golden"].setChecked(True)
+        assert bar.guides_shown and view.guides_shown
+        assert settings.value("viewer/guides") in (True, "true") and settings.value("viewer/guide_kinds") == "thirds,golden,center"
+        again = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key), prefer_gpu=False, settings=settings)
+        try:
+            assert again.viewerBar.guides_shown and again.viewerBar.guide_kinds() == ("thirds", "golden", "center")
+            assert again.viewport.guides_shown and again.actionShowGuides.isChecked()
+        finally:
+            again.gradient_library.document.modified = False
+            again.close()
     finally:
         win.gradient_library.document.modified = False
         win.close()

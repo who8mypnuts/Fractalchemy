@@ -92,6 +92,7 @@
     <addaction name="separator"/>
     <addaction name="actionZoomFit"/>
     <addaction name="actionZoomActual"/>
+    <addaction name="actionShowGuides"/>
     <addaction name="separator"/>
     <addaction name="actionShowStatusBar"/>
    </widget>
@@ -269,6 +270,13 @@
    <property name="text"><string>Zoom 100%</string></property>
    <property name="shortcut"><string>Ctrl+1</string></property>
    <property name="statusTip"><string>One image pixel per screen pixel</string></property>
+  </action>
+  <action name="actionShowGuides">
+   <property name="checkable"><bool>true</bool></property>
+   <property name="checked"><bool>false</bool></property>
+   <property name="text"><string>Show Guides</string></property>
+   <property name="shortcut"><string>Ctrl+G</string></property>
+   <property name="statusTip"><string>Overlay composition guides on the image: rule of thirds, golden ratio, centre lines (choose which under the viewer)</string></property>
   </action>
   <action name="actionShowStatusBar">
    <property name="checkable"><bool>true</bool></property>
