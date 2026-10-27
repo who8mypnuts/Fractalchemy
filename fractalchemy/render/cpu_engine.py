@@ -24,7 +24,7 @@ from .tonemap import ToneParams, tonemap
 
 ITERATIONS_PER_CHUNK = 8      # plotted iterations between cancellation checks / histogram flushes
 RESET_LIMIT = 1e10            # |x| beyond this (or NaN) re-seeds the point
-SELECT_BINS = 1024            # resolution of the xform-selection lookup table (exact: see `_Worker._select`)
+SELECT_BINS = 1024            # resolution of the xform-selection lookup table (exact: see `PointPopulation._select`)
 
 
 def thread_count() -> int:
@@ -40,10 +40,11 @@ class CpuEngine:
         self.threads = threads or thread_count()
 
     def start(self, flame: Flame, settings: RenderSettings) -> "CpuRenderJob":
+        """A new progressive render job for `flame`."""
         return CpuRenderJob(flame, settings, self.threads)
 
     def close(self) -> None:
-        pass
+        """Nothing to release (kept for symmetry with the GPU engine)."""
 
 
 class CpuRenderJob:
@@ -60,7 +61,7 @@ class CpuRenderJob:
         self.stats = RenderStats(engine=f"CPU (numpy, {self.threads} threads)", passes_total=settings.passes,
                                  width=settings.width, height=settings.height, notes=list(self.compiled.notes))
         per_thread = max(64, settings.points // self.threads)
-        self._workers = [_Worker(self.compiled, per_thread, settings.seed * 7919 + i, self.pixel_transform,
+        self._workers = [PointPopulation(self.compiled, per_thread, settings.seed * 7919 + i, self.pixel_transform,
                                  settings.width, settings.height) for i in range(self.threads)]
         self._pool = ThreadPoolExecutor(max_workers=self.threads, thread_name_prefix="render-cpu")
         self._elapsed = 0.0
@@ -91,11 +92,16 @@ class CpuRenderJob:
         return tonemap(self.histogram, params)
 
     def close(self) -> None:
+        """Stop the worker threads."""
         self._pool.shutdown(wait=False)
 
 
-class _Worker:
-    """One thread's point population and private histogram."""
+class PointPopulation:
+    """A point population iterated in numpy, plus the preview engine's private bincount histogram.
+
+    The final renderer's worker processes subclass it (`cpu_workers.TilePopulation`) to keep the
+    iteration (`_step`, `_select`, `_project`) in one place.
+    """
 
     def __init__(self, compiled: CompiledFlame, points: int, seed: int, pixel_transform, width: int, height: int):
         self.compiled = compiled

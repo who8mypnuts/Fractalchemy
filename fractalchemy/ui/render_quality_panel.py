@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
 from ..render.denoise import DENOISERS
 from ..render.filters import FILTERS, filter_kind
 from ..render.final_settings import DENSITY_PRESETS, ENGINES, MAX_OVERSAMPLE, FinalRenderSettings
+from ..widgets.silent import blocked
 
 
 class QualityPanel(QGroupBox):
@@ -44,6 +45,15 @@ class QualityPanel(QGroupBox):
         self._build()
 
     def _build(self) -> None:
+        self._build_sampling_controls()
+        self._build_denoise_controls()
+        self._build_engine_controls()
+        for box in (self.oversample, self.radius, self.de_max, self.de_min, self.de_curve, self.threads, self.memory, self.gpu_memory):
+            box.setKeyboardTracking(False)
+        self._layout()
+        self._connect()
+
+    def _build_sampling_controls(self) -> None:
         self.density.setEditable(True)
         for q in DENSITY_PRESETS:
             self.density.addItem(f"{q:,}", q)
@@ -58,13 +68,14 @@ class QualityPanel(QGroupBox):
         self.radius.setSingleStep(0.1)
         self.radius.setDecimals(2)
         self.radius.setToolTip("Filter radius in output pixels (Apophysis 'filter radius'); larger = softer")
+
+    def _build_denoise_controls(self) -> None:
         for d in DENOISERS:
             self.denoiser.addItem(d.label if d.available else f"{d.label} — not installed", d.key)
             self.denoiser.setItemData(self.denoiser.count() - 1, d.description + ("" if d.available else f" ({d.hint})"),
                                       Qt.ItemDataRole.ToolTipRole)
             if not d.available:
-                item = self.denoiser.model().item(self.denoiser.count() - 1)
-                item.setEnabled(False)
+                self.denoiser.model().item(self.denoiser.count() - 1).setEnabled(False)
         self.denoiser.setToolTip("Clean up grain after rendering, so a lower density can do")
         self.strength.setRange(0, 100)
         self.strength.setToolTip("Denoiser strength")
@@ -76,27 +87,18 @@ class QualityPanel(QGroupBox):
             box.setDecimals(2)
             box.setSingleStep(0.1)
             box.setToolTip(tip)
+
+    def _build_engine_controls(self) -> None:
         for key, label in ENGINES:
             self.engine.addItem(label, key)
         self.engine.setToolTip("GPU: fast, 32-bit floats. CPU: every core as a worker process, 64-bit floats (deep zooms, exactness)")
         self.threads.setRange(0, 256)
         self.threads.setSpecialValueText("all cores")
         self.threads.setToolTip("CPU worker processes (0 = every core)")
-        self.memory.setRange(0, 1 << 24)
-        self.memory.setSuffix(" MB")
-        self.memory.setSpecialValueText("auto (half of RAM)")
-        self.memory.setSingleStep(1024)
-        self.memory.setToolTip("Histogram memory budget (no fixed ceiling: default is half of installed RAM); bigger images "
-                               "are rendered in tiles to stay within it")
-        self.gpu_memory.setRange(0, 1 << 24)
-        self.gpu_memory.setSuffix(" MB")
-        self.gpu_memory.setSpecialValueText("auto (1 GB)")
-        self.gpu_memory.setSingleStep(512)
-        self.gpu_memory.setToolTip("Largest tile texture on the GPU; raise it on cards with plenty of memory to render in fewer tiles")
-        for box in (self.oversample, self.radius, self.de_max, self.de_min, self.de_curve, self.threads, self.memory, self.gpu_memory):
-            box.setKeyboardTracking(False)
-        self._layout()
-        self._connect()
+        _memory_box(self.memory, "auto (half of RAM)", 1024, "Histogram memory budget (no fixed ceiling: default is half of "
+                    "installed RAM); bigger images are rendered in tiles to stay within it")
+        _memory_box(self.gpu_memory, "auto (1 GB)", 512,
+                    "Largest tile texture on the GPU; raise it on cards with plenty of memory to render in fewer tiles")
 
     def _layout(self) -> None:
         form = QFormLayout(self)
@@ -142,27 +144,21 @@ class QualityPanel(QGroupBox):
     # --- API ---------------------------------------------------------------------------------
     def apply(self, s: FinalRenderSettings) -> None:
         """Show the settings' values (no signal)."""
-        self.blockSignals(True)
-        widgets = (self.density, self.oversample, self.filter_box, self.radius, self.denoiser, self.strength,
-                   self.de_max, self.de_min, self.de_curve, self.engine, self.threads, self.memory, self.gpu_memory)
-        for widget in widgets:
-            widget.blockSignals(True)
-        self.density.setEditText(f"{s.quality:g}")
-        self.oversample.setValue(s.oversample)
-        self.filter_box.setCurrentIndex(max(0, self.filter_box.findData(s.filter_kind)))
-        self.radius.setValue(s.filter_radius)
-        self.denoiser.setCurrentIndex(max(0, self.denoiser.findData(s.denoiser)))
-        self.strength.setValue(int(s.denoise_strength))
-        self.de_max.setValue(s.de_max_radius)
-        self.de_min.setValue(s.de_min_radius)
-        self.de_curve.setValue(s.de_curve)
-        self.engine.setCurrentIndex(max(0, self.engine.findData(s.engine)))
-        self.threads.setValue(s.cpu_threads)
-        self.memory.setValue(s.memory_limit_mb)
-        self.gpu_memory.setValue(s.gpu_memory_mb)
-        for widget in widgets:
-            widget.blockSignals(False)
-        self.blockSignals(False)
+        with blocked(self, self.density, self.oversample, self.filter_box, self.radius, self.denoiser, self.strength,
+                     self.de_max, self.de_min, self.de_curve, self.engine, self.threads, self.memory, self.gpu_memory):
+            self.density.setEditText(f"{s.quality:g}")
+            self.oversample.setValue(s.oversample)
+            self.filter_box.setCurrentIndex(max(0, self.filter_box.findData(s.filter_kind)))
+            self.radius.setValue(s.filter_radius)
+            self.denoiser.setCurrentIndex(max(0, self.denoiser.findData(s.denoiser)))
+            self.strength.setValue(int(s.denoise_strength))
+            self.de_max.setValue(s.de_max_radius)
+            self.de_min.setValue(s.de_min_radius)
+            self.de_curve.setValue(s.de_curve)
+            self.engine.setCurrentIndex(max(0, self.engine.findData(s.engine)))
+            self.threads.setValue(s.cpu_threads)
+            self.memory.setValue(s.memory_limit_mb)
+            self.gpu_memory.setValue(s.gpu_memory_mb)
         self._refresh_dependent()
 
     def read(self, s: FinalRenderSettings) -> FinalRenderSettings:
@@ -207,6 +203,15 @@ class QualityPanel(QGroupBox):
     def _emit(self, *_args) -> None:
         self._refresh_dependent()
         self.changed.emit()
+
+
+def _memory_box(box: QSpinBox, special: str, step: int, tip: str) -> None:
+    """Configure a megabyte spin box whose 0 means 'automatic'."""
+    box.setRange(0, 1 << 24)
+    box.setSuffix(" MB")
+    box.setSpecialValueText(special)
+    box.setSingleStep(step)
+    box.setToolTip(tip)
 
 
 __all__ = ["QualityPanel"]

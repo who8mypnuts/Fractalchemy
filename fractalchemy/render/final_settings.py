@@ -15,12 +15,13 @@ tile lets the spatial filter and density estimation see real neighbours across t
 from __future__ import annotations
 
 import math
-import os
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from .denoise import denoiser_kind
 from .filters import DensityEstimation, filter_kind, make_taps
+from .memory import gpu_budget_bytes, memory_budget_bytes
+from .units import format_memory
 
 ENGINE_AUTO, ENGINE_GPU, ENGINE_CPU = "auto", "gpu", "cpu"
 ENGINES = ((ENGINE_AUTO, "Automatic (GPU when available)"), (ENGINE_GPU, "GPU — OpenGL, single precision"),
@@ -31,8 +32,6 @@ MAX_DIMENSION = 1 << 20           # 1,048,576 px per side; memory and disk are t
 CPU_BYTES_PER_BUCKET = 32 + 16    # float64 RGBA histogram + float32 log-scaled copy for filtering
 GPU_BYTES_PER_BUCKET = 32 + 16 + 16   # master + readback copy + filter copy (the texture lives on the GPU)
 GPU_TEXTURE_BYTES_PER_BUCKET = 16
-DEFAULT_GPU_MEMORY_MB = 1024      # RGBA32F tile texture budget when none is set: fine on any discrete GPU
-DEFAULT_MEMORY_FRACTION = 0.5     # of physical RAM, when no limit is set
 
 
 @dataclass(frozen=True)
@@ -161,44 +160,7 @@ class FinalRenderSettings:
         return issues
 
 
-# --- memory and tiles -------------------------------------------------------------------------
-def physical_memory_bytes() -> int:
-    """Installed RAM, or 8 GB if the platform does not say."""
-    try:
-        pages, page_size = os.sysconf("SC_PHYS_PAGES"), os.sysconf("SC_PAGE_SIZE")
-        if pages > 0 and page_size > 0:
-            return int(pages) * int(page_size)
-    except (AttributeError, ValueError, OSError):
-        pass
-    try:
-        import ctypes
-
-        class _Status(ctypes.Structure):
-            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong), ("ullTotalPhys", ctypes.c_ulonglong),
-                        ("ullAvailPhys", ctypes.c_ulonglong), ("ullTotalPageFile", ctypes.c_ulonglong),
-                        ("ullAvailPageFile", ctypes.c_ulonglong), ("ullTotalVirtual", ctypes.c_ulonglong),
-                        ("ullAvailVirtual", ctypes.c_ulonglong), ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
-        status = _Status()
-        status.dwLength = ctypes.sizeof(_Status)
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):   # type: ignore[attr-defined]
-            return int(status.ullTotalPhys)
-    except Exception:  # noqa: BLE001 - not Windows, or the call failed
-        pass
-    return 8 << 30
-
-
-def memory_budget_bytes(settings: FinalRenderSettings) -> int:
-    """The histogram memory a render may use: the explicit limit, else half of physical RAM (no fixed ceiling)."""
-    if settings.memory_limit_mb > 0:
-        return int(settings.memory_limit_mb) << 20
-    return int(physical_memory_bytes() * DEFAULT_MEMORY_FRACTION)
-
-
-def gpu_budget_bytes(settings: FinalRenderSettings) -> int:
-    """Texture memory one GPU tile may use."""
-    return int(settings.gpu_memory_mb or DEFAULT_GPU_MEMORY_MB) << 20
-
-
+# --- tiles ----------------------------------------------------------------------------------
 @dataclass(frozen=True)
 class Tile:
     """One tile of the bucket grid.
@@ -246,11 +208,9 @@ class TilePlan:
     Attributes:
         tiles: Row-major list of tiles.
         bytes_per_bucket: Host memory per accumulated bucket for the engine in use.
-        max_dimension: Longest tile side allowed (texture size on the GPU).
     """
     tiles: tuple[Tile, ...] = field(default_factory=tuple)
     bytes_per_bucket: int = CPU_BYTES_PER_BUCKET
-    max_dimension: int = 1 << 30
 
     @property
     def count(self) -> int:
@@ -284,7 +244,7 @@ def plan_tiles(settings: FinalRenderSettings, gpu: bool = False, max_texture: in
     rows_limit = max(os_, min(max_side, (max_buckets // padded_w - 2 * gutter) // os_ * os_))
     rows = _split(bucket_h, os_, rows_limit)
     tiles = tuple(Tile(x, y, x + w, y + h, gutter) for y, h in rows for x, w in columns)
-    return TilePlan(tiles, bytes_per_bucket, max_side)
+    return TilePlan(tiles, bytes_per_bucket)
 
 
 def _split(length: int, os_: int, max_len: int) -> list[tuple[int, int]]:
@@ -304,8 +264,8 @@ def _split(length: int, os_: int, max_len: int) -> list[tuple[int, int]]:
 
 def describe_plan(settings: FinalRenderSettings, plan: TilePlan) -> str:
     """A sentence for the Render window about memory and tiling."""
-    peak = _mb_text(plan.peak_bytes)
-    output = _mb_text(settings.width * settings.height * 8)
+    peak = format_memory(plan.peak_bytes)
+    output = format_memory(settings.width * settings.height * 8)
     if plan.count == 1:
         return f"One tile: {peak} for the histogram + {output} for the image."
     limit = "GPU memory or the memory limit" if plan.bytes_per_bucket == GPU_BYTES_PER_BUCKET else "memory limit"
@@ -314,10 +274,5 @@ def describe_plan(settings: FinalRenderSettings, plan: TilePlan) -> str:
             f"to use fewer tiles.")
 
 
-def _mb_text(n: int) -> str:
-    return f"{n / (1 << 30):,.1f} GB" if n >= (1 << 30) else f"{n / (1 << 20):,.0f} MB"
-
-
 __all__ = ["FinalRenderSettings", "ENGINES", "ENGINE_AUTO", "ENGINE_GPU", "ENGINE_CPU", "DENSITY_PRESETS", "MAX_OVERSAMPLE",
-           "MAX_DIMENSION", "Tile", "TilePlan", "plan_tiles", "describe_plan", "memory_budget_bytes", "gpu_budget_bytes",
-           "physical_memory_bytes"]
+           "MAX_DIMENSION", "Tile", "TilePlan", "plan_tiles", "describe_plan"]

@@ -19,8 +19,8 @@ from fractalchemy.render.final_settings import FinalRenderSettings, plan_tiles
 from fractalchemy.render.gpu_engine import gpu_available
 from fractalchemy.render.output import (FORMATS, SaveOptions, format_for_path, output_format, read_embedded_parameters,
                                         save_image, size_problem, with_extension)
-from fractalchemy.render.report import build_report, machine_text, render_report, report_extension
-from fractalchemy.render.samplers import RenderControl
+from fractalchemy.render.report import Report, Section, Table, build_report, machine_text, render_report, report_extension, to_text
+from fractalchemy.render.control import RenderControl
 from fractalchemy.render.settings import RenderSettings
 from fractalchemy.render.tonemap import ToneParams, finish, log_scale, tonemap
 from tests.conftest import spin, wait_until
@@ -116,6 +116,22 @@ def test_settings_round_trip_and_validation():
     assert FinalRenderSettings(oversample=2, denoiser="density", de_max_radius=9).gutter() == 19
 
 
+def test_memory_budgets_follow_the_machine_and_the_settings():
+    from fractalchemy.render.final_settings import describe_plan
+    from fractalchemy.render.memory import gpu_budget_bytes, memory_budget_bytes, physical_memory_bytes
+    ram = physical_memory_bytes()
+    assert ram >= 1 << 30                                              # a real figure, not a failed probe
+    assert memory_budget_bytes(FinalRenderSettings()) == int(ram * 0.5)   # no fixed ceiling: half of installed RAM
+    assert memory_budget_bytes(FinalRenderSettings(memory_limit_mb=70000)) == 70000 << 20
+    assert gpu_budget_bytes(FinalRenderSettings()) == 1 << 30 and gpu_budget_bytes(FinalRenderSettings(gpu_memory_mb=12288)) == 12 << 30
+    s = FinalRenderSettings(4000, 3000, oversample=2)
+    assert "One tile" in describe_plan(s, plan_tiles(s, budget_bytes=8 << 30))
+    text = describe_plan(s, plan_tiles(s, budget_bytes=1 << 30))
+    assert "tiles" in text and "memory limit" in text and "GB" not in text.split("(")[0]
+    gpu_text = describe_plan(s.with_size(8000, 6000), plan_tiles(s.with_size(8000, 6000), gpu=True, budget_bytes=64 << 30))
+    assert "GPU memory" in gpu_text
+
+
 def test_tiles_cover_the_image_exactly_within_the_budget():
     s = FinalRenderSettings(1000, 700, oversample=2, filter_kind="lanczos3")
     plan = plan_tiles(s, budget_bytes=20 << 20)
@@ -191,6 +207,14 @@ def test_exr_is_linear_premultiplied_and_carries_metadata(tmp_path):
     assert channels["A"].pixels.dtype == np.float32 and channels["A"].pixels[0, 0] == pytest.approx(alpha)
     assert channels["R"].pixels[0, 0] == pytest.approx(1.0 * alpha, abs=1e-6)                       # premultiplied
     assert channels["G"].pixels[0, 0] == pytest.approx(float(srgb_to_linear(np.float32(alpha))) * alpha, abs=1e-6)  # linearised
+    for bad in (b"PNG?", b"\x76\x2f\x31\x01\x02\x00\x00\x00name\0string\0\xff", path.read_bytes()[:40]):
+        (tmp_path / "not.exr").write_bytes(bad)
+        with pytest.raises(ValueError):                        # truncated or foreign files never escape as struct errors
+            read_exr_attributes(tmp_path / "not.exr")
+    with pytest.raises(ValueError):
+        write_exr(tmp_path / "e.exr", {})
+    with pytest.raises(ValueError):
+        write_exr(tmp_path / "e.exr", {"R": np.zeros((2, 2)), "G": np.zeros((3, 2))})
     half = tmp_path / "h.exr"
     write_exr(half, {"R": np.full((3, 3), 0.25, np.float32)}, half=True)
     assert OpenEXR.File(str(half), separate_channels=True).channels()["R"].pixels.dtype == np.float16
@@ -203,6 +227,61 @@ def test_format_helpers_and_limits(tmp_path):
     assert size_problem(output_format("webp"), 20000, 10) and size_problem(output_format("png"), 20000, 10) is None
     with pytest.raises(ValueError):
         save_image(np.zeros((2, 70000, 4), np.uint16), tmp_path / "x.jpg", output_format("jpeg"), SaveOptions())
+
+
+# --- the shared-memory histogram ---------------------------------------------------------------------
+@pytest.mark.parametrize("partitioned", [False, True])
+def test_shared_histogram_accumulates_exactly(monkeypatch, partitioned):
+    import threading
+
+    from fractalchemy.render import cpu_workers
+    monkeypatch.setattr(cpu_workers, "PARTITION_ABOVE", 0 if partitioned else 1 << 40)
+    rng = np.random.default_rng(5)
+    width, height = 300, 200
+    idx = rng.integers(0, width * height, 50_000)
+    op = rng.random(50_000)
+    ci = rng.integers(0, 256, 50_000)
+    palette = rng.random((256, 3)).astype(np.float32)
+    locks = [threading.Lock() for _ in range(cpu_workers.BAND_LOCKS)]
+    hist = cpu_workers.SharedHistogram(width, height, create=True)
+    try:
+        hist.add(idx, op, ci, palette, locks)
+        hist.add(idx[:0], op[:0], ci[:0], palette, locks)          # an empty batch is a no-op
+        expected = np.zeros((4, width * height))
+        for ch in range(3):
+            np.add.at(expected[ch], idx, palette[ci, ch] * op)
+        np.add.at(expected[3], idx, op)
+        assert np.allclose(hist.array().reshape(4, -1), expected, atol=1e-9)
+        assert hist.array().shape == (4, height, width)
+    finally:
+        hist.close(unlink=True)
+
+
+def test_cpu_sampler_surfaces_worker_errors():
+    from fractalchemy.render.samplers import CpuSampler
+    sampler = CpuSampler(sierpinski(), threads=1, fuse=2)
+    try:
+        sampler.begin_tile((1.0, 0.0, 0.0, 1.0, 0.0, 0.0), 8, 8)
+        sampler._results.put(("error", 0, "ZeroDivisionError: boom"))     # what a worker sends when it raises
+        with pytest.raises(RuntimeError, match="worker 1 failed: ZeroDivisionError: boom"):
+            sampler.accumulate(1000, RenderControl())
+    finally:
+        sampler.close()
+
+
+def test_render_estimate_prefers_measured_rates():
+    from fractalchemy.render.estimate import RenderEstimate, engine_kind
+    s = FinalRenderSettings(100, 100, quality=10)
+    est = RenderEstimate()
+    assert est.rate_for("gpu", None) is None and "Time unknown" in est.describe(s, 2, "gpu", None) and est.short(s, 2, "gpu", None) == ""
+    assert est.rate_for("cpu", ("CPU (numpy, 4 threads)", 2e6))[0].startswith("the preview") and est.rate_for("gpu", ("CPU", 2e6)) is None
+    est.record("cpu", 0)                                          # a zero rate is not a measurement
+    assert "cpu" not in est.measured
+    est.record("cpu", 5e5)
+    text = est.describe(s, 2, "cpu", ("CPU", 2e6))
+    assert "last CPU render" in text and "0.00 G samples" in text and est.short(s, 2, "cpu", None) == "≈ 0.4 s"
+    assert engine_kind(FinalRenderSettings(engine="cpu"), True) == "cpu" and engine_kind(FinalRenderSettings(engine="auto"), False) == "cpu"
+    assert engine_kind(FinalRenderSettings(engine="gpu"), True) == "gpu"
 
 
 # --- the engine -------------------------------------------------------------------------------------
@@ -319,6 +398,9 @@ def test_report_is_complete_in_all_three_formats(tmp_path):
     assert values["variations.julian.parameters"] == "dist power" and values["variations.linear.transforms"] == "3"
     assert values["palette.entries"] == "256" and values["camera.pixels_per_unit"] and values["system.cpu_count"]
     assert len(set(r[0] for r in records)) == len(records)                                   # every key unique
+    spaced = Table("", "t", [("id", "id"), ("v", "v")], id_key="id")
+    spaced.add_row({"id": "pre blur.x", "v": 1})
+    assert "s.pre_blur_x.v\t1" in to_text(Report("r", report.generated, [Section("s", "S", tables=[spaced])]))
     md = render_report(report, "md")
     assert md.startswith("# Fractalchemy render report") and "| Field | Value |" in md and "pipe\\|name" in md
     assert "| Render completed | yes |" in md and "### Xaos matrix" in md
@@ -350,6 +432,20 @@ def test_render_job_renders_saves_and_reports(qapp, tmp_path):
     assert reports[-1].phase == PHASE_DONE and outcome.result.complete
     assert outcome.report == path.with_suffix(".txt") and "fractal.source\tmemory" in outcome.report.read_text()
     assert f"output.parameters_file\t{outcome.sidecar}" in outcome.report.read_text()
+
+
+def test_render_job_reports_save_failures(qapp, tmp_path):
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("x")
+    settings = FinalRenderSettings(32, 24, output_path=str(blocker / "x.png"), **QUICK)
+    job = FinalRenderJob(sierpinski(), settings)
+    failures, outcomes = [], []
+    job.failed.connect(failures.append)
+    job.succeeded.connect(outcomes.append)
+    job.start()
+    wait_until(lambda: job.isFinished(), timeout_ms=60000)
+    spin(50)
+    assert not outcomes and failures and failures[0].startswith("The render finished but could not be saved")
 
 
 def test_render_job_reports_setup_failures(qapp, tmp_path):

@@ -20,7 +20,7 @@ import numpy as np
 
 from ..fractal.scene import Flame
 from .compiled import CompiledFlame
-from .cpu_engine import _Worker
+from .cpu_engine import PointPopulation
 
 BAND_LOCKS = 64                 # fixed pool: locks must be inherited at process start, tiles come later
 PARTITION_ABOVE = 1 << 21       # buckets; smaller histograms are cache-resident, so plain adds under one lock win
@@ -31,7 +31,7 @@ PAUSE_POLL_SECONDS = 0.1
 FLAG_CANCEL, FLAG_PAUSE = 0, 1
 
 
-class TilePopulation(_Worker):
+class TilePopulation(PointPopulation):
     """A preview-engine worker re-targeted at a tile: same iteration, hits are returned instead of binned."""
 
     def __init__(self, compiled: CompiledFlame, points: int, seed: int):
@@ -122,13 +122,18 @@ class SharedHistogram:
                 pass
 
 
-def worker_main(flame_data: dict, seed: int, fuse: int, commands: mp.Queue, results: mp.Queue, flags, locks) -> None:
-    """Entry point of a worker process: serve "tile" / "run" / "stop" commands until told to stop."""
-    compiled = CompiledFlame.build(Flame.from_dict(flame_data))
-    population = TilePopulation(compiled, POINTS_PER_WORKER, seed)
-    population.fuse(fuse)
+def worker_main(index: int, flame_data: dict, seed: int, fuse: int, commands: mp.Queue, results: mp.Queue, flags, locks) -> None:
+    """Entry point of a worker process: serve "tile" / "run" / "stop" commands until told to stop.
+
+    Replies on `results`: ("ready", index) after a tile is set up, ("progress", samples) per chunk,
+    ("done", index, samples) after a run, ("error", index, message) if anything raised — the parent
+    turns that into a render failure instead of waiting forever.
+    """
     histogram: SharedHistogram | None = None
     try:
+        compiled = CompiledFlame.build(Flame.from_dict(flame_data))
+        population = TilePopulation(compiled, POINTS_PER_WORKER, seed)
+        population.fuse(fuse)
         while True:
             command, *args = commands.get()
             if command == "stop":
@@ -139,12 +144,14 @@ def worker_main(flame_data: dict, seed: int, fuse: int, commands: mp.Queue, resu
                 name, width, height, affine = args
                 histogram = SharedHistogram(width, height, name=name)
                 population.retarget(affine, width, height)
-                results.put(("ready", seed))
+                results.put(("ready", index))
             elif command == "run":
                 done = _run(population, histogram, int(args[0]), flags, locks, results, compiled.palette)
-                results.put(("done", seed, done))
+                results.put(("done", index, done))
     except (KeyboardInterrupt, EOFError, BrokenPipeError):
         pass
+    except Exception as exc:  # noqa: BLE001 - tell the parent why, then exit
+        results.put(("error", index, f"{exc.__class__.__name__}: {exc}"))
     finally:
         if histogram is not None:
             histogram.close()

@@ -15,15 +15,17 @@ planar float64 array `(4, rows, cols)` = (r, g, b, count). Two implementations:
   texture is read back every few seconds into the float64 master and cleared, so float32
   accumulation never runs long enough to lose counts.
 
-Both honour a `RenderControl` (cancel / pause) between chunks.
+Both honour a `RenderControl` (cancel / pause, `control.py`) between chunks and implement the
+`Sampler` protocol below.
 """
 
 from __future__ import annotations
 
 import multiprocessing as mp
+import platform
 import queue as queue_module
-import threading
 import time
+from typing import Protocol
 
 import numpy as np
 
@@ -31,6 +33,7 @@ from .. import config
 from ..fractal.scene import Flame
 from . import cpu_workers
 from .compiled import CompiledFlame
+from .control import RenderControl
 from .cpu_engine import thread_count
 
 GPU_POINTS = 1 << 20                  # population per draw
@@ -38,50 +41,38 @@ GPU_READBACK_SECONDS = 3.0            # float32 texture → float64 master at le
 GPU_READBACK_SAMPLES = 1 << 28        # … and at least every this many samples
 
 
-class RenderControl:
-    """Cancel / pause flags shared between the GUI and the render thread; tracks time spent paused."""
+class Sampler(Protocol):
+    """What the final renderer needs from a sampler (see the module docstring).
 
-    def __init__(self):
-        self._cancel = threading.Event()
-        self._resume = threading.Event()
-        self._resume.set()
-        self._paused_since: float | None = None
-        self.paused_seconds = 0.0
-        self._lock = threading.Lock()
+    Attributes:
+        name: Engine description for the user ("GPU (…)", "CPU (…)").
+        kind: "gpu" or "cpu".
+        device: Renderer / processor description.
+        workers: Worker processes (CPU) or 0.
+        is_gpu: True for the OpenGL sampler (tile plans differ).
+        max_side: Longest tile side the sampler can accumulate.
+    """
+    name: str
+    kind: str
+    device: str
+    workers: int
+    is_gpu: bool
+    max_side: int
 
-    def cancel(self) -> None:
-        """Stop as soon as possible (also releases a pause)."""
-        self._cancel.set()
-        self._resume.set()
+    def begin_tile(self, affine, width: int, height: int) -> None:
+        """Start accumulating a `width × height` bucket tile; `affine` maps fractal space onto it."""
 
-    def pause(self) -> None:
-        """Hold the render between chunks until `resume`."""
-        with self._lock:
-            if self._resume.is_set():
-                self._resume.clear()
-                self._paused_since = time.perf_counter()
+    def accumulate(self, samples: int, control: RenderControl) -> int:
+        """Run about `samples` iterations; returns how many ran (fewer if cancelled)."""
 
-    def resume(self) -> None:
-        """Continue after `pause`."""
-        with self._lock:
-            if not self._resume.is_set():
-                self.paused_seconds += time.perf_counter() - (self._paused_since or time.perf_counter())
-                self._paused_since = None
-                self._resume.set()
+    def histogram(self) -> np.ndarray:
+        """The tile so far as a planar (4, rows, cols) float64 array."""
 
-    @property
-    def paused(self) -> bool:
-        """True while paused."""
-        return not self._resume.is_set()
+    def end_tile(self) -> None:
+        """Release the tile's histogram."""
 
-    def cancelled(self) -> bool:
-        """True once `cancel` was called."""
-        return self._cancel.is_set()
-
-    def wait_if_paused(self) -> bool:
-        """Block while paused; returns False if cancelled (so callers can bail out)."""
-        self._resume.wait()
-        return not self._cancel.is_set()
+    def close(self) -> None:
+        """Release everything."""
 
 
 # --- CPU ------------------------------------------------------------------------------------
@@ -92,10 +83,13 @@ class CpuSampler:
     forked) and fuse their populations while the caller prepares the first tile.
     """
     is_gpu = False
+    kind = "cpu"
     max_side = 1 << 30
 
     def __init__(self, flame: Flame, threads: int = 0, seed: int = 1, fuse: int = 30):
         self.threads = max(1, threads or thread_count())
+        self.workers = self.threads
+        self.device = platform.processor() or platform.machine() or "CPU"
         self.name = f"CPU (numpy float64, {self.threads} process{'es' if self.threads != 1 else ''})"
         self._ctx = mp.get_context("spawn")
         self._flags = self._ctx.Array("i", [0, 0])
@@ -105,7 +99,7 @@ class CpuSampler:
         data = flame.to_dict()
         self._processes = [
             self._ctx.Process(target=cpu_workers.worker_main, daemon=True, name=f"final-cpu-{i}",
-                              args=(data, seed * 7919 + i, fuse, self._commands[i], self._results, self._flags, self._locks))
+                              args=(i, data, seed * 7919 + i, fuse, self._commands[i], self._results, self._flags, self._locks))
             for i in range(self.threads)]
         for proc in self._processes:
             proc.start()
@@ -131,21 +125,28 @@ class CpuSampler:
         return self._collect("done", control)
 
     def _collect(self, until: str, control: RenderControl | None = None) -> int:
-        """Drain results until every worker sent `until`; mirrors the control's flags to the workers meanwhile."""
-        waiting = self.threads
+        """Drain results until every worker sent `until`; mirrors the control's flags to the workers meanwhile.
+
+        Raises:
+            RuntimeError: If a worker reported an error or died without reporting.
+        """
+        pending = set(range(self.threads))
         total = 0
-        while waiting:
+        while pending:
             if control is not None:
                 self._flags[cpu_workers.FLAG_CANCEL] = int(control.cancelled())
                 self._flags[cpu_workers.FLAG_PAUSE] = int(control.paused)
             try:
                 message = self._results.get(timeout=0.1)
             except queue_module.Empty:
-                if not any(p.is_alive() for p in self._processes):
-                    raise RuntimeError("the CPU render workers died") from None
+                dead = [i for i in pending if not self._processes[i].is_alive()]
+                if dead:
+                    raise RuntimeError(f"CPU render worker {dead[0] + 1} of {self.threads} died") from None
                 continue
+            if message[0] == "error":
+                raise RuntimeError(f"CPU render worker {message[1] + 1} failed: {message[2]}")
             if message[0] == until:
-                waiting -= 1
+                pending.discard(message[1])
                 if until == "done":
                     total += int(message[2])
         return total
@@ -179,6 +180,8 @@ class CpuSampler:
 class GpuSampler:
     """OpenGL sampler (float32 iteration) accumulating into a float64 master through periodic readbacks."""
     is_gpu = True
+    kind = "gpu"
+    workers = 0
 
     def __init__(self, engine, compiled: CompiledFlame, seed: int = 1, fuse: int = 30, points: int = GPU_POINTS,
                  owns_engine: bool = False):
@@ -187,6 +190,7 @@ class GpuSampler:
         self.engine = engine
         self._owns_engine = owns_engine
         self.ctx = engine.ctx
+        self.device = engine.renderer
         self.name = f"GPU ({engine.renderer}, single precision)"
         self.max_side = int(self.ctx.info.get("GL_MAX_TEXTURE_SIZE", 8192))
         self.points = points
@@ -272,7 +276,7 @@ class GpuSampler:
             self.engine.close()
 
 
-def create_sampler(flame: Flame, compiled: CompiledFlame, engine: str, threads: int, seed: int, fuse: int) -> tuple[object, str]:
+def create_sampler(flame: Flame, compiled: CompiledFlame, engine: str, threads: int, seed: int, fuse: int) -> tuple[Sampler, str]:
     """The sampler for an engine preference ("auto" / "gpu" / "cpu"); returns (sampler, note).
 
     The GPU is tried on the calling thread (contexts are thread-bound); any failure falls back to
@@ -289,4 +293,4 @@ def create_sampler(flame: Flame, compiled: CompiledFlame, engine: str, threads: 
     return CpuSampler(flame, threads or config.CPU_RENDER_THREADS, seed, fuse), note
 
 
-__all__ = ["RenderControl", "CpuSampler", "GpuSampler", "create_sampler"]
+__all__ = ["Sampler", "CpuSampler", "GpuSampler", "create_sampler"]

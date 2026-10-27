@@ -140,8 +140,11 @@ the Render window. The stages, in order, and why they are in that order:
    output — straight alpha with the colour un-premultiplied, as flam3 does.
 7. **Denoise** (`denoise.py`), for image-space denoisers, once on the whole 16-bit image: guided filter and
    bilateral in numpy; OpenCV non-local means and Intel Open Image Denoise when installed.
-8. **Save** (`output.py`). Pillow writes the 8-bit formats; 16-bit PNG and TIFF are written directly (Pillow
-   has no 16-bit RGB encoder); SVG wraps the PNG. Parameters are embedded as Apophysis XML when asked.
+8. **Save** (`output.py`). Pillow writes the 8-bit formats; 16-bit PNG and TIFF (`png_tiff.py`) and OpenEXR
+   (`exr.py`, linear light, associated alpha, ZIP chunks) are written directly; SVG wraps the PNG. Parameters are
+   embedded as Apophysis XML when asked, and the `report/` package can write a details file beside the image
+   (Markdown / HTML for people, `key<TAB>value` text for pipelines) from the same `FinalResult` facts that fill
+   the EXR header.
 
 The same `ToneParams` drive the preview and the final image, which is why a final render has the same
 exposure as the viewport at any density, oversample or tile split (tested against the preview engine).

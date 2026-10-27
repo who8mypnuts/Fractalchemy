@@ -1,7 +1,7 @@
 """The progress half of the Render window: preview, bar, elapsed / remaining, outcome.
 
-Time is formatted the way people read it ("2 min 05 s", "1 h 12 min"); the remaining time is
-the engine's estimate from its measured sample rate plus the filter phases it has timed.
+The remaining time is the engine's estimate from its measured sample rate plus the filter
+phases it has timed; formatting comes from `render.units` so it matches the report.
 """
 
 from __future__ import annotations
@@ -14,38 +14,11 @@ from PySide6.QtWidgets import QGridLayout, QLabel, QProgressBar, QSizePolicy, QV
 
 from ..render.final_engine import PHASE_CANCELLED, PHASE_DONE, FinalProgress
 from ..render.final_service import FinalOutcome
+from ..render.units import format_rate, format_seconds
 from ..widgets.images import rgba_to_qimage
 
 PREVIEW_MIN = QSize(320, 200)
 PROGRESS_STEPS = 10000
-
-
-def format_seconds(seconds: float | None) -> str:
-    """'—' for unknown, else e.g. '45 s', '3 min 07 s', '2 h 15 min'."""
-    if seconds is None:
-        return "—"
-    seconds = max(0, int(round(seconds)))
-    if seconds < 60:
-        return f"{seconds} s"
-    minutes, sec = divmod(seconds, 60)
-    if minutes < 60:
-        return f"{minutes} min {sec:02d} s"
-    hours, minutes = divmod(minutes, 60)
-    if hours < 48:
-        return f"{hours} h {minutes:02d} min"
-    days, hours = divmod(hours, 24)
-    return f"{days} d {hours} h"
-
-
-def format_rate(samples_per_second: float) -> str:
-    """'123 M samples/s'."""
-    if samples_per_second >= 1e9:
-        return f"{samples_per_second / 1e9:.2f} G samples/s"
-    if samples_per_second >= 1e6:
-        return f"{samples_per_second / 1e6:.1f} M samples/s"
-    if samples_per_second >= 1e3:
-        return f"{samples_per_second / 1e3:.0f} k samples/s"
-    return f"{samples_per_second:.0f} samples/s"
 
 
 class _PreviewLabel(QLabel):
@@ -184,4 +157,4 @@ class RenderProgressPanel(QWidget):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(link.removeprefix("file:")))))
 
 
-__all__ = ["RenderProgressPanel", "format_seconds", "format_rate"]
+__all__ = ["RenderProgressPanel"]

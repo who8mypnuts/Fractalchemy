@@ -223,11 +223,12 @@ fractalchemy/
                         formats/ (registry + .flame XML, .chaos reader/writer, .fa, clipboard text)
   render/               RenderSettings / RenderStats, CompiledFlame, tone map (numpy + GLSL), cpu_engine, codegen +
                         gpu_engine (moderngl), RenderService (worker thread, priorities, cancellation);
-                        the final renderer: final_settings (options, tile plan), filters (reconstruction filters,
-                        density estimation), denoise, samplers (+ cpu_workers: shared-memory worker processes),
-                        final_engine (tiles → filter → tone map → denoise), output (formats, 16-bit PNG / TIFF,
-                        OpenEXR via exr.py, SVG, metadata), report (fractal + render details in md / txt / html),
-                        final_service (FinalRenderJob thread)
+                        the final renderer: final_settings (options, tile plan) + memory (RAM / budgets), filters
+                        (reconstruction filters, density estimation), denoise, control (cancel / pause), samplers
+                        (+ cpu_workers: shared-memory worker processes), final_engine (tiles → filter → tone map →
+                        denoise) + preview_canvas, output (formats, metadata) + png_tiff / exr encoders, report/
+                        (model, writers, render_facts, fractal_facts: the details file in md / txt / html and the EXR
+                        attributes), estimate (time estimate), units (shared formatting), final_service (FinalRenderJob)
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,

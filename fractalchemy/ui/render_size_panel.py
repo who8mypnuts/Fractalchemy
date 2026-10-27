@@ -7,25 +7,16 @@ updates the other from the ratio captured when the link was engaged (or the last
 
 from __future__ import annotations
 
-import math
-
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QGridLayout, QGroupBox, QLabel, QSpinBox, QToolButton, QWidget
 
 from ..render.final_settings import MAX_DIMENSION
+from ..render.units import aspect_text
 from ..widgets.icons import link_icon
 from ..widgets.silent import set_value_silently
 from .viewer_bar import RESOLUTIONS
 
 PREVIEW_SIZE, CUSTOM_SIZE = "preview", "custom"
-
-
-def _aspect_text(width: int, height: int) -> str:
-    g = math.gcd(max(1, width), max(1, height))
-    a, b = width // g, height // g
-    if a > 50 or b > 50:
-        return f"{width / height:.3f} : 1"
-    return f"{a} : {b}"
 
 
 class SizePanel(QGroupBox):
@@ -173,7 +164,7 @@ class SizePanel(QGroupBox):
 
     def _refresh_aspect(self) -> None:
         w, h = self.size()
-        self.aspect.setText(f"{w:,} × {h:,} px  ·  {w * h / 1e6:.1f} Mpx  ·  {_aspect_text(w, h)}")
+        self.aspect.setText(f"{w:,} × {h:,} px  ·  {w * h / 1e6:.1f} Mpx  ·  {aspect_text(w, h)}")
 
 
 __all__ = ["SizePanel", "PREVIEW_SIZE", "CUSTOM_SIZE"]

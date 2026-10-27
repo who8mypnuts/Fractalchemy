@@ -344,3 +344,79 @@ toolbar button (`render_icon()`: framed picture with a green go-badge; `link_ico
   (test skips without it). `output.py`: "exr" format (`float_channels`), linearised (inverse sRGB) and premultiplied
   channels, attributes from `FinalRenderJob._attributes` (comments / capDate / utcOffset / writer + `fractalchemy:*`
   facts + settings JSON + `flame` XML); `read_embedded_parameters` reads EXR; depth combo relabels to half / float.
+
+# Review & hardening pass 3 — the final renderer / Render window / report / EXR work (uncommitted)
+Baseline before cycle 1: `python -m pytest -q -p no:cacheprovider` → 365 passed (99 s); pyflakes clean; compileall ok.
+Baseline score (critics on the new code): Architecture 30/40 · DRY 22/30 · Docs 16/20 · Tests 8/10 → **76**.
+
+## Cycle 1 — findings (systemic first)
+| # | Critic | Severity | Subsystem | Criticism | Root cause | Correction |
+|---|---|---|---|---|---|---|
+| 1 | DRY | High | ui/render_status, ui/render_progress, render/report, ui/render_size_panel, render/final_settings | count / seconds / bytes / aspect formatters written 4× (`_count`, `format_rate`, `human_count`; `format_seconds`, `human_seconds`; `human_bytes`, `_mb_text`; `_aspect_text`, `_gcd_aspect`) | each feature brought its own | one Qt-free `render/units.py`; every caller imports it |
+| 2 | Architect | High | render/report | 692-line module: document model + 11 section builders + 3 writers | grew as one feature | package `render/report/`: `model.py`, `writers.py`, `render_facts.py`, `fractal_facts.py`, façade `__init__` |
+| 3 | Architect | High | render/report, render/final_service | facts recovered by parsing the engine *name* (`_workers_used`, GPU device split on ", single") | result lacked the facts | samplers expose `kind` / `device` / `workers`; `FinalResult` carries them |
+| 4 | Architect | Med | render/final_service | `run()` mixes rendering, saving, sidecar, report, EXR metadata (30-line dict) | accretion | `_save_outputs()`; EXR attributes built by `report.exr_attributes()` (facts belong with the report) |
+| 5 | Architect | Med | render/cpu_workers ↔ render/cpu_engine | worker subclasses the private `_Worker` across modules | name kept private when reused | rename to public `PointPopulation` |
+| 6 | Architect | Med | render/samplers | `RenderControl` (shared by engine, job, samplers, UI) lives in the sampler module; no stated sampler contract | convenience | `render/control.py`; `Sampler` Protocol documents the contract |
+| 7 | Architect | Med | render/output | 377 lines: registry + Pillow glue + PNG + TIFF + SVG + EXR + metadata readers | one file per concern not kept | `render/png_tiff.py` for the hand-written encoders |
+| 8 | DRY | Med | render/output | 16→8-bit rounding `(x + 128) // 257` written twice | — | `to_8bit()` helper |
+| 9 | Architect | Med | render/final_engine | `_post_process_tile` / `_record_histogram` mutate `self._tile_stats[-1]` implicitly; progress / ETA maths interleaved with orchestration | grown in place | `_render_tile` returns the `TileStats`, passed explicitly; `_Clock` owns elapsed / rate / ETA |
+| 10 | Architect | Low | render/output, render/final_settings | dead code: `encode_preview_png`, `TilePlan.max_dimension` | leftovers | removed |
+| 11 | Architect | Med | ui/render_window | time-estimate text logic (`_rate_for`, `_estimate_text`, `_estimate_short`) inside the window, untestable without Qt | convenience | Qt-free `render/estimate.py: RenderEstimate` |
+| 12 | DRY | Low | render/report | `machine_text` zero handling `f"{value + 0.0}".replace("-0", "0")` — the `+ 0.0` already normalises −0.0 | belt and braces | simplified |
+| 13 | Defensive | High | render/cpu_workers | the band-partitioned accumulation path (`> PARTITION_ABOVE` buckets) is never executed by the tests | tests use small tiles | unit test on `SharedHistogram.add` with the threshold lowered, comparing against a plain accumulation |
+| 14 | Defensive | Med | render/final_service | saving failure path (unwritable destination) untested; `read_exr_attributes` on a non-EXR untested | — | tests added |
+
+Cycle 1 result: **371 passed** (was 365; +6 tests: shared histogram ×2, estimate, save failure, EXR malformed headers,
+units ×3 in `tests/test_render_units.py`), pyflakes clean, compileall ok. Regression vs baseline: **improved** — all prior
+tests pass; behaviour changes are fixes only (`read_exr_attributes` raises ValueError on truncated files instead of
+`struct.error`; `format_count(999 999 999)` → "1 G" instead of "1e+03 M"; `aspect_text` guards a zero side).
+New modules: `render/units.py`, `render/control.py`, `render/estimate.py`, `render/png_tiff.py`, package `render/report/`
+(`model`, `writers`, `render_facts`, `fractal_facts`). Removed: `render/report.py`, dead `encode_preview_png`,
+`TilePlan.max_dimension`. `FinalResult` / `FinalProgress` carry `engine_kind` / `device` / `workers` (no name parsing).
+Score after cycle 1: Architecture 34/40 · DRY 27/30 · Docs 16/20 · Tests 9/10 → **86** (docs gate 17 not met; total < 90).
+
+## Cycle 2 — findings (Comment Nazi / Architect, on the cycle-1 code)
+| # | Critic | Severity | Subsystem | Criticism | Root cause | Correction |
+|---|---|---|---|---|---|---|
+| 15 | Comments | Med | render/png_tiff, gpu_engine, cpu_engine | public `png_bytes` / `write_png` (newly public) and the engines' `start` / `close` / `image` lacked docstrings | one-liners skipped | docstrings added; AST sweep now reports only closures and Qt overrides |
+| 16 | Architect | Med | render/final_engine | 442 lines: the preview canvas (70 lines + helpers) is a separate concern | grew with the engine | `render/preview_canvas.py: PreviewCanvas` |
+| 17 | Architect | Med | ui/render_window | `_on_options_changed` mixed validation with plan / estimate display | accretion | `_problems(settings)` extracted |
+| 18 | Architect | Low | render/final_settings | RAM probing (sysconf / Win32 struct) and budgets inside the settings module | convenience | `render/memory.py` |
+| 19 | DRY | Med | ui/render_quality_panel, ui/render_output_panel | `blockSignals(True) … (False)` over widget tuples written 4× | per-panel copies | `widgets/silent.blocked(*objects)` context manager (QSignalBlocker + ExitStack) |
+| 20 | Architect | Low | render/final_engine | `_Clock.started` overwritten after construction | quick fix | constructor argument |
+Cycle 2 result: 373 passed (+1: memory budgets / plan wording), pyflakes clean. Regression vs cycle 1: **improved** (pure
+refactors + docs; no behaviour change). Score: Architecture 36/40 · DRY 28/30 · Docs 18/20 · Tests 9/10 → **91** (all gates met;
+one more defensive cycle run before stopping, per the protocol's minimum of four).
+
+## Cycle 3 — findings (Defensive Tester, on the cycle-2 code)
+| # | Critic | Severity | Subsystem | Criticism | Root cause | Correction |
+|---|---|---|---|---|---|---|
+| 21 | Defensive | **High** | render/samplers, render/cpu_workers | a worker that *raised* (bad flame data, numpy error) exited silently; the parent waited forever if any other worker was alive (`_collect` only checked "all dead") | errors not reported | workers send `("error", index, message)`; `_collect` tracks pending workers by index, raises on an error message or on a pending worker that died; test `test_cpu_sampler_surfaces_worker_errors` |
+| 22 | Defensive | Med | render/exr | `write_exr({})` → IndexError; mismatched channel shapes → obscure numpy error | no validation | ValueError with the shapes; tests |
+| 23 | Defensive | Med | render/report/writers | a table row id with spaces / dots (a future name column) would break the dotted-key contract | ids passed through verbatim | `_key_safe`; test |
+Cycle 3 result: 373 passed (a concurrent run that overlapped the `worker_main` signature change showed 2 spurious failures;
+re-run clean), pyflakes clean. Regression vs cycle 2: **improved** (failure behaviour tightened; no other change).
+
+## Cycle 4 — findings (final Architect / DRY sweep, on the cycle-3 code)
+| # | Critic | Severity | Subsystem | Criticism | Root cause | Correction |
+|---|---|---|---|---|---|---|
+| 24 | Architect | Med | ui/render_quality_panel, ui/render_output_panel | `_build` methods of 54 / 52 lines configuring every control and the layout in one go | built top to bottom | split into `_build_sampling_controls` / `_build_denoise_controls` / `_build_engine_controls`, and `_build_controls` / `_layout` / `_connect` |
+| 25 | DRY | Low | ui/render_quality_panel, ui/render_output_panel | the two memory spin boxes configured twice; five `QHBoxLayout` row constructions | — | `_memory_box()`, `_row()` helpers |
+| 26 | Comments | Low | README, docs/rendering.md | layout / design docs did not list the new modules (units, control, estimate, memory, png_tiff, preview_canvas, report/) | docs lagged the split | updated |
+Cycle 4 result: **373 passed** (139 s), pyflakes clean, compileall ok; the Output group screenshot is pixel-identical to
+before the layout refactor. Regression vs cycle 3: **improved** (pure refactors + docs). AST docstring sweep: only nested
+closures (`filters._cubic.f`, `denoise._opencv_nlmeans.run`) and the Qt `resizeEvent` override are undocumented, by design.
+
+## Final score & evidence (pass 3)
+| Dimension | Points | Gate | Score | Evidence |
+|---|---|---|---|---|
+| Clean architecture | 40 | 34 | 36 | report split into a 4-module package; units / control / estimate / memory / png_tiff / preview_canvas extracted; samplers implement a stated `Sampler` protocol; results carry facts instead of names to parse; no module > 330 lines; no function > 42 lines except the pre-existing `codegen.generate` |
+| DRY | 30 | 25.5 | 28 | four formatter families → `render/units.py`; 16→8-bit rounding, signal blocking, memory boxes, layout rows de-duplicated; `FlameFacts` digests the flame once for every fractal section |
+| Comments & docs | 20 | 17 | 18 | module docstrings explain the *why* (process workers, linear EXR, text report contract); every public def documented; README / rendering.md list the new modules |
+| Defensive testing | 10 | 8.5 | 9 | 373 tests (+8 this pass): band-partitioned accumulation, worker error reporting, save failures, malformed EXR headers, EXR channel validation, key-safe report ids, memory budgets, estimate wording |
+| **Total** | 100 | ≥ 90 | **91** | all gates met; zero critical failures open |
+
+Commands: `python -m pytest -q -p no:cacheprovider` (≈ 140 s; do not edit `render/cpu_workers.py` while a run is in
+flight — spawned workers import the module fresh); `python -m pyflakes fractalchemy tests main.py`;
+`python -m compileall -q fractalchemy main.py tests`. Nothing committed.

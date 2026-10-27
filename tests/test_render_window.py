@@ -10,7 +10,6 @@ from fractalchemy.render.output import read_embedded_parameters
 from fractalchemy.ui.fractal_document import FractalDocument
 from fractalchemy.ui.render_output_panel import OutputPanel
 from fractalchemy.ui.render_size_panel import SizePanel
-from fractalchemy.ui.render_progress import format_rate, format_seconds
 from fractalchemy.ui.render_window import RenderWindow
 from tests.conftest import open_flame_and_wait, spin, wait_until
 from tests.test_render import sierpinski
@@ -78,12 +77,6 @@ def test_output_panel_keeps_format_and_extension_in_step(qapp, tmp_path):
     assert not panel.save_details.isChecked() and not panel.details_format.isEnabled()     # off by default
     panel.save_details.setChecked(True)
     assert panel.details_format.isEnabled() and panel.details_format.currentData() == "md"
-
-
-def test_time_and_rate_formatting():
-    assert format_seconds(None) == "—" and format_seconds(42) == "42 s" and format_seconds(187) == "3 min 07 s"
-    assert format_seconds(8100) == "2 h 15 min" and format_seconds(3 * 86400) == "3 d 0 h"
-    assert format_rate(2.5e6) == "2.5 M samples/s" and format_rate(1.2e9) == "1.20 G samples/s"
 
 
 # --- window -----------------------------------------------------------------------------------------

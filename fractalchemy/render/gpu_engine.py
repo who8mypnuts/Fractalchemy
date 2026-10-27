@@ -72,6 +72,7 @@ class GpuEngine:
         self._programs: dict[str, tuple] = {}   # shader source -> compiled programs (structure cache)
 
     def start(self, flame: Flame, settings: RenderSettings) -> "GpuRenderJob":
+        """A new progressive render job for `flame`."""
         return GpuRenderJob(self, flame, settings)
 
     def programs(self, generated: GeneratedProgram):
@@ -86,6 +87,7 @@ class GpuEngine:
         return self._programs[key]
 
     def close(self) -> None:
+        """Release the OpenGL context."""
         self.ctx.release()
 
 
@@ -251,9 +253,11 @@ class GpuRenderJob:
         return np.frombuffer(data, dtype=np.uint8).reshape(self.settings.height, self.settings.width, 4).copy()
 
     def image(self) -> np.ndarray:
+        """The current histogram tone-mapped to RGBA8."""
         return self._tonemap()
 
     def close(self) -> None:
+        """Free the GPU objects (idempotent)."""
         if self._closed:
             return
         self._closed = True

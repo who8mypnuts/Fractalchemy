@@ -45,8 +45,16 @@ def write_exr(path: str | Path, channels: dict[str, np.ndarray], attributes: dic
         attributes: Extra string attributes (metadata) to store in the header.
         half: Store 16-bit half floats instead of 32-bit floats.
         compress: ZIP-compress the scanlines (recommended; lossless).
+
+    Raises:
+        ValueError: Without channels, or when their shapes differ or are not 2-D.
     """
     names = sorted(channels)                       # OpenEXR stores channels alphabetically
+    if not names:
+        raise ValueError("an EXR file needs at least one channel")
+    shapes = {np.shape(channels[n]) for n in names}
+    if len(shapes) != 1 or len(next(iter(shapes))) != 2:
+        raise ValueError(f"all channels must be 2-D arrays of one shape, got {sorted(map(str, shapes))}")
     height, width = channels[names[0]].shape
     dtype = "<f2" if half else "<f4"
     pixel_type = PIXEL_HALF if half else PIXEL_FLOAT
@@ -116,11 +124,21 @@ def _header(names: list[str], width: int, height: int, pixel_type: int, compress
 
 
 def read_exr_attributes(path: str | Path) -> dict[str, str]:
-    """The string attributes of an EXR header (our own metadata reader; values decoded as UTF-8)."""
+    """The string attributes of an EXR header (our own metadata reader; values decoded as UTF-8).
+
+    Raises:
+        ValueError: If the file is not an OpenEXR file or its header is truncated / malformed.
+    """
     data = Path(path).read_bytes()
-    magic, _version = struct.unpack_from("<ii", data, 0)
-    if magic != MAGIC:
+    if len(data) < 8 or struct.unpack_from("<i", data, 0)[0] != MAGIC:
         raise ValueError("not an OpenEXR file")
+    try:
+        return _parse_string_attributes(data)
+    except (struct.error, IndexError, ValueError, UnicodeDecodeError) as exc:
+        raise ValueError(f"malformed OpenEXR header: {exc}") from exc
+
+
+def _parse_string_attributes(data: bytes) -> dict[str, str]:
     pos = 8
     found: dict[str, str] = {}
     while data[pos] != 0:

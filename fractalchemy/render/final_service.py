@@ -14,10 +14,8 @@ later edits never leak into a running render.
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass, field, replace
-from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -26,8 +24,8 @@ from ..fractal.scene import Flame
 from .final_engine import PHASE_SAVE, FinalProgress, FinalRenderer, FinalResult
 from .final_settings import FinalRenderSettings
 from .output import SaveOptions, output_format, parameters_text, save_image, write_sidecar
-from .report import build_report, report_extension, write_report
-from .samplers import RenderControl
+from .report import build_report, exr_attributes, report_extension, write_report
+from .control import RenderControl
 
 PROGRESS_INTERVAL = 0.25   # seconds between progress signals (previews always go through)
 
@@ -105,26 +103,29 @@ class FinalRenderJob(QThread):
             self.failed.emit(str(exc) or exc.__class__.__name__)
             return
         outcome = FinalOutcome(result, None, notes=list(result.notes))
-        final = self._last_progress
         if self.settings.output_path and (result.complete or self.settings.save_incomplete):
-            self.progressed.emit(replace(final, phase=PHASE_SAVE, preview=None))
+            self.progressed.emit(replace(self._last_progress, phase=PHASE_SAVE, preview=None))
             try:
-                outcome.path = self._save(result)
-            except Exception as exc:  # noqa: BLE001 - report, keep the result
+                self._save_outputs(outcome)
+            except Exception as exc:  # noqa: BLE001 - the image could not be written: that is a failure
                 self.failed.emit(f"The render finished but could not be saved: {exc}")
                 return
-            if self.settings.save_parameters:
-                try:
-                    outcome.sidecar = write_sidecar(self.flame, outcome.path)
-                except OSError as exc:
-                    outcome.notes.append(f"Parameters could not be written: {exc}")
-            if self.settings.save_details:
-                try:
-                    outcome.report = self._write_report(outcome)
-                except Exception as exc:  # noqa: BLE001 - the image is saved; a report failure is a note
-                    outcome.notes.append(f"Details could not be written: {exc}")
-            self.progressed.emit(replace(final, preview=None))   # back to Finished / Stopped once the file is written
+            self.progressed.emit(replace(self._last_progress, preview=None))   # back to Finished / Stopped
         self.succeeded.emit(outcome)
+
+    def _save_outputs(self, outcome: FinalOutcome) -> None:
+        """Write the image, then the optional parameter sidecar and details report (their failures become notes)."""
+        outcome.path = self._save(outcome.result)
+        if self.settings.save_parameters:
+            try:
+                outcome.sidecar = write_sidecar(self.flame, outcome.path)
+            except OSError as exc:
+                outcome.notes.append(f"Parameters could not be written: {exc}")
+        if self.settings.save_details:
+            try:
+                outcome.report = self._write_report(outcome)
+            except Exception as exc:  # noqa: BLE001 - the image is saved; a report failure is a note
+                outcome.notes.append(f"Details could not be written: {exc}")
 
     def _report(self, progress: FinalProgress) -> None:
         self._last_progress = progress
@@ -146,40 +147,10 @@ class FinalRenderJob(QThread):
         path.parent.mkdir(parents=True, exist_ok=True)
         options = SaveOptions(depth=s.depth, transparent=s.transparent, quality=s.lossy_quality, lossless=s.lossless,
                               parameters=parameters_text(self.flame) if s.embed_parameters else "",
-                              attributes=self._attributes(result))
+                              attributes=exr_attributes(self.flame, s, result, self.source))
         save_image(result.image, path, output_format(s.output_format), options)
         return path
 
-    def _attributes(self, result: FinalResult) -> dict[str, str]:
-        """Render facts for formats with free-form metadata (OpenEXR): standard keys plus a `fractalchemy:` set."""
-        s = self.settings
-        finished = datetime.fromtimestamp(result.finished_at or time.time()).astimezone()
-        offset = finished.utcoffset()
-        cam = self.flame.camera
-        attributes = {
-            "comments": f"{self.flame.name} — rendered by {self.flame.source_version or 'Fractalchemy'} at {s.quality:g} samples/px, "
-                        f"oversample {s.oversample}, {result.engine}",
-            "capDate": finished.strftime("%Y:%m:%d %H:%M:%S"),
-            "utcOffset": f"{-offset.total_seconds() + 0.0:.0f}" if offset is not None else "0",   # OpenEXR: seconds *behind* UTC
-            "fractalchemy:name": self.flame.name,
-            "fractalchemy:source": self.source,
-            "fractalchemy:engine": result.engine,
-            "fractalchemy:complete": "true" if result.complete else "false",
-            "fractalchemy:samples": str(result.samples),
-            "fractalchemy:samplesPerPixel": f"{result.samples / max(1, s.width * s.height):.3f}",
-            "fractalchemy:renderSeconds": f"{result.seconds:.3f}",
-            "fractalchemy:tiles": str(result.plan.count if result.plan else 1),
-            "fractalchemy:density": f"{s.quality:g}",
-            "fractalchemy:oversample": str(s.oversample),
-            "fractalchemy:filter": f"{s.filter_kind} radius {s.filter_radius:g}",
-            "fractalchemy:denoiser": s.denoiser,
-            "fractalchemy:camera": f"center {cam.center[0] + 0.0:g} {cam.center[1] + 0.0:g} scale {cam.scale:g} "
-                                   f"zoom {cam.zoom + 0.0:g} rotate {cam.rotate + 0.0:g}",
-            "fractalchemy:coloring": f"brightness {self.flame.coloring.brightness:g} gamma {self.flame.coloring.gamma:g} "
-                                     f"vibrancy {self.flame.coloring.vibrancy:g} contrast {self.flame.coloring.contrast:g}",
-            "fractalchemy:settings": json.dumps(s.to_dict(), sort_keys=True),
-        }
-        return attributes
 
 
 __all__ = ["FinalRenderJob", "FinalOutcome"]

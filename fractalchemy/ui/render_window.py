@@ -21,15 +21,16 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QMainWindow, QMessageBox, QP
 
 from ..render.final_engine import PHASE_CANCELLED, PHASE_DONE, FinalProgress
 from ..render.final_service import FinalOutcome, FinalRenderJob
-from ..render.final_settings import ENGINE_CPU, FinalRenderSettings, describe_plan, plan_tiles
+from ..render.estimate import RenderEstimate, engine_kind
+from ..render.final_settings import FinalRenderSettings, describe_plan, plan_tiles
 from ..render.gpu_engine import gpu_available
 from ..render.output import output_format, size_problem
 from ..widgets.icons import render_icon
 from .fractal_document import FractalDocument
 from .render_output_panel import OutputPanel
+from .render_progress import RenderProgressPanel
 from .render_quality_panel import QualityPanel
 from .render_size_panel import SizePanel
-from .render_progress import RenderProgressPanel, format_rate, format_seconds
 
 WINDOW_TITLE = "Render Image"
 SETTINGS_KEY = "final_render/settings"
@@ -54,7 +55,7 @@ class RenderWindow(QMainWindow):
         self.document = document
         self._settings = settings if settings is not None else QSettings()
         self._rate_hint = rate_hint
-        self._measured: dict[str, float] = {}
+        self._estimate = RenderEstimate()
         self.job: FinalRenderJob | None = None
         self.last_outcome: FinalOutcome | None = None
         self._showing_result = False
@@ -150,8 +151,8 @@ class RenderWindow(QMainWindow):
         if s.output_path:
             self._settings.setValue(FOLDER_KEY, str(Path(s.output_path).parent))
 
-    def _uses_gpu(self, s: FinalRenderSettings) -> bool:
-        return s.engine != ENGINE_CPU and gpu_available()[0]
+    def _engine_kind(self, s: FinalRenderSettings) -> str:
+        return engine_kind(s, gpu_available()[0])
 
     # --- document -------------------------------------------------------------------------
     def _on_flame_replaced(self) -> None:
@@ -174,49 +175,33 @@ class RenderWindow(QMainWindow):
         return str(folder / f"{stem}{fmt.extension}")
 
     # --- plan / estimate -------------------------------------------------------------------
-    def _on_options_changed(self, *_args) -> None:
-        s = self.current_settings()
-        self._persist()
+    def _problems(self, s: FinalRenderSettings) -> list[str]:
+        """Everything that prevents a render: invalid settings, a size the format cannot hold, no fractal."""
         problems = s.problems()
-        fmt = output_format(s.output_format)
-        size_issue = size_problem(fmt, s.width, s.height)
+        size_issue = size_problem(output_format(s.output_format), s.width, s.height)
         if size_issue:
             problems.append(size_issue)
         if self.document.flame is None:
             problems.append("No fractal is loaded")
+        return problems
+
+    def _on_options_changed(self, *_args) -> None:
+        s = self.current_settings()
+        self._persist()
+        problems = self._problems(s)
         self.start_button.setEnabled(not problems and self.job is None)
         self.start_button.setToolTip("\n".join(problems))
         if problems and self.job is None:
             self.plan_label.setText('<span style="color:#c0392b">' + "; ".join(problems) + "</span>")
             self.estimate_label.setText("")
             return
-        plan = plan_tiles(s, gpu=self._uses_gpu(s))
-        self.plan_label.setText(describe_plan(s, plan))
-        self.estimate_label.setText(self._estimate_text(s, plan.count))
-        if self.job is None and not self._showing_result:
-            self.progress_panel.show_idle(self._estimate_short(s, plan.count))
-
-    def _rate_for(self, s: FinalRenderSettings) -> tuple[str, float] | None:
-        """(source description, samples/s) for the engine this render will use, from measurements if any."""
-        kind = "GPU" if self._uses_gpu(s) else "CPU"
-        if kind in self._measured:
-            return f"the last {kind} render's measured speed", self._measured[kind]
+        kind = self._engine_kind(s)
+        plan = plan_tiles(s, gpu=kind == "gpu")
         hint = self._rate_hint() if self._rate_hint is not None else None
-        if hint and hint[1] > 0 and hint[0].startswith(kind):
-            return "the preview's measured speed", hint[1]
-        return None
-
-    def _estimate_text(self, s: FinalRenderSettings, tiles: int) -> str:
-        rate = self._rate_for(s)
-        total = s.samples_per_tile * tiles
-        if rate is None:
-            return f"{total / 1e9:.2f} G samples to run. Time unknown until an engine has measured its speed."
-        return (f"{total / 1e9:.2f} G samples to run — roughly {format_seconds(total / rate[1])} at {rate[0]} "
-                f"({format_rate(rate[1])}), plus filtering.")
-
-    def _estimate_short(self, s: FinalRenderSettings, tiles: int) -> str:
-        rate = self._rate_for(s)
-        return f"≈ {format_seconds(s.samples_per_tile * tiles / rate[1])}" if rate else ""
+        self.plan_label.setText(describe_plan(s, plan))
+        self.estimate_label.setText(self._estimate.describe(s, plan.count, kind, hint))
+        if self.job is None and not self._showing_result:
+            self.progress_panel.show_idle(self._estimate.short(s, plan.count, kind, hint))
 
     # --- rendering ------------------------------------------------------------------------
     @property
@@ -298,8 +283,8 @@ class RenderWindow(QMainWindow):
         self.stop_button.setEnabled(running)
 
     def _on_progress(self, progress: FinalProgress) -> None:
-        if progress.phase in (PHASE_DONE, PHASE_CANCELLED) and progress.rate > 0:
-            self._measured["GPU" if progress.engine.startswith("GPU") else "CPU"] = progress.rate
+        if progress.phase in (PHASE_DONE, PHASE_CANCELLED):
+            self._estimate.record(progress.engine_kind, progress.rate)
         self.progress_panel.show_progress(progress)
 
     def _on_succeeded(self, outcome: FinalOutcome) -> None:
