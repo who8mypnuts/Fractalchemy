@@ -24,12 +24,12 @@ python -m pytest
   Into Existing File, Exit), *Edit* (Undo `Ctrl+Z`, Redo `Ctrl+Shift+Z`, Copy Parameters `Ctrl+Shift+C`, Paste
   Parameters `Ctrl+Shift+V`, Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
   Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
-  *Windows* (Transform Editor `F4`, Gradient Library `F6`, Random Batch `F7`, Render Image… `Ctrl+R`), *Help*
-  (Formulas…, About).
+  *Windows* (Transform Editor `F4`, Gradient Library `F6`, Animation `F9`, Random Batch `F7`, Render Image… `Ctrl+R`),
+  *Help* (Formulas…, About).
 * Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
   **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
   (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Transform Editor** (`F4`),
-  **Gradient Library**, **Random Batch** (`F7`), **Render Image** (`Ctrl+R`).
+  **Gradient Library**, **Animation** (`F9`), **Random Batch** (`F7`), **Render Image** (`Ctrl+R`).
   Nothing is ever written unless you save: edits only change the preview, the title shows `*`, and Save / Save As
   let you keep as many versions as you like.
 * **Open Fractal…** shows the file's first flame and lists *all* of the file's flames in a temporary section at the
@@ -132,6 +132,7 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
 | `.flame` (Apophysis / flam3) | ✓ | many | ✓ | ✓ (in-place text edits; unknown data survives) |
 | `.fa` (Fractalchemy, JSON) | ✓ | many | ✓ | ✓ |
 | `.chaos` (Chaotica) | ✓ | many | ✓ | – |
+| `.faanim` (Fractalchemy animation, JSON) | ✓ (Animation window) | one animation | – | ✓ |
 
 ### Transform Editor window
 *Windows ▸ Transform Editor* (`F4`, the triangle on the toolbar) is Apophysis's editor, rebuilt: it edits the fractal
@@ -185,6 +186,41 @@ shown in the main window, every change is undoable from either window (`Ctrl+Z`)
   and *High* 15, the latter two anti-aliased like the main viewport, High in two passes) follows every drag;
   the **main viewport** waits until the edits pause — a second after the last change (`EDIT_RENDER_DELAY_MS`)
   it re-renders at full quality, so dragging never keeps the GPU / CPU churning.
+
+### Animation window
+*Windows ▸ Animation* (`F9`, the film strip on the toolbar) turns fractals into keyframes on a timeline.
+
+* **Keyframes.** *Capture keyframe* (`K`) pins whatever the main window shows at the playhead's frame — so the
+  workflow is: show or adjust a fractal (main window, Transform Editor, Gradient Library), capture, move the
+  playhead, change it, capture again. Capturing on a frame that has a keyframe replaces it; *Update keyframe*
+  replaces the selected one with the main window's fractal; *Delete* removes it. Clicking a keyframe (in the list
+  or on the timeline) does what choosing another fractal does: the main window shows it, ready to be changed
+  and captured again. Keyframes can be dragged along the timeline, moved with the *Frame* box and labelled.
+* **Timeline.** A ruler of frames and seconds with the keyframes as diamonds and a playhead: click or drag to
+  scrub, wheel to zoom (Shift + wheel scrolls), double-click to fit, ←/→ step (Shift: a second), Home / End.
+* **Settings.** Name, frame rate, length (frames or seconds — never shorter than the last keyframe),
+  **interpolation** (*Linear*: every number blends straight between neighbouring keyframes; *Smooth*: a
+  Catmull-Rom spline through the keyframes, so motion flows through them; *Hold*: a slideshow), **easing**
+  (in / out / both) and **loop** (the end blends back to the first keyframe; playback repeats). Between
+  keyframes everything is interpolated: affines (all three), weights, colours, variation weights and parameters,
+  xaos, the 2D and 3D camera, colouring and the palette. Transforms that exist in one keyframe only fade in or
+  out; variations missing on one side ramp from zero keeping the other side's parameters; a final transform
+  appears as the identity where a keyframe has none.
+* **Preview and playback.** The small preview (right-click for the quality) shows the interpolated fractal at
+  the playhead; *Play* (`Space`) runs the animation in it at its frame rate — frames are dropped when the engine
+  is slower than real time, so timing stays true — *Stop* returns to where playback started.
+* **Files.** Animations are `.faanim` (JSON, every keyframe a complete fractal, plus fps, length, interpolation,
+  easing, loop and the last render settings). *Open* shows the first keyframe in the main window and loads the
+  rest into the editor.
+* **Render Animation…** (`Ctrl+R` in the Animation window) opens the batch renderer: the Render Image window's
+  size and quality panels, then an **output folder** and a base name instead of a file (`name_0001.png`,
+  `name_0002.png`, … in any image format with its options), the frame range and step, *skip existing frames*
+  (resume a stopped batch), parameters beside or inside each frame, and — when **ffmpeg** is installed —
+  *Make a video with ffmpeg* (MP4 H.264 / H.265, WebM VP9, ProRes MOV or an animated GIF with a palette pass;
+  CRF quality; the video lands in the same folder, the frames optionally removed afterwards). The command
+  line it will run is shown. One engine (GPU context or CPU worker processes) renders every frame; progress
+  shows the frame, a preview, elapsed and remaining time; Pause / Stop as for a single image. The settings
+  persist and are saved in the `.faanim` file, so a render can be repeated.
 
 ### Random Batch window
 *Windows ▸ Random Batch…* (`F7`, the die on the toolbar) generates random fractals the way Apophysis's random
@@ -321,6 +357,9 @@ docs/rendering.md       the dual-engine rendering design
 fractalchemy/
   config.py             tunables: app name/version, node counts, simplify tolerance, sizes, preview quality
   settings.py           QSettings identity + one-time migration of HueClid settings
+  animation/            keyframed animations: model (Animation / Keyframe), interpolate (alignment + blending),
+                        format (.faanim), render (AnimationRenderSettings, frame names, the ffmpeg command),
+                        render_job (the batch thread: one sampler for every frame, then ffmpeg)
   fractal/              the shared scene: Flame / XForm / Camera / Coloring, the variation registry (numpy + GLSL),
                         formats/ (.flame XML, .chaos, .fa), triangles (affine ⇄ editor triangle geometry),
                         xform_ops (add / duplicate / link / delete transforms with consistent xaos)
@@ -341,12 +380,14 @@ fractalchemy/
                         model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
   widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons,
-                        TriangleView (the editor canvas), ValueTable (name / value lists with drag editing)
+                        TriangleView (the editor canvas), ValueTable (name / value lists with drag editing),
+                        Timeline (the animation timeline)
   ui/                   .ui loader, background tasks, MainWindow, FractalDocument (undo history), FractalViewport +
                         ViewGeometry (image framing, view vs. camera pan/zoom), ViewerBar (zoom + image size),
                         SettingsPanel, FractalLibraryPanel, ThumbnailProvider, RenderStatus (status bar),
                         GradientLink, FormulaBrowser, LibraryHost (shared library-pane wiring),
                         EditorWindow (+ editor_context, editor_panels: the tabs, editor_preview: its mini preview),
+                        AnimationWindow (+ animation_document), AnimationRenderWindow (the batch / video renderer),
                         FileActionsBase + the fractal / gradient file actions, GradientDocument,
                         GradientLibraryWindow, RenderWindow (+ render_size_panel, render_quality_panel,
                         render_output_panel, render_progress)

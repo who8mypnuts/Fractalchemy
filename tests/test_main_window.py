@@ -22,6 +22,7 @@ def window(qapp, tmp_path):
     win.show()
     yield win
     win.gradient_library.document.modified = False  # never prompt on teardown
+    win.animation.document.mark_saved()
     win.close()
 
 
@@ -38,7 +39,7 @@ def test_application_is_named_fractalchemy(window):
 
 def test_menu_bar_has_windows_and_help_menus(window):
     assert menu_titles(window) == ["File", "Edit", "View", "Windows", "Help"]
-    assert [a.text() for a in window.menuWindows.actions()] == ["Transform Editor", "Gradient Library", "Random Batch…", "Render Image…"]
+    assert [a.text() for a in window.menuWindows.actions()] == ["Transform Editor", "Gradient Library", "Animation", "Random Batch…", "Render Image…"]
     assert [a.text() for a in window.menuHelp.actions()] == ["Formulas…", "", "About Fractalchemy…", "About Qt…"]
     assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
     assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save Fractal", "Save Fractal As", "Exit"]

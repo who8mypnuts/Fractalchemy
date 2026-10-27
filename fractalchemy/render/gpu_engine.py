@@ -167,6 +167,7 @@ class GpuPopulation:
         self.ctx = engine.ctx
         self.compiled = compiled
         self.points = points
+        self.seed = seed
         self.camera = camera if camera is not None else Camera()
         self.generated = generate(compiled)
         self.iterate_prog, self.plot_prog = engine.programs(self.generated)

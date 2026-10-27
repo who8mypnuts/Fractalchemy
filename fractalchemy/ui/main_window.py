@@ -2,8 +2,8 @@
 
 Menus (File / Edit / View / Windows / Help), a toolbar, and a status bar showing the
 loaded fractal, render facts, the progressive pass counter and a progress bar. The
-Transform Editor, the Gradient Library and the Render Image window are separate tool windows
-opened from *Windows* or the toolbar.
+Transform Editor, the Gradient Library, the Animation window and the Render Image window are separate
+tool windows opened from *Windows* or the toolbar.
 """
 
 from __future__ import annotations
@@ -25,7 +25,8 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import action_icon, editor_icon, gradient_icon, render_icon
+from ..widgets.icons import action_icon, animation_icon, editor_icon, gradient_icon, render_icon
+from .animation_window import AnimationWindow
 from .background import run_in_background
 from .editor_window import EditorWindow
 from .fractal_document import FractalDocument
@@ -92,6 +93,9 @@ class MainWindow(QMainWindow):
         self.render_window = RenderWindow(self.document, self, settings if settings is not None else QSettings(),
                                           rate_hint=self._preview_rate)
         self.editor = EditorWindow(self.document, self.render_service, self, settings if settings is not None else QSettings())
+        self.animation = AnimationWindow(self.document, self.render_service, self.show_flame, self,
+                                         settings if settings is not None else QSettings())
+        self.animation.rate_hint = self._preview_rate
         self.splitter.first_label, self.splitter.last_label = "fractal library", "settings panel"
         self.splitter.set_first_width(LIBRARY_PANE_WIDTH)
         self.splitter.set_last_width(SETTINGS_PANE_WIDTH)
@@ -116,6 +120,8 @@ class MainWindow(QMainWindow):
         self.actionRenderImage.triggered.connect(self.show_render_window)
         self.actionEditor.setIcon(editor_icon("editor"))
         self.actionEditor.triggered.connect(self.show_editor)
+        self.actionAnimation.setIcon(animation_icon())
+        self.actionAnimation.triggered.connect(self.show_animation)
         self.actionOpenFractal.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_DialogOpenButton))
         self.actionOpenFractal.triggered.connect(self.open_file)
         self.actionSaveFractal.setIcon(action_icon("save"))
@@ -381,6 +387,10 @@ class MainWindow(QMainWindow):
         """Open the Transform Editor (or bring it to the front); it edits the fractal shown here."""
         self.editor.bring_to_front()
 
+    def show_animation(self) -> None:
+        """Open the Animation window (or bring it to the front); keyframes are captured from the fractal shown here."""
+        self.animation.bring_to_front()
+
     def _preview_rate(self) -> tuple[str, float] | None:
         """(engine, samples/s) of the last viewport render, for the Render window's time estimate."""
         stats = self.viewport.stats
@@ -444,8 +454,15 @@ class MainWindow(QMainWindow):
         if not self.render_window.confirm_quit():
             event.ignore()
             return
+        if not self.animation.confirm_discard():
+            event.ignore()
+            return
+        if self.animation.render_window is not None and not self.animation.render_window.confirm_quit():
+            event.ignore()
+            return
         self.gradient_library.close()
         self.render_window.hide()
         self.editor.close()
+        self.animation.close()
         self.render_service.stop()
         super().closeEvent(event)

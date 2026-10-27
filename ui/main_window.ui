@@ -101,6 +101,7 @@
     </property>
     <addaction name="actionEditor"/>
     <addaction name="actionGradientLibrary"/>
+    <addaction name="actionAnimation"/>
     <addaction name="actionRandomBatch"/>
     <addaction name="actionRenderImage"/>
    </widget>
@@ -153,6 +154,7 @@
    <addaction name="separator"/>
    <addaction name="actionEditor"/>
    <addaction name="actionGradientLibrary"/>
+   <addaction name="actionAnimation"/>
    <addaction name="actionRandomBatch"/>
    <addaction name="actionRenderImage"/>
   </widget>
@@ -274,6 +276,12 @@
    <property name="toolTip"><string>Transform Editor: edit the transforms' triangles, variations, parameters, xaos and colours (F4)</string></property>
    <property name="statusTip"><string>Open the Transform Editor window</string></property>
    <property name="shortcut"><string>F4</string></property>
+  </action>
+  <action name="actionAnimation">
+   <property name="text"><string>Animation</string></property>
+   <property name="toolTip"><string>Animation: keyframe the fractal on a timeline, preview it and render the frames (F9)</string></property>
+   <property name="statusTip"><string>Open the Animation window</string></property>
+   <property name="shortcut"><string>F9</string></property>
   </action>
   <action name="actionGradientLibrary">
    <property name="text"><string>Gradient Library</string></property>

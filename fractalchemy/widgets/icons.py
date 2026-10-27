@@ -239,7 +239,7 @@ def editor_icon(name: str, use_theme: bool = False) -> QIcon:
             return themed
     icon = QIcon()
     for size in ICON_SIZES:
-        icon.addPixmap(_editor_pixmap(name, size))
+        icon.addPixmap(_animation_pixmap(name, size) if name in ANIMATION_GLYPHS else _editor_pixmap(name, size))
     return icon
 
 
@@ -368,5 +368,108 @@ def _editor_pixmap(name: str, size: int) -> QPixmap:
         painter.drawRect(QRectF(2.5 * u, 2.5 * u, 11 * u, 11 * u))
         painter.setPen(QPen(GLYPH_COLOR, max(1.0, 1.2 * u), Qt.PenStyle.DotLine))
         _triangle(painter, u, 5, 11, 6)
+    painter.end()
+    return pixmap
+
+
+# --- the Animation window's glyphs -------------------------------------------------------------------------
+def animation_icon() -> QIcon:
+    """A film strip — the Animation window / toolbar glyph."""
+    icon = QIcon()
+    for size in ICON_SIZES:
+        icon.addPixmap(_film_pixmap(size))
+    return icon
+
+
+def _film_strip(painter: QPainter, u: float, rect: QRectF, color: QColor) -> None:
+    """A film-strip frame: a rounded rectangle with sprocket holes along the top and bottom."""
+    painter.setPen(QPen(color, max(1.0, 1.2 * u)))
+    painter.setBrush(QColor(255, 255, 255, 40))
+    painter.drawRoundedRect(rect, 1.2 * u, 1.2 * u)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(color)
+    hole = 1.4 * u
+    x = rect.left() + 1.2 * u
+    while x + hole <= rect.right() - 0.8 * u:
+        painter.drawRect(QRectF(x, rect.top() + 0.9 * u, hole, hole))
+        painter.drawRect(QRectF(x, rect.bottom() - 0.9 * u - hole, hole, hole))
+        x += hole + 1.3 * u
+
+
+def _film_pixmap(size: int) -> QPixmap:
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    u = size / 16.0
+    _film_strip(painter, u, QRectF(1.5 * u, 3 * u, 13 * u, 10 * u), GLYPH_COLOR)
+    painter.setBrush(GLYPH_ACCENT)
+    painter.drawPolygon([QPointF(6.5 * u, 5.8 * u), QPointF(6.5 * u, 10.2 * u), QPointF(10.3 * u, 8 * u)])
+    painter.end()
+    return pixmap
+
+
+ANIMATION_GLYPHS = ("anim-new", "anim-capture", "anim-update", "anim-delete", "anim-first", "anim-prev", "anim-play", "anim-pause",
+                    "anim-stop", "anim-next", "anim-last", "anim-render")
+
+
+def _animation_pixmap(name: str, size: int) -> QPixmap:
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    u = size / 16.0
+    pen = QPen(GLYPH_COLOR, max(1.0, 1.6 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(GLYPH_COLOR)
+    c = 8 * u
+    if name in ("anim-capture", "anim-update", "anim-delete", "anim-new"):
+        _film_strip(painter, u, QRectF(1.5 * u, 4.5 * u, 10 * u, 8 * u), GLYPH_COLOR)
+        badge = {"anim-capture": QColor("#2e7d32"), "anim-update": GLYPH_ACCENT, "anim-delete": QColor("#c62828"),
+                 "anim-new": QColor("#fafafa")}[name]
+        painter.setPen(QPen(badge, max(1.0, 2.0 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if name == "anim-capture":
+            painter.drawLine(QPointF(12 * u, 2 * u), QPointF(12 * u, 7 * u))
+            painter.drawLine(QPointF(9.5 * u, 4.5 * u), QPointF(14.5 * u, 4.5 * u))
+        elif name == "anim-delete":
+            painter.drawLine(QPointF(10 * u, 2.5 * u), QPointF(14.5 * u, 7 * u))
+            painter.drawLine(QPointF(14.5 * u, 2.5 * u), QPointF(10 * u, 7 * u))
+        elif name == "anim-update":
+            painter.drawArc(QRectF(9.5 * u, 2 * u, 5 * u, 5 * u), 30 * 16, 280 * 16)
+            painter.setBrush(badge)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawPolygon([QPointF(14.8 * u, 3.2 * u), QPointF(12.6 * u, 2.0 * u), QPointF(14.8 * u, 0.8 * u)])
+    elif name in ("anim-play", "anim-pause", "anim-stop"):
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(GLYPH_ACCENT if name == "anim-play" else GLYPH_COLOR)
+        if name == "anim-play":
+            painter.drawPolygon([QPointF(4.5 * u, 3 * u), QPointF(4.5 * u, 13 * u), QPointF(13 * u, 8 * u)])
+        elif name == "anim-pause":
+            painter.drawRect(QRectF(4 * u, 3 * u, 3 * u, 10 * u))
+            painter.drawRect(QRectF(9 * u, 3 * u, 3 * u, 10 * u))
+        else:
+            painter.drawRect(QRectF(4 * u, 4 * u, 8 * u, 8 * u))
+    elif name in ("anim-first", "anim-last", "anim-prev", "anim-next"):
+        painter.setPen(Qt.PenStyle.NoPen)
+        flip = name in ("anim-first", "anim-prev")
+        painter.translate(c, c)
+        if flip:
+            painter.scale(-1, 1)
+        if name in ("anim-first", "anim-last"):
+            painter.drawPolygon([QPointF(-5.5 * u, -5 * u), QPointF(-5.5 * u, 5 * u), QPointF(2.5 * u, 0)])
+            painter.drawRect(QRectF(3 * u, -5 * u, 2 * u, 10 * u))
+        else:   # next / previous keyframe: an arrow into a diamond (the timeline's marker)
+            painter.drawPolygon([QPointF(-6.5 * u, -4 * u), QPointF(-6.5 * u, 4 * u), QPointF(0, 0)])
+            painter.setBrush(GLYPH_ACCENT)
+            painter.drawPolygon([QPointF(3.5 * u, -4 * u), QPointF(7 * u, 0), QPointF(3.5 * u, 4 * u), QPointF(0, 0)])
+    elif name == "anim-render":
+        _film_strip(painter, u, QRectF(1.5 * u, 3 * u, 13 * u, 10 * u), GLYPH_COLOR)
+        painter.setBrush(QColor("#15803d"))
+        painter.setPen(QPen(QColor(255, 255, 255), max(1.0, 0.8 * u)))
+        painter.drawEllipse(QPointF(12 * u, 12 * u), 3.2 * u, 3.2 * u)
+        painter.setBrush(QColor(255, 255, 255))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPolygon([QPointF(10.9 * u, 10.2 * u), QPointF(10.9 * u, 13.8 * u), QPointF(14 * u, 12 * u)])
     painter.end()
     return pixmap

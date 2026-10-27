@@ -127,6 +127,24 @@ black before.
     and the preview **quality levels** as `QualityLevel`s (`ui/editor_preview.py`: Low 2 spp, Medium 5 spp +
     oversample 2 / filter 0.5, High 15 spp, 2 passes; `quality_level()` maps names / numbers; the box is 380×240).
 
+13. **Animation** (*Windows ▸ Animation*, `F9`, toolbar). `fractalchemy/animation/`: `model.py` (`Keyframe`,
+    `Animation`: fps / total_frames / interpolation linear|smooth|hold / easing / loop / keyframes / render dict;
+    set / move / remove keyframes, `flame_at`), `interpolate.py` (`blend_plan` → keyframe weights: linear, uniform
+    Catmull-Rom with clamped or looped ends, hold; `align_flames` pads transforms at weight 0, unions variations
+    and parameters, final everywhere if anywhere, palettes resampled; `blend_flames` mixes every number, dominant
+    keyframe for names / size / curves), `format.py` (`.faanim` JSON: `fractalchemy-animation` v1), `render.py`
+    (`AnimationRenderSettings` wrapping `FinalRenderSettings` + folder / base name / range / step / skip existing /
+    video options; `ffmpeg_command`, `video_problems`, `ffmpeg_path`), `render_job.py` (`AnimationRenderJob`
+    QThread: one sampler reused through `Sampler.set_flame` — new `"flame"` worker command in `cpu_workers`,
+    `GpuSampler.set_flame`; `FinalRenderer(sampler=…)` reuses it — frames saved with `output.save_image`, then
+    ffmpeg via subprocess; progress / outcome dataclasses). UI: `ui/animation_document.py` (AnimationDocument),
+    `widgets/timeline.py` (ruler, diamonds, playhead, scrub / drag / zoom), `ui/animation_window.py` (toolbar,
+    preview = `EditorPreview` with a `flame_provider`, wall-clock playback with frame dropping, keyframe list,
+    settings; clicking a keyframe calls `MainWindow.show_flame`), `ui/animation_render_window.py` (SizePanel +
+    QualityPanel reused, `AnimationOutputPanel`, `VideoPanel`, `AnimationProgressPanel`; settings in QSettings
+    `animation_render/settings` and in the `.faanim` `render` key). Icons: `animation_icon()`, `editor_icon("anim-*")`.
+    `SizePanel.preview_label` lets the first preset read "Keyframe size". Tests: `tests/test_animation.py` (14).
+
 ## Known gaps / next steps
 * Not available (see `tools/apo_decompile.py --batch` report): DLL-only plugins with loops (tile, tile_hyp,
   tile_plane, hy2, disc2square, fibonacci_blur, bubbleT3D, pre/post_hexcrop, jac_cn/dn/sn/elk, swirl3sin,
@@ -138,6 +156,9 @@ black before.
 * CPU speed of a few compiled formulas is low (crackle ~20 µs/point, eMod ~3 µs/point): both branches of every
   divergent `if` are evaluated; the GPU path is fine.
 * Random Batch has no symmetry options yet (Apophysis: bilateral / rotational); parameters stay at defaults.
+* Animation: interpolation is by index (transform 1 blends with transform 1); there is no per-keyframe easing, no
+  motion blur, and the timeline has no undo. Rotation of affines interpolates the coefficients (flam3's
+  linear mode), not angles — a 180° turn passes through a collapsed triangle.
 * Transform Editor: no rotate / scale widget grips around the selected triangle (edges and modifier keys cover it); `ParamInfo.min/max` are shown
   in tooltips but not enforced; the pre affine is an editing convenience (it composes with the normal affine),
   so it adds no new shapes — placing it after the `pre_` variations instead would (one-line change in

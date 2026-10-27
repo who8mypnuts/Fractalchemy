@@ -105,6 +105,7 @@ def main_window_factory(qapp, tmp_path):
     yield make
     for win in windows:
         win.gradient_library.document.modified = False
+        win.animation.document.mark_saved()
         win.close()
 
 
