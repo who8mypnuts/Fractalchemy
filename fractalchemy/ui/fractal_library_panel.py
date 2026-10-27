@@ -46,11 +46,9 @@ class FractalLibraryPanel(LibraryPanel):
 
     @property
     def thumbnails_shown(self) -> bool:
-        """True when the thumbnail view button is selected."""
         return self.thumb_button.isChecked()
 
     def set_thumbnail_view(self, on: bool) -> None:
-        """Select the thumbnail (True) or list view button; emits `view_mode_changed` on change."""
         (self.thumb_button if on else self.list_button).setChecked(True)
 
     def _on_mode_toggled(self, thumbnails: bool) -> None:

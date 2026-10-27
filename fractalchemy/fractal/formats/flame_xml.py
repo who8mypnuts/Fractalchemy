@@ -12,14 +12,14 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from ... import config
+from ..curves import Curves
 from ..scene import Affine, Camera, Coloring, Flame, XForm, identity_affine
-from ..variations import REGISTRY, canonical_name, normalize
-from .xml_text import attr_text, number_text
+from ..variations import REGISTRY, canonical_name, normalize, parameter_owner
 
 # xform attributes that are not variations
 XFORM_ATTRS = {
     "weight", "color", "symmetry", "color_speed", "opacity", "coefs", "post", "chaos", "name", "animate",
-    "plotmode", "var_color", "modulus", "modulus_x", "modulus_y", "enabled", "var", "var1", "vars",
+    "plotmode", "var_color", "enabled", "var", "var1", "vars",
     "motion_frequency", "motion_function", "motion_offset",
 }
 _HEX_TRIPLET = re.compile(r"[0-9A-Fa-f]{6}")
@@ -50,15 +50,8 @@ def flame_elements(path: Path) -> list[ET.Element]:
 
 
 def parse_text(text: str) -> list[Flame]:
-    """Flames from XML text (clipboard / tests).
-
-    Raises:
-        FlameParseError: If the text is not well-formed XML.
-    """
-    try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
-        raise FlameParseError(f"not valid flame XML: {exc}") from exc
+    """Flames from XML text (clipboard / tests)."""
+    root = ET.fromstring(text)
     elements = [root] if root.tag == "flame" else root.findall("flame")
     return [f for f in (flame_from_element(e) for e in elements) if f.xforms]
 
@@ -70,15 +63,24 @@ def flame_from_element(el: ET.Element) -> Flame:
     rotate = _float(el.get("rotate"), None)
     if rotate is None:
         rotate = -_float(el.get("angle"), 0.0) * 180.0 / 3.141592653589793
+    perspective = _float(el.get("cam_perspective"), None)
+    if perspective is None:
+        dist = _float(el.get("cam_dist"), 0.0)
+        perspective = 1.0 / dist if dist else 0.0
     flame = Flame(
         name=el.get("name", "flame"),
-        camera=Camera((cx, cy), _float(el.get("scale"), 200.0), _float(el.get("zoom"), 0.0), rotate, width, height),
+        camera=Camera((cx, cy), _float(el.get("scale"), 200.0), _float(el.get("zoom"), 0.0), rotate, width, height,
+                      _float(el.get("cam_pitch"), 0.0), _float(el.get("cam_yaw"), 0.0), perspective,
+                      _float(el.get("cam_zpos"), 0.0), abs(_float(el.get("cam_dof"), 0.0)), _float(el.get("cam_pitch_y"), 0.0)),
         coloring=Coloring(
             brightness=_float(el.get("brightness"), 4.0), gamma=_float(el.get("gamma"), 4.0),
             gamma_threshold=_float(el.get("gamma_threshold"), 0.01), vibrancy=_float(el.get("vibrancy"), 1.0),
             contrast=_float(el.get("contrast"), 1.0), background=_background(el.get("background", "0 0 0")),
+            curves=_curves(el),
         ),
         source_version=el.get("version", ""),
+        oversample=max(1, int(_float(el.get("oversample", el.get("supersample")), 1.0))),
+        filter_radius=max(0.0, _float(el.get("filter"), 0.2)),
     )
     unsupported: set[str] = set()
     flame.xforms = [_xform_from_element(x, unsupported) for x in el.findall("xform")]
@@ -99,6 +101,7 @@ def _xform_from_element(el: ET.Element, unsupported: set[str]) -> XForm:
         coefs=_affine(attrs.get("coefs")),
         post=_affine(attrs.get("post")),
         name=attrs.get("name", ""),
+        var_color=_float(attrs.get("var_color"), 1.0),
     )
     if "color_speed" in attrs:
         xform.color_speed = _float(attrs["color_speed"], 0.5)
@@ -117,10 +120,11 @@ def _split_variations(attrs: dict[str, str]) -> tuple[dict[str, float], dict[str
     candidates = {k: v for k, v in attrs.items() if k not in XFORM_ATTRS}
     variations: dict[str, float] = {}
     params: dict[str, float] = {}
-    # Variation names: known ones, or any attribute that is a prefix of an `x_y` attribute, or unknown non-param attrs.
+    # Variation names: known ones; parameters: declared by a known variation, or prefixed by another attribute.
     names = {k for k in candidates if canonical_name(k) in REGISTRY}
+    declared = {k for k in candidates if k not in names and parameter_owner(k)}
     for k in candidates:
-        if k in names:
+        if k in names or k in declared:
             continue
         if any(k.startswith(n + "_") for n in names | set(candidates) - {k}):
             continue  # looks like a parameter of another attribute
@@ -153,12 +157,13 @@ def flame_to_xml(flame: Flame, indent: str = "") -> str:
     """A <flame> element (Apophysis 7x style) for `flame`."""
     cam, col = flame.camera, flame.coloring
     head = (
-        f'<flame name="{attr_text(flame.name)}" version="{config.APP_NAME} {config.APP_VERSION}" '
-        f'size="{cam.width} {cam.height}" center="{number_text(cam.center[0])} {number_text(cam.center[1])}" scale="{number_text(cam.scale)}" '
-        f'zoom="{number_text(cam.zoom)}" rotate="{number_text(cam.rotate)}" oversample="1" filter="0.2" quality="5" '
-        f'background="{number_text(col.background[0] / 255)} {number_text(col.background[1] / 255)} {number_text(col.background[2] / 255)}" '
-        f'brightness="{number_text(col.brightness)}" gamma="{number_text(col.gamma)}" gamma_threshold="{number_text(col.gamma_threshold)}" '
-        f'vibrancy="{number_text(col.vibrancy)}" contrast="{number_text(col.contrast)}">'
+        f'<flame name="{_attr(flame.name)}" version="{config.APP_NAME} {config.APP_VERSION}" '
+        f'size="{cam.width} {cam.height}" center="{_g(cam.center[0])} {_g(cam.center[1])}" scale="{_g(cam.scale)}" '
+        f'zoom="{_g(cam.zoom)}" rotate="{_g(cam.rotate)}" {_camera_3d_attrs(cam)}oversample="{flame.oversample}" filter="{_g(flame.filter_radius)}" quality="5" '
+        f'background="{_g(col.background[0] / 255)} {_g(col.background[1] / 255)} {_g(col.background[2] / 255)}" '
+        f'brightness="{_g(col.brightness)}" gamma="{_g(col.gamma)}" gamma_threshold="{_g(col.gamma_threshold)}" '
+        f'vibrancy="{_g(col.vibrancy)}" contrast="{_g(col.contrast)}"'
+        + (f' fa_curves="{_attr(col.curves.to_text())}"' if not col.curves.is_default() else "") + ">"
     )
     lines = [indent + head]
     for x in flame.xforms:
@@ -178,26 +183,46 @@ def flame_to_xml(flame: Flame, indent: str = "") -> str:
 def flames_to_xml(flames: list[Flame], name: str = "Fractalchemy") -> str:
     """A whole <Flames> document."""
     body = "".join(flame_to_xml(f, "") for f in flames)
-    return f'<Flames name="{attr_text(name)}">\n{body}</Flames>\n'
+    return f'<Flames name="{_attr(name)}">\n{body}</Flames>\n'
+
+
+def _curves(el: ET.Element) -> Curves:
+    """Our own `fa_curves` (exact) or Apophysis 7X's `curves` (sampled)."""
+    if el.get("fa_curves"):
+        return Curves.from_text(el.get("fa_curves", ""))
+    if el.get("curves"):
+        return Curves.from_apophysis(el.get("curves", ""))
+    return Curves()
+
+
+def _camera_3d_attrs(cam: Camera) -> str:
+    """`cam_*` attributes, only when the camera is not flat (keeps 2D files as Apophysis writes them)."""
+    if not cam.is_3d():
+        return ""
+    return (f'cam_pitch="{_g(cam.pitch)}" cam_yaw="{_g(cam.yaw)}" cam_perspective="{_g(cam.perspective)}" '
+            f'cam_zpos="{_g(cam.zpos)}" cam_dof="{_g(cam.dof)}" '
+            + (f'cam_pitch_y="{_g(cam.pitch_y)}" ' if cam.pitch_y else ""))
 
 
 def _xform_attrs(x: XForm, final: bool) -> str:
-    parts = [] if final else [f'weight="{number_text(x.weight)}"']
-    parts.append(f'color="{number_text(x.color)}"')
-    parts.append(f'symmetry="{number_text(x.symmetry)}"')
+    parts = [] if final else [f'weight="{_g(x.weight)}"']
+    parts.append(f'color="{_g(x.color)}"')
+    parts.append(f'symmetry="{_g(x.symmetry)}"')
     if x.opacity != 1.0:
-        parts.append(f'opacity="{number_text(x.opacity)}"')
+        parts.append(f'opacity="{_g(x.opacity)}"')
+    if x.var_color != 1.0:
+        parts.append(f'var_color="{_g(x.var_color)}"')
     if x.name:
-        parts.append(f'name="{attr_text(x.name)}"')
+        parts.append(f'name="{_attr(x.name)}"')
     for name, weight in x.variations.items():
-        parts.append(f'{name}="{number_text(weight)}"')
-    parts.append('coefs="' + " ".join(number_text(v) for v in x.coefs) + '"')
+        parts.append(f'{name}="{_g(weight)}"')
+    parts.append('coefs="' + " ".join(_g(v) for v in x.coefs) + '"')
     if x.has_post():
-        parts.append('post="' + " ".join(number_text(v) for v in x.post) + '"')
+        parts.append('post="' + " ".join(_g(v) for v in x.post) + '"')
     for key, value in x.params.items():
-        parts.append(f'{key}="{number_text(value)}"')
+        parts.append(f'{key}="{_g(value)}"')
     if x.chaos is not None and not final:
-        parts.append('chaos="' + " ".join(number_text(v) for v in x.chaos) + '"')
+        parts.append('chaos="' + " ".join(_g(v) for v in x.chaos) + '"')
     return " ".join(parts)
 
 
@@ -234,3 +259,11 @@ def _background(text: str) -> tuple[int, int, int]:
     return tuple(max(0, min(255, round(v * 255))) for v in (r, g, b))
 
 
+def _g(value: float) -> str:
+    """Shortest text that reads back to the same float (`1.0` → `1`)."""
+    text = repr(float(value))
+    return text[:-2] if text.endswith(".0") else text
+
+
+def _attr(text: str) -> str:
+    return text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")

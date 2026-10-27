@@ -7,7 +7,7 @@ from PySide6.QtCore import QSettings
 
 from fractalchemy.formats import entry_names, load_gradients
 from fractalchemy.library.roots import LibraryRoots
-from fractalchemy.ui import file_actions, file_actions_base, file_workers
+from fractalchemy.ui import file_actions, file_workers
 from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
 from tests.conftest import wait_until
 
@@ -83,7 +83,7 @@ def test_save_on_ufr_keeps_file_valid(window, workdir):
 def test_add_to_this_file_appends_and_selects_new_entry(window, workdir, monkeypatch):
     path = workdir / "candy.flame"
     open_and_wait(window, path, 0)
-    monkeypatch.setattr(file_actions_base.QInputDialog, "getText", lambda *a, **k: ("fresh one", True))
+    monkeypatch.setattr(file_actions.QInputDialog, "getText", lambda *a, **k: ("fresh one", True))
     window.document.set_color(0, (9, 9, 9))
     window.files.save_as_new_entry()
     wait_until(lambda: window.document.source_index == 5)
@@ -117,7 +117,7 @@ def test_add_to_another_file(window, workdir, monkeypatch):
     source, target = workdir / "one.gradient", workdir / "candy.flame"
     open_and_wait(window, source)
     monkeypatch.setattr(file_actions.QFileDialog, "getOpenFileName", lambda *a, **k: (str(target), ""))
-    monkeypatch.setattr(file_actions_base.QInputDialog, "getText", lambda *a, **k: ("rainbow in flame", True))
+    monkeypatch.setattr(file_actions.QInputDialog, "getText", lambda *a, **k: ("rainbow in flame", True))
     window.files.save_as_into_file()
     wait_until(lambda: window.document.source_path == target and window.document.source_index == 5)
     assert entry_names(target)[-1] == "rainbow in flame"
@@ -149,8 +149,8 @@ def test_save_as_new_file_onto_another_existing_flame_appends(window, workdir, s
     monkeypatch.setattr(file_actions.QFileDialog, "getSaveFileName", lambda *a, **k: (str(other), ""))
     window.files.save_as_new_file()
     wait_until(lambda: window.document.source_path == other)
-    assert _xforms(other) > before and entry_names(other)[-1] == "rotated" and len(entry_names(other)) == 6
-    assert window.document.source_index == 5
+    assert _xforms(other) > before and entry_names(other)[-1] == "rotated" and len(entry_names(other)) == 7
+    assert window.document.source_index == 6
 
 
 def test_save_as_new_file_onto_existing_ugr_keeps_its_gradients(window, workdir, samples, monkeypatch):
@@ -168,7 +168,7 @@ def test_add_to_this_file_clones_the_fractal_not_a_bare_template(window, workdir
     open_and_wait(window, path, 1)  # "outlined" has 6 xforms
     text_before = path.read_text()
     outlined = text_before[text_before.index('<flame name="outlined"'):text_before.index("</flame>", text_before.index('<flame name="outlined"'))]
-    monkeypatch.setattr(file_actions_base.QInputDialog, "getText", lambda *a, **k: ("outlined v2", True))
+    monkeypatch.setattr(file_actions.QInputDialog, "getText", lambda *a, **k: ("outlined v2", True))
     window.document.set_color(0, (250, 0, 250))
     window.files.save_as_new_entry()
     wait_until(lambda: window.document.source_index == 5)

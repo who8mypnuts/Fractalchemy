@@ -36,6 +36,16 @@ def flame_names(path: Path) -> list[str]:
     return [ifs.get("name", "IFS") for ifs in _ifs_elements(path) if ifs.find("node[@name='iterators']/iterator") is not None]
 
 
+def parse_text(text: str) -> list[Flame]:
+    """Every IFS in a world given as text (e.g. pasted)."""
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ChaosParseError(f"not valid Chaotica XML: {exc}") from exc
+    elements = [el for tag in IFS_TAGS for el in root.iter(tag)]
+    return [f for f in (_flame_from_ifs(ifs) for ifs in elements) if f.xforms]
+
+
 def _ifs_elements(path: Path) -> list[ET.Element]:
     try:
         root = ET.parse(path).getroot()
@@ -61,7 +71,6 @@ def _flame_from_ifs(ifs: ET.Element) -> Flame:
     if viewing is not None:
         flame.final = _xform_from_transform(viewing, unsupported)
         flame.final.weight = 0.0
-        flame.final.color_speed = 0.0   # a viewing transform has no shader: it never recolours
     palette = ifs.find("colouring/table[@name='flam3_palette']/values")
     if palette is not None and palette.text:
         floats = [float(v) for v in palette.text.split()]
@@ -158,12 +167,7 @@ def _affine(affine: ET.Element) -> Affine:
     xa, xl = math.radians(_real(affine, "x_axis_angle", 0.0)), _real(affine, "x_axis_length", 1.0)
     ya, yl = math.radians(_real(affine, "y_axis_angle", 90.0)), _real(affine, "y_axis_length", 1.0)
     ox, oy = _vec(affine, "offset", (0.0, 0.0))[:2]
-    return tuple(_tidy(v) for v in (math.cos(xa) * xl, math.sin(xa) * xl, math.cos(ya) * yl, math.sin(ya) * yl, ox, oy))
-
-
-def _tidy(value: float) -> float:
-    """Kill the 6e-17 left by cos(90°) so axis-aligned affines stay exact."""
-    return 0.0 if abs(value) < 1e-12 else value
+    return (math.cos(xa) * xl, math.sin(xa) * xl, math.cos(ya) * yl, math.sin(ya) * yl, ox, oy)
 
 
 def _real(el: ET.Element | None, name: str, default: float) -> float:
@@ -198,16 +202,4 @@ def _vec(el: ET.Element, name: str, default: tuple) -> tuple:
     return default
 
 
-__all__ = ["parse_file", "parse_text", "flame_names", "ChaosParseError", "BRIGHTNESS_SCALE"]
-
-
-def parse_text(text: str) -> list[Flame]:
-    """Flames from Chaotica XML text (clipboard)."""
-    try:
-        root = ET.fromstring(text)
-    except ET.ParseError as exc:
-        raise ChaosParseError(f"not valid Chaotica XML: {exc}") from exc
-    elements = [root] if root.tag in IFS_TAGS else [el for tag in IFS_TAGS for el in root.iter(tag)]
-    return [f for f in (_flame_from_ifs(e) for e in elements) if f.xforms]
-
-
+__all__ = ["parse_file", "flame_names", "ChaosParseError"]

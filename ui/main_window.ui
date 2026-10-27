@@ -57,14 +57,14 @@
     </property>
     <widget class="QMenu" name="menuSaveAs">
      <property name="title">
-      <string>Save As</string>
+      <string>Save Fractal As</string>
      </property>
      <addaction name="actionSaveAsNewEntry"/>
      <addaction name="actionSaveAsNewFile"/>
      <addaction name="actionSaveAsIntoFile"/>
     </widget>
     <addaction name="actionOpenFractal"/>
-    <addaction name="actionSave"/>
+    <addaction name="actionSaveFractal"/>
     <addaction name="menuSaveAs"/>
     <addaction name="separator"/>
     <addaction name="actionExit"/>
@@ -73,19 +73,11 @@
     <property name="title">
      <string>Edit</string>
     </property>
-    <widget class="QMenu" name="menuCopyAs">
-     <property name="title">
-      <string>Copy As</string>
-     </property>
-     <addaction name="actionCopyApophysis"/>
-     <addaction name="actionCopyChaotica"/>
-    </widget>
     <addaction name="actionUndo"/>
     <addaction name="actionRedo"/>
     <addaction name="separator"/>
-    <addaction name="actionCopy"/>
-    <addaction name="menuCopyAs"/>
-    <addaction name="actionPaste"/>
+    <addaction name="actionCopyParameters"/>
+    <addaction name="actionPasteParameters"/>
     <addaction name="separator"/>
     <addaction name="actionEditFractalLibrary"/>
    </widget>
@@ -108,11 +100,14 @@
      <string>Windows</string>
     </property>
     <addaction name="actionGradientLibrary"/>
+    <addaction name="actionRandomBatch"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
      <string>Help</string>
     </property>
+    <addaction name="actionFormulas"/>
+    <addaction name="separator"/>
     <addaction name="actionAbout"/>
     <addaction name="actionAboutQt"/>
    </widget>
@@ -145,15 +140,17 @@
     <bool>false</bool>
    </attribute>
    <addaction name="actionOpenFractal"/>
-   <addaction name="actionSave"/>
+   <addaction name="actionSaveFractal"/>
+   <addaction name="actionSaveAs"/>
    <addaction name="separator"/>
    <addaction name="actionUndo"/>
    <addaction name="actionRedo"/>
    <addaction name="separator"/>
-   <addaction name="actionCopy"/>
-   <addaction name="actionPaste"/>
+   <addaction name="actionCopyParameters"/>
+   <addaction name="actionPasteParameters"/>
    <addaction name="separator"/>
    <addaction name="actionGradientLibrary"/>
+   <addaction name="actionRandomBatch"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionOpenFractal">
@@ -162,57 +159,59 @@
    <property name="shortcut"><string>Ctrl+O</string></property>
    <property name="statusTip"><string>Open a .flame, .chaos or .fa file in the viewer</string></property>
   </action>
-  <action name="actionSave">
-   <property name="text"><string>Save</string></property>
-   <property name="toolTip"><string>Save the fractal (Ctrl+S)</string></property>
+  <action name="actionSaveFractal">
+   <property name="text"><string>Save Fractal</string></property>
+   <property name="toolTip"><string>Save: overwrite the fractal's entry in its file (Ctrl+S)</string></property>
    <property name="shortcut"><string>Ctrl+S</string></property>
-   <property name="statusTip"><string>Write the fractal back into its file (Fractalchemy .fa by default)</string></property>
+   <property name="statusTip"><string>Overwrite the entry the fractal came from; unsaved fractals ask for a file</string></property>
+   <property name="enabled"><bool>false</bool></property>
+  </action>
+  <action name="actionSaveAs">
+   <property name="text"><string>Save Fractal As</string></property>
+   <property name="toolTip"><string>Save As: a new entry in this file, a new file, or into another file</string></property>
+   <property name="enabled"><bool>false</bool></property>
   </action>
   <action name="actionSaveAsNewEntry">
-   <property name="text"><string>Add to This File as New Fractal…</string></property>
-   <property name="shortcut"><string>Ctrl+Shift+A</string></property>
-   <property name="statusTip"><string>Append the fractal to its own file under a new name (several fractals per file)</string></property>
+   <property name="text"><string>As New Entry in This File…</string></property>
+   <property name="statusTip"><string>Append the fractal to its own file under a name of your choosing</string></property>
   </action>
   <action name="actionSaveAsNewFile">
-   <property name="text"><string>New File…</string></property>
+   <property name="text"><string>As New File…</string></property>
    <property name="shortcut"><string>Ctrl+Shift+S</string></property>
-   <property name="statusTip"><string>Save the fractal as a new .fa, .flame or .chaos file (an existing multi-fractal file is added to)</string></property>
+   <property name="statusTip"><string>Write the fractal to a new .flame or .fa file (an existing file is appended to)</string></property>
   </action>
   <action name="actionSaveAsIntoFile">
-   <property name="text"><string>Add to Another File…</string></property>
-   <property name="statusTip"><string>Append the fractal to an existing .fa or .flame file</string></property>
+   <property name="text"><string>Into Existing File…</string></property>
+   <property name="statusTip"><string>Append the fractal to another .flame or .fa file</string></property>
+  </action>
+  <action name="actionRandomBatch">
+   <property name="text"><string>Random Batch…</string></property>
+   <property name="toolTip"><string>Random Batch: generate random fractals from chosen variations (F7)</string></property>
+   <property name="shortcut"><string>F7</string></property>
+   <property name="statusTip"><string>Open the Random Batch window</string></property>
   </action>
   <action name="actionUndo">
    <property name="text"><string>Undo</string></property>
-   <property name="toolTip"><string>Undo (Ctrl+Z)</string></property>
+   <property name="toolTip"><string>Undo the last change to the fractal (Ctrl+Z)</string></property>
    <property name="shortcut"><string>Ctrl+Z</string></property>
    <property name="enabled"><bool>false</bool></property>
   </action>
   <action name="actionRedo">
    <property name="text"><string>Redo</string></property>
-   <property name="toolTip"><string>Redo (Ctrl+Y)</string></property>
-   <property name="shortcut"><string>Ctrl+Y</string></property>
+   <property name="toolTip"><string>Redo the change you undid (Ctrl+Shift+Z)</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+Z</string></property>
    <property name="enabled"><bool>false</bool></property>
   </action>
-  <action name="actionCopy">
-   <property name="text"><string>Copy</string></property>
-   <property name="toolTip"><string>Copy parameters (Ctrl+C)</string></property>
-   <property name="shortcut"><string>Ctrl+C</string></property>
-   <property name="statusTip"><string>Copy the fractal's parameters, including its gradient, as Fractalchemy text</string></property>
+  <action name="actionCopyParameters">
+   <property name="text"><string>Copy Parameters</string></property>
+   <property name="toolTip"><string>Copy the fractal's parameters, gradient included, to the clipboard as .fa text (Ctrl+Shift+C)</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+C</string></property>
+   <property name="enabled"><bool>false</bool></property>
   </action>
-  <action name="actionCopyApophysis">
-   <property name="text"><string>Apophysis Parameters</string></property>
-   <property name="statusTip"><string>Copy the fractal as a &lt;flame&gt; Apophysis can paste</string></property>
-  </action>
-  <action name="actionCopyChaotica">
-   <property name="text"><string>Chaotica Parameters</string></property>
-   <property name="statusTip"><string>Copy the fractal as a Chaotica world</string></property>
-  </action>
-  <action name="actionPaste">
-   <property name="text"><string>Paste</string></property>
-   <property name="toolTip"><string>Paste parameters (Ctrl+V)</string></property>
-   <property name="shortcut"><string>Ctrl+V</string></property>
-   <property name="statusTip"><string>Show the fractal on the clipboard (Fractalchemy, Apophysis or Chaotica parameters)</string></property>
+  <action name="actionPasteParameters">
+   <property name="text"><string>Paste Parameters</string></property>
+   <property name="toolTip"><string>Replace the fractal with parameters from the clipboard: .fa, Apophysis &lt;flame&gt; XML or a Chaotica world (Ctrl+Shift+V)</string></property>
+   <property name="shortcut"><string>Ctrl+Shift+V</string></property>
   </action>
   <action name="actionExit">
    <property name="text"><string>Exit</string></property>
@@ -265,6 +264,10 @@
    <property name="toolTip"><string>Gradient Library</string></property>
    <property name="statusTip"><string>Show the Gradient Library window to browse, edit and save gradients</string></property>
    <property name="shortcut"><string>F6</string></property>
+  </action>
+  <action name="actionFormulas">
+   <property name="text"><string>Formulas…</string></property>
+   <property name="toolTip"><string>Browse the loaded formulas (variations and plugins)</string></property>
   </action>
   <action name="actionAbout">
    <property name="text"><string>About Fractalchemy…</string></property>

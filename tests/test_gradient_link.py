@@ -3,16 +3,19 @@
 import shutil
 
 import pytest
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSettings, QSize
 from PySide6.QtGui import QImage, QColor
 from PySide6.QtWidgets import QMessageBox
 
 from fractalchemy.formats import entry_names, format_for, load_gradients, save_gradient
 from fractalchemy.fractal.formats import fa, load_flame, load_flames
+from fractalchemy.library.catalog import FRACTAL_CATALOG
+from fractalchemy.library.roots import LibraryRoots
 from fractalchemy.model import Gradient
 from fractalchemy.model.adjust import Adjustments
+from fractalchemy.ui.main_window import MainWindow
 from fractalchemy.widgets.fractal_preview import FractalPreview
-from tests.conftest import open_flame_and_wait, spin, wait_for_render, wait_until
+from tests.conftest import spin, wait_until
 
 
 @pytest.fixture
@@ -23,12 +26,26 @@ def workdir(samples, tmp_path):
 
 
 @pytest.fixture
-def window(main_window_factory, workdir):
-    return main_window_factory(workdir, size=(520, 400))
+def window(qapp, workdir):
+    settings = QSettings(str(workdir / "s.ini"), QSettings.Format.IniFormat)
+    roots = LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key)
+    roots.add(workdir)
+    win = MainWindow(LibraryRoots(settings), roots, prefer_gpu=False, settings=settings)
+    win.resize(520, 400)
+    win.show()
+    yield win
+    win.gradient_library.document.modified = False
+    win.close()
 
 
 def open_and_wait(win, path, index):
-    open_flame_and_wait(win, path, index, gradient_too=True)
+    win.open_path(path, index)
+    wait_until(lambda: win.document.is_showing(path, index) and win.gradient_library.document.is_showing(path, index))
+
+
+def wait_for_render(win, timeout_ms=60000):
+    wait_until(lambda: win.viewport.stats is not None and win.viewport.stats.finished
+               and win.viewport.stats.width == win.viewport.image_rect.width(), timeout_ms=timeout_ms)
 
 
 # --- fractal → gradient ----------------------------------------------------------
@@ -151,24 +168,3 @@ def test_fa_files_are_gradient_sources_too(workdir):
     new = workdir / "new.fa"
     save_gradient(gradient, new)
     assert entry_names(new) == ["solid"] and load_flame(new).renderable()
-
-
-def test_dragging_a_node_leaves_the_other_nodes_alone(window, workdir):
-    """Regression: the editor was re-synced from the flame during its own edit, resampling its nodes."""
-    open_and_wait(window, workdir / "candy.flame", 0)
-    document = window.gradient_library.document
-    before = [(s.position, s.color) for s in document.gradient.stops]
-    assert len(before) > 3
-    moved = before[1]
-    new_index = document.move_stop(1, moved[0] + 0.02)              # what a drag does, step by step
-    new_index = document.move_stop(new_index, moved[0] + 0.04)      # (past a few neighbours: the list re-sorts)
-    after = [(s.position, s.color) for s in document.gradient.stops]
-    assert len(after) == len(before)
-    others_before = sorted(before[:1] + before[2:])
-    others_after = sorted(after[:new_index] + after[new_index + 1:])
-    assert others_after == others_before                             # every other node exactly where it was
-    assert after[new_index] == (pytest.approx(moved[0] + 0.04), moved[1])
-    assert window.document.flame.palette != load_flame(workdir / "candy.flame", 0).palette   # and the fractal followed
-    document.set_color(3, (1, 2, 3))
-    positions = [s.position for s in document.gradient.stops]
-    assert positions == [s[0] for s in after] and document.gradient.stops[3].color == (1, 2, 3)

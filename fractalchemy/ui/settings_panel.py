@@ -1,39 +1,51 @@
-"""The collapsible panel on the right of the viewport: tabs of options, starting with render settings.
+"""The collapsible panel on the right of the viewport: an *Info* tab describing the loaded fractal and an
+*Image* tab with the preview effort, camera, 3D camera and colouring controls.
 
-Values persist in QSettings so the preview quality you chose is there next time.
+The preview effort (and the tab you were on) persist in QSettings so they are there next time; the
+camera / colouring controls edit the flame itself (see `ImagePanel`).
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QSettings, Signal
-from PySide6.QtWidgets import QDoubleSpinBox, QFormLayout, QLabel, QSpinBox, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
 from .. import config
+from .fractal_document import FractalDocument
+from .image_panel import ImagePanel
+from .info_panel import InfoPanel
 
 PASSES_KEY = "preview/passes"
 QUALITY_KEY = "preview/quality"
-PASSES_RANGE = (1, 50)
-QUALITY_RANGE = (0.5, 500.0)
+OVERSAMPLE_KEY = "preview/oversample"
+FILTER_KEY = "preview/filter"
+REFINE_KEY = "preview/refine_to"       # 0 = refining off
+TAB_KEY = "panel/tab"
 
 
 class SettingsPanel(QWidget):
-    """Tabbed options panel.
+    """Tabbed panel: *Info* (facts about the fractal), *Image* (preview effort, camera, 3D, colouring).
 
     Signals:
-        render_settings_changed(int, float): (passes, quality) whenever either box changes.
+        render_settings_changed(int, float): (passes, quality) whenever either preview box changes.
+        render_options_changed(int, float, float): (oversample, filter radius, refine-to quality or 0).
     """
     render_settings_changed = Signal(int, float)
+    render_options_changed = Signal(int, float, float)
 
     def __init__(self, parent: QWidget | None = None, settings: QSettings | None = None):
         super().__init__(parent)
         self._settings = settings
         self.tabs = QTabWidget(self)
-        self.passes_box = QSpinBox(self)
-        self.quality_box = QDoubleSpinBox(self)
+        self.info = InfoPanel(self)
+        self.image = ImagePanel(self)
+        self.passes_box = self.image.passes_box
+        self.quality_box = self.image.quality_box
         self._build()
         self._load()
-        self.passes_box.valueChanged.connect(self._changed)
-        self.quality_box.valueChanged.connect(self._changed)
+        self.image.render_settings_changed.connect(self._changed)
+        self.image.render_options_changed.connect(self._options_changed)
+        self.tabs.currentChanged.connect(self._tab_changed)
         self.setMinimumWidth(180)
 
     def attach_settings(self, settings: QSettings | None) -> None:
@@ -41,29 +53,15 @@ class SettingsPanel(QWidget):
         self._settings = settings
         self._load()
 
+    def bind(self, document: FractalDocument) -> None:
+        """Let the Image tab edit and follow `document`."""
+        self.image.bind(document)
+
     def _build(self) -> None:
-        self.passes_box.setRange(*PASSES_RANGE)
-        self.passes_box.setToolTip("Progressive passes per preview render; the image is refreshed after each")
-        self.quality_box.setRange(*QUALITY_RANGE)
-        self.quality_box.setDecimals(1)
-        self.quality_box.setSingleStep(1.0)
-        self.quality_box.setToolTip("Samples per pixel over the whole preview (Apophysis 'quality')")
-        for box in (self.passes_box, self.quality_box):
-            box.setKeyboardTracking(False)
-        render = QWidget(self)
-        form = QFormLayout(render)
-        self.preview_heading = QLabel("Fractal Preview", render)
-        font = self.preview_heading.font()
-        font.setBold(True)
-        self.preview_heading.setFont(font)
-        form.addRow(self.preview_heading)
-        form.addRow("Passes", self.passes_box)
-        form.addRow("Quality", self.quality_box)
-        note = QLabel("Preview only. Final render settings will have their own tab.", render)
-        note.setWordWrap(True)
-        note.setEnabled(False)
-        form.addRow(note)
-        self.tabs.addTab(render, "Render")
+        self.tabs.addTab(self.info, "Info")
+        self.tabs.addTab(self.image, "Image")
+        self.tabs.setTabToolTip(0, "What the loaded fractal is made of")
+        self.tabs.setTabToolTip(1, "Preview effort, camera, 3D camera and colouring")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addWidget(self.tabs)
@@ -71,36 +69,63 @@ class SettingsPanel(QWidget):
     # --- values --------------------------------------------------------------
     @property
     def passes(self) -> int:
-        """Progressive passes per preview render."""
-        return self.passes_box.value()
+        return self.image.passes
 
     @property
     def quality(self) -> float:
-        """Samples per pixel over the whole preview."""
-        return self.quality_box.value()
+        return self.image.quality
 
     def set_values(self, passes: int, quality: float) -> None:
         """Set both boxes; emits once if anything changed."""
-        self.passes_box.blockSignals(True)
-        self.quality_box.blockSignals(True)
-        before = (self.passes, self.quality)
-        self.passes_box.setValue(int(passes))
-        self.quality_box.setValue(float(quality))
-        self.passes_box.blockSignals(False)
-        self.quality_box.blockSignals(False)
-        if (self.passes, self.quality) != before:
+        if self.image.set_preview(passes, quality):
             self._changed()
+
+    @property
+    def oversample(self) -> int:
+        return self.image.oversample
+
+    @property
+    def filter_radius(self) -> float:
+        return self.image.filter_radius
+
+    @property
+    def refine_to(self) -> float:
+        return self.image.refine_to
+
+    def set_options(self, oversample: int, filter_radius: float, refine_to: float) -> None:
+        """Set oversample / filter / refinement; emits once if anything changed."""
+        if self.image.set_options(oversample, filter_radius, refine_to):
+            self._options_changed()
 
     def _load(self) -> None:
         passes, quality = config.PREVIEW_PASSES, config.PREVIEW_QUALITY
+        oversample, filter_radius, refine_to = config.PREVIEW_OVERSAMPLE, config.PREVIEW_FILTER, config.PREVIEW_REFINE_TO
+        tab = 0
         if self._settings is not None:
             try:
                 passes = int(self._settings.value(PASSES_KEY, passes))
                 quality = float(self._settings.value(QUALITY_KEY, quality))
+                oversample = int(self._settings.value(OVERSAMPLE_KEY, oversample))
+                filter_radius = float(self._settings.value(FILTER_KEY, filter_radius))
+                refine_to = float(self._settings.value(REFINE_KEY, refine_to))
+                tab = int(self._settings.value(TAB_KEY, 0))
             except (TypeError, ValueError):
                 pass
-        self.passes_box.setValue(passes)
-        self.quality_box.setValue(quality)
+        self.image.set_preview(passes, quality)
+        self.image.set_options(oversample, filter_radius, refine_to)
+        if 0 <= tab < self.tabs.count():
+            self.tabs.setCurrentIndex(tab)
+
+    def _options_changed(self) -> None:
+        if self._settings is not None:
+            self._settings.setValue(OVERSAMPLE_KEY, self.oversample)
+            self._settings.setValue(FILTER_KEY, self.filter_radius)
+            self._settings.setValue(REFINE_KEY, self.refine_to)
+        self.render_options_changed.emit(self.oversample, self.filter_radius, self.refine_to)
+
+    def _tab_changed(self, index: int) -> None:
+        if self._settings is not None:
+            self._settings.setValue(TAB_KEY, index)
 
     def _changed(self, *_args) -> None:
         if self._settings is not None:

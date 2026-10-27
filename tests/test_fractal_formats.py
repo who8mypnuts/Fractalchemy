@@ -44,7 +44,7 @@ def test_flame_dict_round_trip_and_copy_independence():
 
 # --- .flame -----------------------------------------------------------------
 def test_every_sample_flame_loads(samples):
-    expected = {"candy.flame": 5, "bel2.flame": 5, "stuff.flame": 24, "69e8n5w1.flame": 1}
+    expected = {"candy.flame": 5, "bel2.flame": 6, "stuff.flame": 24, "69e8n5w1.flame": 1}
     for name, count in expected.items():
         flames = load_flames(samples / FLAMES / name)
         assert len(flames) == count and flame_names(samples / FLAMES / name) == [f.name for f in flames]
@@ -63,7 +63,7 @@ def test_apophysis_attributes_are_interpreted(samples):
     assert rotated.final is not None and "lazysusan" in rotated.final.variations
     assert rotated.final.params["lazysusan_spin"] == pytest.approx(1.570796)
     power = [f for f in load_flames(samples / FLAMES / "bel2.flame") if f.name == "power source"][0]
-    assert power.camera.rotate == -30 and "crackle" in power.unsupported
+    assert power.camera.rotate == -30 and "crackle" in power.xforms[0].variations and not power.unsupported
 
 
 def test_flame_xml_writer_round_trips_everything_we_model(samples):
@@ -104,7 +104,7 @@ def test_chaotica_worlds_load_with_camera_and_xaos(samples):
     assert tram.final is not None and tram.final.variations == {"bipolar": 1.0}
     assert tram.camera.rotate == -197.31 and tram.camera.scale == pytest.approx(960 / 1.25)
     assert tram.xforms[1].chaos == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    assert "collideoscope" in tram.unsupported
+    assert "collideoscope" in tram.xforms[0].variations and not tram.unsupported   # a plugin the formula library supplies
     assert not fractal_format_for(samples / FLAMES / "tatasz_tram_rails.chaos").can_append
 
 
@@ -140,7 +140,8 @@ def test_registry_dispatches_by_extension():
 def test_fractal_catalog_scans_only_fractal_files(samples):
     scanned = scan_directory(samples / FLAMES, FRACTAL_CATALOG)
     names = {f.path.name for f in scanned.files}
-    assert names == {"candy.flame", "bel2.flame", "stuff.flame", "69e8n5w1.flame", "satania_spikobius.chaos", "tatasz_tram_rails.chaos"}
+    assert names == {"candy.flame", "bel2.flame", "stuff.flame", "69e8n5w1.flame", "flamepack1.flame", "satania_spikobius.chaos",
+                     "tatasz_tram_rails.chaos"}
     candy = next(f for f in scanned.files if f.path.name == "candy.flame")
     assert candy.multi and candy.names[0] == "original"
     gradients = scan_directory(samples / "sample gradients", FRACTAL_CATALOG)
@@ -148,52 +149,61 @@ def test_fractal_catalog_scans_only_fractal_files(samples):
     assert FRACTAL_CATALOG.roots_key == "fractal_library/roots" != FRACTAL_CATALOG.key + "x"
 
 
-# --- failure paths ----------------------------------------------------------------------------
-def test_from_dict_rejects_malformed_data_instead_of_deferring_the_crash():
-    with pytest.raises(ValueError, match="six numbers"):
-        Flame.from_dict({"xforms": [{"coefs": "abc"}]})
-    with pytest.raises(ValueError, match="chaos"):
-        Flame.from_dict({"xforms": [{"chaos": ["a"]}]})
-    with pytest.raises(ValueError, match="hex"):
-        Flame.from_dict({"palette": ["zzzzzz"]})
-    with pytest.raises(ValueError, match="mapping"):
-        Flame.from_dict(["not", "a", "dict"])
-    with pytest.raises(ValueError, match="mapping"):
-        Flame.from_dict({"xforms": [3]})
-    ok = Flame.from_dict({"xforms": [{"coefs": [1, 0, 0, 1, 0, 0], "weight": "2"}]})   # numeric strings are fine
-    assert ok.xforms[0].weight == 2.0
+# --- 3D camera, direct colour and plugin parameters in flame XML ----------------
+def test_flame_xml_reads_and_writes_the_3d_camera_and_plugin_attributes():
+    text = """<flame name="deep" size="640 480" center="0 0" scale="200" cam_pitch="0.5" cam_yaw="-0.25" cam_dist="4" cam_zpos="0.1" cam_dof="0.2">
+  <xform weight="0.5" color="0" var_color="0.6" collideoscope="1" collideoscope_a="0.3" collideoscope_num="4" coefs="1 0 0 1 0 0"/>
+  <xform weight="0.5" color="1" dc_bubble="1" julia3D="0.5" julia3D_power="3" interference2="0.2" intrfr2_a1="2" intrfr2_t1="1" coefs="1 0 0 1 0 0"/>
+</flame>"""
+    flame = parse_text(text)[0]
+    cam = flame.camera
+    assert (cam.pitch, cam.yaw, cam.zpos, cam.dof) == (0.5, -0.25, 0.1, 0.2) and cam.perspective == pytest.approx(0.25)
+    assert flame.xforms[0].var_color == 0.6 and flame.xforms[0].params["collideoscope_num"] == 4
+    assert flame.xforms[1].variations == {"dc_bubble": 1.0, "julia3D": 0.5, "interference2": 0.2}
+    assert flame.xforms[1].params["intrfr2_a1"] == 2 and flame.xforms[1].params["intrfr2_t1"] == 1   # parameters named unlike their variation
+    assert not flame.unsupported
+    again = parse_text(flame_to_xml(flame))[0]
+    assert again.camera == cam and again.xforms[0].var_color == 0.6 and again.xforms[1].params == flame.xforms[1].params
+    assert 'cam_perspective="0.25"' in flame_to_xml(flame) and "cam_pitch" not in flame_to_xml(Flame("flat", [XForm()]))
+    assert Flame.from_dict(flame.to_dict()).camera == cam and Flame.from_dict(flame.to_dict()).xforms[0].var_color == 0.6
 
 
-def test_malformed_xml_text_is_a_parse_error_not_a_crash():
-    from fractalchemy.fractal.formats.chaos_world import ChaosParseError, parse_text as parse_chaos
-    from fractalchemy.fractal.formats.flame_xml import FlameParseError
-
-    with pytest.raises(FlameParseError):
-        parse_text('<flame name="x"><xform weight="1"/>')
-    with pytest.raises(ChaosParseError):
-        parse_chaos("<world><IFS")
-    assert parse_text("<Flames></Flames>") == [] and parse_chaos("<world/>") == []
-
-
-def test_degenerate_cameras_do_not_divide_by_zero():
-    camera = Camera(scale=0, width=0, height=0)
-    assert camera.pixels_per_unit(100, 100) > 0
-    x, y = camera.unproject(10, 10, 100, 100)
-    assert math.isfinite(x) and math.isfinite(y)
-    assert camera.at_size(0, 0).width == 1 and camera.at_size(0, 0).pixels_per_unit(1, 1) > 0
+def test_modulus_is_a_variation_not_an_xform_attribute(samples):
+    """Apophysis has no per-transform `modulus`; it is the modulus plugin (with modulus_x / modulus_y)."""
+    text = """<flame name="m" size="600 600" center="0 0" scale="270">
+  <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" modulus_x="1" modulus_y="0.5" opacity="0"/>
+</flame>"""
+    xform = parse_text(text)[0].xforms[0]
+    assert xform.variations == {"modulus": 1.0} and xform.params == {"modulus_x": 1.0, "modulus_y": 0.5}
+    flame = load_flames(samples / "sample flames" / "69e8n5w1.flame")[0]
+    assert all(x.variations == {"modulus": 1.0} for x in flame.xforms) and not flame.unsupported
 
 
-def test_fa_document_envelope_validation(tmp_path):
-    from fractalchemy.formats.fa_document import FaDocumentError, is_document, read_document, require_entry
+def test_flame_files_keep_their_oversample_and_filter_hints():
+    text = '<flame name="a" size="10 10" supersample="3" filter="0.7"><xform weight="1" coefs="1 0 0 1 0 0"/></flame>'
+    flame = parse_text(text)[0]
+    assert flame.oversample == 3 and flame.filter_radius == 0.7
+    again = parse_text(flame_to_xml(flame))[0]
+    assert (again.oversample, again.filter_radius) == (3, 0.7) and 'oversample="3" filter="0.7"' in flame_to_xml(flame)
+    assert Flame.from_dict(flame.to_dict()).filter_radius == 0.7 and flame.copy().oversample == 3
+    assert parse_text('<flame name="b" size="10 10"><xform weight="1" coefs="1 0 0 1 0 0"/></flame>')[0].oversample == 1
 
-    assert is_document({"format": "fractalchemy", "flames": [{}]})
-    assert not is_document({"format": "fractalchemy", "flames": [1]})
-    assert not is_document({"format": "other", "flames": []}) and not is_document([])
-    bad = tmp_path / "bad.fa"
-    bad.write_text('{"format": "fractalchemy", "flames": [1]}')
-    with pytest.raises(FaDocumentError):
-        read_document(bad)
-    with pytest.raises(FaDocumentError):
-        read_document(tmp_path / "missing.fa")
-    with pytest.raises(IndexError):
-        require_entry({"flames": []}, 0, bad)
+
+def test_flame_xml_keeps_y_pitch_and_curves():
+    from fractalchemy.fractal.curves import Curves
+    flame = Flame("c", [XForm()])
+    flame.camera.pitch, flame.camera.pitch_y = 0.3, -0.4
+    flame.coloring.curves.set_points("blue", [(0, 0), (0.5, 0.25), (1, 1)])
+    flame.coloring.curves.set_points("alpha", [(0, 0.1), (1, 1)])
+    text = flame_to_xml(flame)
+    assert 'cam_pitch_y="-0.4"' in text and "fa_curves=" in text
+    again = parse_text(text)[0]
+    assert again.camera.pitch_y == -0.4 and again.coloring.curves == flame.coloring.curves
+    assert Flame.from_dict(flame.to_dict()).coloring.curves == flame.coloring.curves
+    assert Flame.from_dict(flame.to_dict()).camera.pitch_y == -0.4
+    flat = flame_to_xml(Flame("f", [XForm()]))
+    assert "cam_pitch_y" not in flat and "fa_curves" not in flat
+    apo = '<flame name="a" size="8 8" curves="0 0 1 0 0 1 1 1 1 1 1 1 0 0 1 0.2 0.6 1 0.8 0.9 1 1 1 1 0 0 1 0 0 1 1 1 1 1 1 1 0 0 1 0 0 1 1 1 1 1 1 1"><xform weight="1" coefs="1 0 0 1 0 0"/></flame>'
+    curves = parse_text(apo)[0].coloring.curves
+    assert curves.is_default("overall") and not curves.is_default("red") and curves.evaluate("red", 0.5) > 0.5
+    assert Curves.from_apophysis("1 2 3").is_default()

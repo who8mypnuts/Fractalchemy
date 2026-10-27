@@ -1,8 +1,9 @@
-"""The strip under the viewport: view zoom on the left, output resolution on the right.
+"""The strip under the viewport: view zoom and preview detail on the left, output resolution on the right.
 
 Zoom: an editable combo listing Fit and common percentages up to 200 %; anything typed is
-accepted and capped at 300 % (or the fit value when zooming out). Resolution: common screen
-and print sizes, the flame's own size, and Custom… with width/height boxes.
+accepted and capped at 300 % (or the fit value when zooming out). Detail: the fraction of the
+screen resolution the preview is rendered at (½ and ¼ render 4× / 16× faster and are scaled up).
+Resolution: common screen and print sizes, the flame's own size, and Custom… with width/height boxes.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ RESOLUTIONS: tuple[tuple[str, int, int], ...] = (
 )
 FLAME_SIZE = "flame"
 CUSTOM = "custom"
+DETAIL_PRESETS: tuple[tuple[str, float], ...] = (("Full", 1.0), ("½", 0.5), ("¼", 0.25))
 MAX_DIMENSION = 32768
 
 
@@ -44,38 +46,25 @@ class ViewerBar(QWidget):
     Signals:
         zoom_requested(object): A zoom factor (float), or None for Fit.
         resolution_chosen(object): (width, height), or None to follow the flame's own size.
+        detail_chosen(float): Render-resolution fraction for the preview (1, 0.5, 0.25).
     """
     zoom_requested = Signal(object)
     resolution_chosen = Signal(object)
+    detail_chosen = Signal(float)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.zoom_box = QComboBox(self)
         self.fit_button = QToolButton(self)
+        self.detail_box = QComboBox(self)
         self.resolution_box = QComboBox(self)
         self.width_box = QSpinBox(self)
         self.height_box = QSpinBox(self)
         self._fit_zoom = 1.0
-        self._zoom = 1.0
         self._build()
         self._connect()
 
     def _build(self) -> None:
-        self._build_zoom_controls()
-        self._build_resolution_controls()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 6, 2)
-        layout.addWidget(QLabel("Zoom", self))
-        layout.addWidget(self.zoom_box)
-        layout.addWidget(self.fit_button)
-        layout.addStretch(1)
-        layout.addWidget(QLabel("Image size", self))
-        layout.addWidget(self.resolution_box)
-        layout.addWidget(self.width_box)
-        layout.addWidget(self.times)
-        layout.addWidget(self.height_box)
-
-    def _build_zoom_controls(self) -> None:
         self.zoom_box.setEditable(True)
         self.zoom_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.zoom_box.addItem("Fit", None)
@@ -87,12 +76,13 @@ class ViewerBar(QWidget):
         self.fit_button.setToolTip("Show the whole image")
         self.fit_button.setAutoRaise(True)
 
-    def _build_resolution_controls(self) -> None:
         self.resolution_box.addItem("Flame size", FLAME_SIZE)
         for label, w, h in RESOLUTIONS:
             self.resolution_box.addItem(label, (w, h))
         self.resolution_box.addItem("Custom…", CUSTOM)
         self.resolution_box.setToolTip("Output resolution: sets the image's aspect ratio and framing (the window does not change)")
+        self.resolution_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.resolution_box.setMinimumContentsLength(12)   # the popup shows the full labels; the bar stays narrow
         for box in (self.width_box, self.height_box):
             box.setRange(16, MAX_DIMENSION)
             box.setKeyboardTracking(False)
@@ -103,19 +93,48 @@ class ViewerBar(QWidget):
         self.times = QLabel("×", self)
         self.times.setVisible(False)
 
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 2, 6, 2)
+        layout.addWidget(QLabel("Zoom", self))
+        layout.addWidget(self.zoom_box)
+        layout.addWidget(self.fit_button)
+        for label, fraction in DETAIL_PRESETS:
+            self.detail_box.addItem(label, fraction)
+        self.detail_box.setToolTip("Preview detail: render at this fraction of the screen resolution and scale up — "
+                                   "½ is 4× faster, ¼ is 16× faster; the saved image size is not affected")
+        layout.addSpacing(12)
+        layout.addWidget(QLabel("Detail", self))
+        layout.addWidget(self.detail_box)
+        layout.addStretch(1)
+        layout.addWidget(QLabel("Image size", self))
+        layout.addWidget(self.resolution_box)
+        layout.addWidget(self.width_box)
+        layout.addWidget(self.times)
+        layout.addWidget(self.height_box)
+
     def _connect(self) -> None:
         self.zoom_box.activated.connect(self._on_zoom_activated)
         self.zoom_box.lineEdit().editingFinished.connect(self._on_zoom_typed)
         self.fit_button.clicked.connect(lambda: self.zoom_requested.emit(None))
         self.resolution_box.activated.connect(self._on_resolution_activated)
+        self.detail_box.activated.connect(lambda index: self.detail_chosen.emit(float(self.detail_box.itemData(index))))
         self.width_box.valueChanged.connect(self._on_custom_changed)
         self.height_box.valueChanged.connect(self._on_custom_changed)
+
+    # --- detail ---------------------------------------------------------------------
+    def detail(self) -> float:
+        return float(self.detail_box.currentData())
+
+    def select_detail(self, fraction: float) -> None:
+        """Programmatically pick a detail fraction; emits like a user choice."""
+        index = max(0, self.detail_box.findData(fraction))
+        self.detail_box.setCurrentIndex(index)
+        self.detail_chosen.emit(float(self.detail_box.itemData(index)))
 
     # --- zoom -------------------------------------------------------------------
     def show_zoom(self, zoom: float, fit_zoom: float) -> None:
         """Reflect the viewport's state (called on every view change)."""
         self._fit_zoom = fit_zoom
-        self._zoom = zoom
         self.zoom_box.blockSignals(True)
         self.zoom_box.setEditText(f"{zoom * 100:.0f} %")
         self.zoom_box.blockSignals(False)
@@ -130,9 +149,13 @@ class ViewerBar(QWidget):
             return
         match = re.search(r"-?\d+(?:[.,]\d+)?", text)
         if match is None:
-            self.show_zoom(self._zoom, self._fit_zoom)   # nothing usable typed: restore what is shown
+            self.show_zoom(self._current_zoom(), self._fit_zoom)
             return
         self.zoom_requested.emit(float(match.group().replace(",", ".")) / 100.0)
+
+    def _current_zoom(self) -> float:
+        match = re.search(r"\d+(?:[.,]\d+)?", self.zoom_box.currentText())
+        return float(match.group().replace(",", ".")) / 100.0 if match else self._fit_zoom
 
     # --- resolution -----------------------------------------------------------------
     def show_flame(self, flame: Flame | None) -> None:
@@ -141,7 +164,6 @@ class ViewerBar(QWidget):
         self.resolution_box.setItemText(0, label)
 
     def current_resolution(self) -> tuple[int, int] | None:
-        """The chosen (width, height), or None for the flame's own size."""
         data = self.resolution_box.currentData()
         if data == FLAME_SIZE:
             return None

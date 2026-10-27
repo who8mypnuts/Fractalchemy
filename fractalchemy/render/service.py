@@ -8,8 +8,11 @@
 Keys identify *slots*: resubmitting a key cancels whatever that slot was doing, so a
 stale render can never overwrite a newer view. Lower `priority` numbers run first;
 a running low-priority job (thumbnail) yields between passes — and, on the CPU
-engine, between chunks — when urgent work arrives. The OpenGL context is created
-on this thread because contexts are thread-bound; if that fails the CPU engine is used.
+engine, between chunks — when urgent work arrives, and a job that is *refining* (past
+its configured passes) yields to any pending work. A pre-empted job is paused, not
+restarted: its histogram is kept and it resumes when its turn comes again. The OpenGL
+context is created on this thread because contexts are thread-bound; if that fails the
+CPU engine is used.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from .settings import RenderSettings, RenderStats
 
 PRIORITY_VIEWPORT = 0
 PRIORITY_THUMBNAIL = 1
+PRIORITY_REFINE = 2      # a paused job past its configured passes resumes behind everything else
 
 
 @dataclass(order=True)
@@ -54,12 +58,14 @@ class RenderService(QThread):
     def __init__(self, parent: QObject | None = None, prefer_gpu: bool = True):
         super().__init__(parent)
         self._prefer_gpu = prefer_gpu
+        self._fallback = None
         self._queue: list[_Request] = []
         self._cond = threading.Condition()
         self._seq = count()
         self._stop = False
         self._running_key: object = None
         self._superseded = False
+        self._paused: dict[object, tuple] = {}   # key -> (job, request) pre-empted mid-way (worker thread only)
         self.engine_name = ""
         self.engine = None
 
@@ -95,7 +101,6 @@ class RenderService(QThread):
         self.wait(timeout_ms)
 
     def pending(self) -> int:
-        """Number of queued (not yet started) requests."""
         with self._cond:
             return len(self._queue)
 
@@ -110,7 +115,12 @@ class RenderService(QThread):
                     return
                 self._render(request)
         finally:
+            for job, _request in self._paused.values():
+                job.close()
+            self._paused.clear()
             self.engine.close()
+            if self._fallback is not None:
+                self._fallback.close()
 
     def _create_engine(self):
         if self._prefer_gpu:
@@ -127,6 +137,15 @@ class RenderService(QThread):
         self.engine_name = self.engine_name or f"CPU (numpy, {engine.threads} threads)"
         return engine
 
+    def _fallback_engine(self):
+        """The CPU engine, for flames the GPU engine cannot compile (created on first need)."""
+        if self.engine.name == "CPU":
+            raise RuntimeError("the CPU engine failed")
+        if self._fallback is None:
+            from .cpu_engine import CpuEngine
+            self._fallback = CpuEngine()
+        return self._fallback
+
     def _next(self) -> _Request | None:
         with self._cond:
             while not self._queue and not self._stop:
@@ -137,47 +156,77 @@ class RenderService(QThread):
             self._queue.remove(request)
             self._running_key = request.key
             self._superseded = False
-            return request
+            queued = {r.key for r in self._queue} | {request.key}
+        for key in [k for k in self._paused if k not in queued]:   # paused jobs nobody will resume
+            self._paused.pop(key)[0].close()
+        return request
 
     def _urgent_pending(self, priority: int) -> bool:
         with self._cond:
             return any(r.priority < priority for r in self._queue)
 
-    def _render(self, request: _Request) -> None:
-        """Run one request to completion, pre-emption or cancellation, reporting through the signals."""
+    def _any_pending(self) -> bool:
+        with self._cond:
+            return bool(self._queue)
+
+    def _start_job(self, request: _Request):
+        """A job for `request`: the paused one if it was pre-empted, else a fresh one (CPU fallback if needed)."""
+        paused = self._paused.pop(request.key, None)
+        if paused is not None and paused[1].seq == request.seq:
+            return paused[0]
+        if paused is not None:
+            paused[0].close()
         try:
-            job = self.engine.start(request.flame, request.settings)
-        except Exception as exc:  # noqa: BLE001 - a flame the engine cannot set up: report and move on
+            return self.engine.start(request.flame, request.settings)
+        except ValueError:   # the flame itself is unusable
+            raise
+        except Exception as exc:  # noqa: BLE001 - e.g. a formula's GLSL that this driver rejects: use the CPU for it
+            try:
+                job = self._fallback_engine().start(request.flame, request.settings)
+            except Exception as exc2:  # noqa: BLE001 - report the more telling error
+                raise exc2 if self.engine.name == "CPU" else exc
+            job.stats.notes.append(f"rendered on the CPU — the GPU rejected the shader: {str(exc).splitlines()[0][:200]}")
+            return job
+
+    def _render(self, request: _Request) -> None:
+        def cancelled() -> bool:
+            if self._superseded or self._stop or self._urgent_pending(request.priority):
+                return True
+            return job.stats.passes_finished and self._any_pending()   # refining: let anything else go first
+
+        try:
+            job = self._start_job(request)
+        except Exception as exc:  # noqa: BLE001
             self._finish(request.key)
             self.job_failed.emit(request.key, str(exc))
             return
+        keep = False
         try:
-            completed = self._run_passes(request, job)
-            if completed:
+            while not job.stats.finished:
+                image = job.run_pass(cancelled)
+                if image is None:
+                    break
+                self.pass_done.emit(request.key, image, _snapshot(job.stats))
+            else:
                 self.job_finished.emit(request.key, _snapshot(job.stats))
-            elif not self._superseded and not self._stop:
-                self._requeue(request)   # pre-empted by more urgent work: start again later
-        except Exception as exc:  # noqa: BLE001 - a pass failed mid-way
+                self._finish(request.key)
+                return
+            # pre-empted (not superseded): pause the job and queue the request again to resume it later
+            # (a refining job goes to the back of the queue, so the work it yielded to really runs first)
+            with self._cond:
+                if not self._superseded and not self._stop:
+                    if job.stats.passes_finished:
+                        request = replace(request, priority=max(request.priority, PRIORITY_REFINE))
+                    self._paused[request.key] = (job, request)
+                    self._queue.append(request)
+                    keep = True
+            self._finish(request.key)
+        except Exception as exc:  # noqa: BLE001
+            self._finish(request.key)
             self.job_failed.emit(request.key, str(exc))
         finally:
-            self._finish(request.key)
-            job.close()
-
-    def _run_passes(self, request: _Request, job) -> bool:
-        """Deliver passes until the job finishes; False if it was cancelled or pre-empted first."""
-        def cancelled() -> bool:
-            return self._superseded or self._stop or self._urgent_pending(request.priority)
-
-        while not job.stats.finished:
-            image = job.run_pass(cancelled)
-            if image is None:
-                return False
-            self.pass_done.emit(request.key, image, _snapshot(job.stats))
-        return True
-
-    def _requeue(self, request: _Request) -> None:
-        with self._cond:
-            self._queue.append(_Request(request.priority, next(self._seq), request.key, request.flame, request.settings))
+            if not keep:
+                job.close()
 
     def _finish(self, key: object) -> None:
         with self._cond:
@@ -186,8 +235,8 @@ class RenderService(QThread):
 
 
 def _snapshot(stats: RenderStats) -> RenderStats:
-    """A copy to hand to the GUI thread (the job keeps mutating its own)."""
-    return replace(stats, notes=list(stats.notes))
+    return RenderStats(stats.engine, stats.passes_done, stats.passes_total, stats.samples, stats.hits, stats.seconds,
+                       stats.width, stats.height, list(stats.notes), stats.samples_target)
 
 
 def wait_for(predicate, timeout: float = 10.0, interval: float = 0.02) -> bool:

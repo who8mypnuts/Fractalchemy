@@ -75,37 +75,45 @@ class LibraryModel(QStandardItemModel):
             return self._icons.small(super().data(index, role))  # folders / container files stay small
         return super().data(index, role)
 
-    # --- the opened file (a temporary section above the roots) -----------------
-    def set_opened_file(self, path: Path, names: list[str]) -> None:
-        """Show `path` and its entries at the top of the tree, above a separator (replacing any previous one)."""
-        self.clear_opened_file()
-        file_item = self._build_file(ScannedFile(path, names))
-        separator = self._make_item(LibraryItem(Kind.SEPARATOR, path), None)
-        separator.setFlags(Qt.ItemFlag.NoItemFlags)
-        self.insertRow(0, file_item)
-        self.insertRow(1, separator)
-        self._reindex()
-
-    def clear_opened_file(self) -> None:
-        """Remove the opened-file section if present."""
-        while self.rowCount() and self.item(0).data(ITEM_ROLE).kind != Kind.ROOT:
-            self.removeRow(0)
-        self._reindex()
-
-    def opened_file(self) -> Path | None:
-        """Path shown in the opened-file section, or None."""
-        if self.rowCount() and self.item(0).data(ITEM_ROLE).kind == Kind.FILE:
-            return self.item(0).data(ITEM_ROLE).path
-        return None
-
     # --- population ---------------------------------------------------------
-    def root_rows(self) -> list[int]:
-        """Rows of the library roots (the opened-file section is skipped)."""
-        return [row for row in range(self.rowCount()) if self.item(row).data(ITEM_ROLE).kind == Kind.ROOT]
-
     def root_paths(self) -> list[Path]:
         """Paths of the roots currently in the tree, top to bottom."""
-        return [self.item(row).data(ITEM_ROLE).path for row in self.root_rows()]
+        return [self.item(row).data(ITEM_ROLE).path for row in range(self.rowCount())
+                if self.item(row).data(ITEM_ROLE).kind == Kind.ROOT]
+
+    # --- the opened file (temporary area above the roots) ---------------------------------------------------
+    @property
+    def open_file(self) -> Path | None:
+        """The file shown in the temporary area, if any."""
+        first = self.item(0).data(ITEM_ROLE) if self.rowCount() else None
+        return first.path if first is not None and first.temporary else None
+
+    @property
+    def open_file_is_virtual(self) -> bool:
+        first = self.item(0).data(ITEM_ROLE) if self.rowCount() else None
+        return bool(first is not None and first.temporary and first.virtual)
+
+    def set_open_file(self, scanned: ScannedFile | None, virtual: bool = False) -> None:
+        """Show `scanned` (or nothing) in the temporary area at the top, above a separator line.
+
+        `virtual` marks entries that live in memory rather than in a file (a generated batch).
+        """
+        while self.rowCount():
+            data = self.item(0).data(ITEM_ROLE)
+            if data.kind != Kind.SEPARATOR and not data.temporary:
+                break
+            self.removeRow(0)
+        if scanned is not None:
+            separator = QStandardItem("")
+            separator.setData(LibraryItem(Kind.SEPARATOR, scanned.path, name=""), ITEM_ROLE)
+            separator.setData("", SEARCH_ROLE)
+            separator.setFlags(Qt.ItemFlag.NoItemFlags)
+            separator.setSelectable(False)
+            self.insertRow(0, separator)
+            item = self._build_file(scanned, temporary=True, virtual=virtual)
+            item.setToolTip("Generated fractals (not saved)" if virtual else f"Opened file (not in a library folder)\n{scanned.path}")
+            self.insertRow(0, item)
+        self._reindex()
 
     def set_root(self, scanned: ScannedDir) -> QStandardItem:
         """Insert or replace the subtree for one library root."""
@@ -130,7 +138,8 @@ class LibraryModel(QStandardItemModel):
 
     def file_counts(self) -> dict[Path, int]:
         """Supported-file count per root path."""
-        return {self.item(r).data(ITEM_ROLE).path: self.item(r).data(COUNT_ROLE) for r in self.root_rows()}
+        return {self.item(r).data(ITEM_ROLE).path: self.item(r).data(COUNT_ROLE) for r in range(self.rowCount())
+                if self.item(r).data(ITEM_ROLE).kind == Kind.ROOT}
 
     def library_item(self, index: QModelIndex) -> LibraryItem | None:
         """The LibraryItem stored on `index`, or None for an invalid index."""
@@ -176,26 +185,32 @@ class LibraryModel(QStandardItemModel):
             item.appendRow(self._build_file(file))
         return item
 
-    def _build_file(self, scanned: ScannedFile) -> QStandardItem:
-        item = self._make_item(LibraryItem(Kind.FILE, scanned.path, name=scanned.path.name), self._icons.file)
+    def _build_file(self, scanned: ScannedFile, temporary: bool = False, virtual: bool = False) -> QStandardItem:
+        item = self._make_item(LibraryItem(Kind.FILE, scanned.path, name=scanned.path.name, temporary=temporary, virtual=virtual),
+                               self._icons.file)
         item.setData(" ".join([scanned.path.name, *scanned.names]), SEARCH_ROLE)
         item.setToolTip(str(scanned.path))
-        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled
-        if self._accepts_entries(scanned.path):
-            flags |= Qt.ItemFlag.ItemIsDropEnabled
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if not virtual:
+            flags |= Qt.ItemFlag.ItemIsDragEnabled
+            if self._accepts_entries(scanned.path):
+                flags |= Qt.ItemFlag.ItemIsDropEnabled
         item.setFlags(flags)
-        if scanned.multi:
+        if scanned.multi or virtual:
             for i, name in enumerate(scanned.names):
-                item.appendRow(self._build_entry(scanned.path, i, name))
+                item.appendRow(self._build_entry(scanned.path, i, name, temporary, virtual))
         return item
 
-    def _build_entry(self, path: Path, index: int, name: str) -> QStandardItem:
-        item = self._make_item(LibraryItem(Kind.ENTRY, path, index, name), self._icons.entry)
-        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled)
+    def _build_entry(self, path: Path, index: int, name: str, temporary: bool = False, virtual: bool = False) -> QStandardItem:
+        item = self._make_item(LibraryItem(Kind.ENTRY, path, index, name, temporary, virtual), self._icons.entry)
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if not virtual:
+            flags |= Qt.ItemFlag.ItemIsDragEnabled
+        item.setFlags(flags)
         return item
 
     def _make_item(self, data: LibraryItem, icon) -> QStandardItem:
-        item = QStandardItem(icon, data.name) if icon is not None else QStandardItem(data.name)
+        item = QStandardItem(icon, data.name)
         item.setEditable(False)
         item.setData(data, ITEM_ROLE)
         item.setData(data.name, SEARCH_ROLE)
@@ -211,8 +226,9 @@ class LibraryModel(QStandardItemModel):
         self._by_key = {_key(item.data(ITEM_ROLE)): item for item in self._walk(self.invisibleRootItem())}
 
     def _row_of_root(self, path: Path) -> int | None:
-        for row in self.root_rows():
-            if self.item(row).data(ITEM_ROLE).path == path:
+        for row in range(self.rowCount()):
+            data = self.item(row).data(ITEM_ROLE)
+            if data.kind == Kind.ROOT and data.path == path:
                 return row
         return None
 
@@ -224,7 +240,7 @@ class LibraryModel(QStandardItemModel):
 
 
 def _key(item: LibraryItem) -> tuple:
-    return (item.kind, item.path, item.index)
+    return (item.kind, item.path, item.index, item.temporary)
 
 
 def _is_multi_file(model: QStandardItemModel, index: QModelIndex) -> bool:

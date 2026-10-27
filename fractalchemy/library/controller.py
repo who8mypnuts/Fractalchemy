@@ -20,7 +20,7 @@ from .items import Kind, LibraryItem
 from .model import LibraryModel
 from .payload import from_mime, to_mime
 from .roots import LibraryRoots
-from .scanner import ScannedDir, scan_directory
+from .scanner import ScannedDir, ScannedFile, scan_directory, scan_file
 from .watcher import LibraryWatcher
 
 
@@ -52,56 +52,14 @@ class LibraryController(QObject):
         self.roots = roots
         self._generation: dict[Path, int] = defaultdict(int)
         self._pending = 0
-        self._opened: Path | None = None
         self.watcher = LibraryWatcher(self)
         roots.added.connect(self.rescan_root)
         roots.removed.connect(self._on_root_removed)
         model.drop_requested.connect(self.drop)
         self.watcher.root_changed.connect(self.rescan_root)
         self.watcher.file_changed.connect(self.file_changed_externally)
-        self.watcher.file_changed.connect(self._on_file_changed)
-
-    # --- the opened file --------------------------------------------------------
-    @property
-    def opened_file(self) -> Path | None:
-        """File shown in the temporary section above the roots, or None."""
-        return self._opened
-
-    def set_opened_file(self, path: Path | None) -> None:
-        """Show `path`'s entries above the roots (replacing any previous opened file); None clears."""
-        self._opened = Path(path).resolve() if path is not None else None
-        self.watcher.watch_file(self._opened)
-        if self._opened is None:
-            self.model.clear_opened_file()
-            return
-        self.refresh_opened_file()
-
-    def refresh_opened_file(self) -> None:
-        """Re-list the opened file's entries (after it changed)."""
-        path = self._opened
-        if path is None:
-            return
-        run_in_background(self.catalog.entry_names, path,
-                          on_done=lambda names: self._apply_opened(path, names),
-                          on_error=lambda exc: self._opened_unreadable(path, exc))
-
-    def _apply_opened(self, path: Path, names: list[str]) -> None:
-        if path != self._opened:
-            return
-        if names:
-            self.model.set_opened_file(path, names)
-        else:
-            self.model.clear_opened_file()
-            self.status.emit(f"{path.name} holds no {self.catalog.entry_label}s")
-
-    def _opened_unreadable(self, path: Path, exc: Exception) -> None:
-        """A refresh failed — often a file caught mid-write by the watcher: keep the section as it is, just say so."""
-        if path == self._opened:
-            self.status.emit(f"Could not re-read {path.name}: {exc}")
-
-    def _on_file_changed(self, path: Path) -> None:
-        if self._opened is not None and Path(path).resolve() == self._opened:
-            self.refresh_opened_file()
+        self.watcher.loose_file_changed.connect(lambda _path: self.rescan_open_file())
+        self._open_generation = 0
 
     # --- scanning -----------------------------------------------------------
     def rescan_all(self) -> None:
@@ -121,9 +79,53 @@ class LibraryController(QObject):
         )
 
     def rescan_containing(self, *paths: Path) -> None:
-        """Rescan each root that contains any of `paths`."""
+        """Rescan each root that contains any of `paths` (and the opened file, if it is one of them)."""
         for root in {r for r in self.roots.paths() for p in paths if _is_within(p, r)}:
             self.rescan_root(root)
+        if self.open_file is not None and any(Path(p) == self.open_file for p in paths):
+            self.rescan_open_file()
+
+    # --- the opened file (temporary area above the library) -------------------------------------------------
+    @property
+    def open_file(self) -> Path | None:
+        return self.model.open_file
+
+    def show_virtual(self, name: str, entry_names: list[str]) -> None:
+        """Show in-memory entries (a generated batch) in the temporary area under the heading `name`."""
+        self._open_generation += 1
+        self.model.set_open_file(ScannedFile(Path(name), list(entry_names)), virtual=True)
+        self.watcher.watch_file(None)
+        self.root_scanned.emit(Path(name))
+
+    def show_file(self, path: Path | None) -> None:
+        """Show `path` in the temporary area at the top of the tree (replacing whatever was there); None clears it."""
+        self._open_generation += 1
+        if path is None:
+            self.model.set_open_file(None)
+            self.watcher.watch_file(None)
+            return
+        generation = self._open_generation
+        self._set_pending(+1)
+        run_in_background(scan_file, Path(path), self.catalog,
+                          on_done=lambda scanned: self._apply_open_scan(Path(path), scanned, generation),
+                          on_error=lambda exc: self._scan_failed(Path(path), exc))
+
+    def rescan_open_file(self) -> None:
+        if self.open_file is not None and not self.model.open_file_is_virtual:
+            self.show_file(self.open_file)
+
+    def _apply_open_scan(self, path: Path, scanned, generation: int) -> None:
+        self._set_pending(-1)
+        if generation != self._open_generation:
+            return
+        if scanned is None:
+            self.failed.emit(f"{path.name} holds nothing the library can show")
+            self.model.set_open_file(None)
+            self.watcher.watch_file(None)
+            return
+        self.model.set_open_file(scanned)
+        self.watcher.watch_file(path)
+        self.root_scanned.emit(path)
 
     def root_of(self, path: Path) -> Path | None:
         """The library root containing `path`, or None."""
@@ -187,18 +189,13 @@ class LibraryController(QObject):
     def _run(self, fn: Callable, *args, affected: list[Path]) -> None:
         def done(message: str) -> None:
             self.status.emit(message)
-            self._refresh(affected)
+            self.rescan_containing(*affected)
 
         def error(exc: Exception) -> None:
             self.failed.emit(str(exc))
-            self._refresh(affected)
+            self.rescan_containing(*affected)
 
         run_in_background(fn, *args, on_done=done, on_error=error)
-
-    def _refresh(self, affected: list[Path]) -> None:
-        self.rescan_containing(*affected)
-        if self._opened is not None and any(Path(p).resolve() == self._opened for p in affected):
-            self.refresh_opened_file()
 
     def _apply_scan(self, scanned: ScannedDir, generation: int) -> None:
         self._set_pending(-1)

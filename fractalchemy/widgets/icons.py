@@ -46,10 +46,16 @@ def _gradient_pixmap(size: int) -> QPixmap:
     return pixmap
 
 
-# --- standard actions: theme icon when the platform has one, else a painted glyph -------------------
+# --- the standard editing glyphs -----------------------------------------------------------------------------
+THEME_NAMES = {"undo": "edit-undo", "redo": "edit-redo", "copy": "edit-copy", "paste": "edit-paste", "save": "document-save",
+               "save-as": "document-save-as", "random": "roll"}
+GLYPH_COLOR = QColor("#3b3b3b")
+GLYPH_ACCENT = QColor("#1e88e5")
+
+
 def action_icon(name: str) -> QIcon:
-    """Icon for 'undo', 'redo', 'copy', 'paste', 'save', 'save-as', 'open'."""
-    themed = QIcon.fromTheme(_THEME_NAMES.get(name, name))
+    """The platform theme's icon for undo / redo / copy / paste / save, or our painted look-alike."""
+    themed = QIcon.fromTheme(THEME_NAMES.get(name, name))
     if not themed.isNull():
         return themed
     icon = QIcon()
@@ -58,59 +64,80 @@ def action_icon(name: str) -> QIcon:
     return icon
 
 
-_THEME_NAMES = {"undo": "edit-undo", "redo": "edit-redo", "copy": "edit-copy", "paste": "edit-paste",
-                "save": "document-save", "save-as": "document-save-as", "open": "document-open"}
-
-
 def _glyph_pixmap(name: str, size: int) -> QPixmap:
-    from PySide6.QtCore import QRectF as _QRectF
-    from PySide6.QtGui import QPainterPath, QPolygonF
-
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     u = size / 16.0
-    ink = QColor(60, 60, 60)
-    pen = QPen(ink, max(1.0, 1.6 * u))
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen = QPen(GLYPH_COLOR, max(1.0, 1.6 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
     painter.setPen(pen)
     painter.setBrush(Qt.BrushStyle.NoBrush)
     if name in ("undo", "redo"):
-        if name == "redo":
-            painter.translate(size, 0)
-            painter.scale(-1, 1)
-        path = QPainterPath(QPointF(4 * u, 6 * u))
-        path.cubicTo(QPointF(9 * u, 4 * u), QPointF(13 * u, 7 * u), QPointF(12 * u, 12 * u))
-        painter.drawPath(path)
-        painter.setBrush(ink)
-        painter.drawPolygon(QPolygonF([QPointF(2 * u, 6 * u), QPointF(6.5 * u, 3 * u), QPointF(6.5 * u, 9 * u)]))
+        _curved_arrow(painter, u, mirrored=name == "redo")
     elif name == "copy":
-        painter.drawRect(_QRectF(3 * u, 2 * u, 7 * u, 8.5 * u))
-        painter.setBrush(QColor(245, 245, 245))
-        painter.drawRect(_QRectF(6 * u, 5.5 * u, 7 * u, 8.5 * u))
+        painter.setBrush(QColor("#fafafa"))
+        painter.drawRoundedRect(QRectF(2 * u, 2 * u, 8 * u, 9.5 * u), u, u)
+        painter.drawRoundedRect(QRectF(6 * u, 5 * u, 8 * u, 9.5 * u), u, u)
     elif name == "paste":
-        painter.setBrush(QColor(245, 245, 245))
-        painter.drawRoundedRect(_QRectF(3 * u, 3 * u, 10 * u, 11 * u), u, u)
-        painter.setBrush(ink)
-        painter.drawRect(_QRectF(6 * u, 1.5 * u, 4 * u, 3 * u))
-        painter.setPen(QPen(ink, max(1.0, 1.2 * u)))
-        for y in (7.5, 10, 12):
-            painter.drawLine(QPointF(5 * u, y * u), QPointF(11 * u, y * u))
+        painter.setBrush(QColor("#c9a36b"))
+        painter.drawRoundedRect(QRectF(2.5 * u, 3 * u, 11 * u, 11.5 * u), u, u)      # the clipboard
+        painter.setBrush(GLYPH_COLOR)
+        painter.drawRoundedRect(QRectF(5.5 * u, 1.5 * u, 5 * u, 3 * u), 0.8 * u, 0.8 * u)   # its clip
+        painter.setBrush(QColor("#fafafa"))
+        painter.drawRect(QRectF(4.5 * u, 6 * u, 7 * u, 7 * u))                          # the sheet
     elif name in ("save", "save-as"):
-        painter.setBrush(QColor(245, 245, 245))
-        painter.drawRoundedRect(_QRectF(2 * u, 2 * u, 12 * u, 12 * u), u, u)
-        painter.setBrush(ink)
-        painter.drawRect(_QRectF(5 * u, 2 * u, 6 * u, 4 * u))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(_QRectF(4.5 * u, 9 * u, 7 * u, 5 * u))
+        painter.setBrush(GLYPH_ACCENT)
+        painter.drawRoundedRect(QRectF(2 * u, 2 * u, 12 * u, 12 * u), u, u)             # the diskette
+        painter.setBrush(QColor("#fafafa"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRect(QRectF(4.5 * u, 2.5 * u, 7 * u, 4 * u))
+        painter.drawRect(QRectF(4 * u, 9 * u, 8 * u, 5 * u))
         if name == "save-as":
-            painter.setPen(QPen(QColor(200, 60, 60), max(1.0, 1.6 * u)))
-            painter.drawLine(QPointF(10 * u, 10 * u), QPointF(14 * u, 14 * u))
-            painter.drawLine(QPointF(14 * u, 10 * u), QPointF(10 * u, 14 * u))
-    elif name == "open":
-        painter.setBrush(QColor(240, 200, 90))
-        painter.drawRoundedRect(_QRectF(2 * u, 4 * u, 12 * u, 9 * u), u, u)
-        painter.drawRect(_QRectF(2 * u, 3 * u, 5 * u, 3 * u))
+            _pencil(painter, u)
+    elif name == "random":
+        painter.setBrush(QColor("#fafafa"))
+        painter.drawRoundedRect(QRectF(2 * u, 2 * u, 12 * u, 12 * u), 2 * u, 2 * u)     # a die
+        painter.setBrush(GLYPH_COLOR)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for cx, cy in ((5, 5), (11, 5), (8, 8), (5, 11), (11, 11)):
+            painter.drawEllipse(QPointF(cx * u, cy * u), 1.3 * u, 1.3 * u)
     painter.end()
     return pixmap
+
+
+def _pencil(painter: QPainter, u: float) -> None:
+    """A small pencil over the bottom-right corner (the 'save as' marker), outlined in white for contrast."""
+    painter.save()
+    painter.translate(11.2 * u, 11.2 * u)
+    painter.rotate(-45)
+    body = QRectF(-1.6 * u, -5.2 * u, 3.2 * u, 7.4 * u)
+    painter.setPen(QPen(QColor("#ffffff"), max(1.0, 1.2 * u)))
+    painter.setBrush(QColor("#f4b400"))
+    painter.drawRect(body)
+    tip = [QPointF(-1.6 * u, 2.2 * u), QPointF(1.6 * u, 2.2 * u), QPointF(0.0, 4.6 * u)]
+    painter.setBrush(QColor("#f8e0b0"))
+    painter.drawPolygon(tip)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#e57373"))
+    painter.drawRect(QRectF(-1.6 * u, -5.2 * u, 3.2 * u, 1.6 * u))   # the eraser end
+    painter.setBrush(GLYPH_COLOR)
+    painter.drawPolygon([QPointF(-0.6 * u, 3.7 * u), QPointF(0.6 * u, 3.7 * u), QPointF(0.0, 4.6 * u)])   # the lead
+    painter.restore()
+
+
+def _curved_arrow(painter: QPainter, u: float, mirrored: bool) -> None:
+    """An undo-style arrow: an arc from the right over the top to the left, ending in a head that points down
+    (mirrored for redo)."""
+    import math
+    if mirrored:
+        painter.translate(16 * u, 0)
+        painter.scale(-1, 1)
+    rect = QRectF(3.5 * u, 3.5 * u, 9 * u, 9 * u)
+    painter.drawArc(rect, 0, 200 * 16)
+    angle = math.radians(200)
+    end = QPointF(rect.center().x() + rect.width() / 2 * math.cos(angle), rect.center().y() - rect.height() / 2 * math.sin(angle))
+    painter.setBrush(painter.pen().color())
+    head = [QPointF(end.x(), end.y() + 2.6 * u), QPointF(end.x() - 2.4 * u, end.y() - 1.2 * u), QPointF(end.x() + 2.6 * u, end.y() - 1.2 * u)]
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawPolygon(head)

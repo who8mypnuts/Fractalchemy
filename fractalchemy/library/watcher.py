@@ -14,8 +14,10 @@ from PySide6.QtCore import QFileSystemWatcher, QObject, QTimer, Signal
 from .scanner import ScannedDir
 
 DEBOUNCE_MS = 600
-_EXTRA = Path("<opened-file>")   # pseudo-root key for the single watched file
 MAX_WATCHED_FILES = 4000  # stay well under typical inotify limits; dirs are always watched
+
+
+_LOOSE = Path("<opened file>")   # pseudo root for the single watched loose file
 
 
 class LibraryWatcher(QObject):
@@ -24,9 +26,11 @@ class LibraryWatcher(QObject):
     Signals:
         root_changed(Path): Something under this root changed; rescan it.
         file_changed(Path): A watched file was modified or replaced.
+        loose_file_changed(Path): The opened (loose) file was modified or replaced.
     """
     root_changed = Signal(Path)
     file_changed = Signal(Path)
+    loose_file_changed = Signal(Path)
 
     def __init__(self, parent: QObject | None = None):
         """Create the watcher and its debounce timer."""
@@ -50,18 +54,20 @@ class LibraryWatcher(QObject):
             self._watcher.addPaths(sorted(wanted - current))
         self._roots[scanned.path] = wanted
 
-    def watch_file(self, path: Path | None) -> None:
-        """Watch one file outside the roots (the opened file); None stops."""
-        self.forget(_EXTRA)
-        if path is not None:
-            self._watcher.addPath(str(path))
-            self._roots[_EXTRA] = {str(path)}
-
     def forget(self, root: Path) -> None:
         """Stop watching everything under `root`."""
         paths = self._roots.pop(root, set())
         if paths:
             self._watcher.removePaths(sorted(paths))
+
+    def watch_file(self, path: Path | None) -> None:
+        """Watch one loose file (the opened one); None stops watching the previous one."""
+        previous = self._roots.pop(_LOOSE, set())
+        if previous:
+            self._watcher.removePaths(sorted(previous))
+        if path is not None:
+            self._watcher.addPath(str(path))
+            self._roots[_LOOSE] = {str(path)}
 
     # --- events -------------------------------------------------------------
     def _on_changed(self, changed: str) -> None:
@@ -72,8 +78,13 @@ class LibraryWatcher(QObject):
 
     def _on_file_changed(self, changed: str) -> None:
         self.file_changed.emit(Path(changed))
-        if self._root_for(Path(changed)) != _EXTRA:
-            self._on_changed(changed)
+        if str(changed) in self._roots.get(_LOOSE, set()):
+            if not Path(changed).exists():
+                return
+            self._watcher.addPath(changed)   # editors that replace the file drop the watch: re-add it
+            self.loose_file_changed.emit(Path(changed))
+            return
+        self._on_changed(changed)
 
     def _flush(self) -> None:
         dirty, self._dirty = self._dirty, set()

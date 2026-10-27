@@ -48,7 +48,7 @@ class FlameFormat(GradientFormat):
         """Replace the palette of flame `index`; creates a minimal file if `path` is new."""
         if not path.exists():
             return self.append(gradient, path)
-        doc, spans = flame_spans(path)
+        doc, spans = _open(path)
         span = require_index(spans, index, path)
         doc.replace(span, _with_palette(doc.slice(span), gradient))
         doc.write()
@@ -59,25 +59,25 @@ class FlameFormat(GradientFormat):
             text = _cloned_flame(template[0], template[1], gradient)
         else:
             text = _minimal_flame(gradient)
-        append_flame_text(path, text)
+        _append_text(path, text)
 
     def remove(self, path: Path, index: int) -> None:
         """Delete the <flame> element at `index`."""
-        doc, spans = flame_spans(path)
+        doc, spans = _open(path)
         doc.remove(require_index(spans, index, path))
         doc.write()
 
     def rename(self, path: Path, index: int, name: str) -> None:
         """Set the `name` attribute of flame `index`."""
-        doc, spans = flame_spans(path)
+        doc, spans = _open(path)
         span = require_index(spans, index, path)
         doc.replace(span, _renamed(doc.slice(span), name))
         doc.write()
 
     def copy_entry(self, source: Path, index: int, target: Path) -> None:
         """Append flame `index` of `source` to `target` verbatim (xforms included)."""
-        doc, spans = flame_spans(source)
-        append_flame_text(target, doc.slice(require_index(spans, index, source)).rstrip() + "\n")
+        doc, spans = _open(source)
+        _append_text(target, doc.slice(require_index(spans, index, source)).rstrip() + "\n")
 
 
 # --- parsing helpers --------------------------------------------------------
@@ -97,8 +97,7 @@ def _gradient_from_flame(flame: ET.Element) -> Gradient | None:
     return Gradient.from_colors(flame.get("name", "flame"), colors) if colors else None
 
 
-def flame_spans(path: Path) -> tuple[TextFile, list[Span]]:
-    """The file as editable text plus the span of every <flame> element, in order."""
+def _open(path: Path) -> tuple[TextFile, list[Span]]:
     doc = TextFile.read(path)
     return doc, [m.span() for m in _FLAME_SPAN.finditer(doc.text)]
 
@@ -129,7 +128,7 @@ def _renamed(flame_text: str, name: str) -> str:
 
 def _cloned_flame(template_path: Path, index: int, gradient: Gradient) -> str:
     """The template <flame> verbatim (xforms, camera, ...) with the new name and palette."""
-    doc, spans = flame_spans(template_path)
+    doc, spans = _open(template_path)
     element = doc.slice(require_index(spans, index, template_path)).rstrip() + "\n"
     return _with_palette(_renamed(element, gradient.name), gradient).replace(doc.newline, "\n")
 
@@ -144,8 +143,8 @@ def _minimal_flame(gradient: Gradient) -> str:
     )
 
 
-def append_flame_text(path: Path, flame_text: str) -> None:
-    """Add a <flame> element's text to a file (creating it, or wrapping a bare single-flame file in <Flames>)."""
+def _append_text(path: Path, flame_text: str) -> None:
+    """Add a <flame> to a file, wrapping a bare single-flame file in <Flames> first."""
     doc = TextFile.read(path) if path.exists() else TextFile.empty(path, "\n")
     close = _FLAMES_CLOSE.search(doc.text)
     if close is not None:
