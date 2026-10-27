@@ -10,7 +10,8 @@
   amounts, and the pivot.
 * **Transform** — the X, Y, O vectors of all three affines (pre / normal / post), rectangular or polar,
   with reset buttons, and *Auto-calculate pre_zscale* for 3D work.
-* **Colors** — transform colour (on the palette), colour speed, opacity, direct colour, *solo*.
+* **Colors** — transform colour (on the palette), colour speed, opacity, direct colour, *solo*, and the range /
+  depth / density of the canvas's *variation preview* (Apophysis's sliders; the toolbar button turns it on).
 
 Every tab edits the document through the context (undoable) and refreshes from `refresh()`.
 """
@@ -22,8 +23,8 @@ import math
 from PySide6.QtCore import QPointF, QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QRadioButton, QSizePolicy, QToolButton,
-                               QVBoxLayout, QWidget)
+                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QRadioButton, QSizePolicy, QSlider,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from ..fractal import triangles as T
 from ..fractal import variations as V
@@ -747,9 +748,19 @@ class TransformTab(_Tab):
 
 
 # --- Colors -------------------------------------------------------------------------------------------------
+VAR_PREVIEW_RANGE = (1, 5)      # Apophysis's trackbars: range ±1..5 units, depth 1..5 passes, density 1..5 (×5 per unit)
+VAR_PREVIEW_DEFAULTS = {"range": 2, "depth": 1, "density": 2}
+
+
 class ColorsTab(_Tab):
-    """Transform colour, colour speed, opacity, direct colour and solo."""
+    """Transform colour, colour speed, opacity, direct colour, solo, and the variation preview's sliders.
+
+    Signals:
+        solo_toggled(bool): The *solo* box.
+        var_preview_changed(): Range / depth / density of the variation preview changed.
+    """
     solo_toggled = Signal(bool)
+    var_preview_changed = Signal()
 
     def __init__(self, context: EditorContext, parent: QWidget | None = None):
         super().__init__(context, parent)
@@ -760,6 +771,9 @@ class ColorsTab(_Tab):
         self.opacity_box = _spin(self, 0.0, 1.0, 3, 0.05)
         self.var_color_box = _spin(self, 0.0, 1.0, 3, 0.05)
         self.solo = QCheckBox("Solo: show only this transform in the editor preview", self)
+        self.var_preview_sliders: dict[str, QSlider] = {}
+        self.var_preview_labels: dict[str, QLabel] = {}
+        self.var_preview_group = QGroupBox("Variation preview", self)
         self._build()
         self._connect()
 
@@ -785,7 +799,27 @@ class ColorsTab(_Tab):
         layout.addWidget(group)
         self.solo.setToolTip("Preview only the selected transform (the others' opacity is zero in the editor's preview; nothing is saved)")
         layout.addWidget(self.solo)
+        self.var_preview_group.setToolTip("The grid of dots the canvas shows for the selected transform when the toolbar's "
+                                          "variation preview is on (no effect on the rendered image)")
+        grid = QGridLayout(self.var_preview_group)
+        for row, (key, title, tip) in enumerate((("range", "Range", "How far the grid of input points reaches: ±1 … ±5 units"),
+                                                 ("depth", "Depth", "How many times each point goes through the transform"),
+                                                 ("density", "Density", "Points per unit of the grid: 5 … 25"))):
+            slider = QSlider(Qt.Orientation.Horizontal, self.var_preview_group)
+            slider.setRange(*VAR_PREVIEW_RANGE)
+            slider.setValue(VAR_PREVIEW_DEFAULTS[key])
+            slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+            slider.setToolTip(tip)
+            value = QLabel(self.var_preview_group)
+            value.setMinimumWidth(22)
+            grid.addWidget(QLabel(title, self.var_preview_group), row, 0)
+            grid.addWidget(slider, row, 1)
+            grid.addWidget(value, row, 2)
+            self.var_preview_sliders[key] = slider
+            self.var_preview_labels[key] = value
+        layout.addWidget(self.var_preview_group)
         layout.addStretch(1)
+        self._show_var_preview_values()
 
     def _connect(self) -> None:
         self.palette.value_changed.connect(lambda v: self._set("color", v))
@@ -794,6 +828,28 @@ class ColorsTab(_Tab):
         self.opacity_box.valueChanged.connect(lambda v: self._set("opacity", v))
         self.var_color_box.valueChanged.connect(lambda v: self._set("var_color", v))
         self.solo.toggled.connect(self.solo_toggled)
+        for slider in self.var_preview_sliders.values():
+            slider.valueChanged.connect(self._var_preview_slid)
+
+    # --- variation preview --------------------------------------------------------------------------------
+    def var_preview_settings(self) -> tuple[int, int, int]:
+        """(range, depth, density) as chosen on the sliders."""
+        return tuple(self.var_preview_sliders[k].value() for k in ("range", "depth", "density"))   # type: ignore[return-value]
+
+    def set_var_preview_settings(self, range_units: int, depth: int, density: int) -> None:
+        for key, value in (("range", range_units), ("depth", depth), ("density", density)):
+            set_value_silently(self.var_preview_sliders[key], max(VAR_PREVIEW_RANGE[0], min(VAR_PREVIEW_RANGE[1], int(value))))
+        self._show_var_preview_values()
+
+    def _show_var_preview_values(self) -> None:
+        r, d, n = self.var_preview_settings()
+        self.var_preview_labels["range"].setText(f"±{r}")
+        self.var_preview_labels["depth"].setText(str(d))
+        self.var_preview_labels["density"].setText(str(n * 5))
+
+    def _var_preview_slid(self, *_args) -> None:
+        self._show_var_preview_values()
+        self.var_preview_changed.emit()
 
     def refresh(self) -> None:
         xform = self.context.xform()

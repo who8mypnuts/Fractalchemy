@@ -11,6 +11,9 @@ view reports what the user does:
 * `context_menu(pos, hit)` — right-click without dragging (`hit` is a `Hit` or None for empty space);
 * `status(text)` and `view_changed()`.
 
+`set_variation_preview(points, colour)` shows Apophysis's *variation preview*: editor-space points (a grid sent
+through the selected transform, see `render/xform_preview.py`) drawn as dots behind the triangles.
+
 Coordinates are *editor space* (y up; see `fractal.triangles`). Mouse gestures follow Apophysis:
 
 * drag a corner: moves it (**move** mode; dragging **O** drags the whole triangle when the axes are locked),
@@ -31,8 +34,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
 from PySide6.QtCore import QPoint, QPointF, Qt, Signal
-from PySide6.QtGui import (QBrush, QColor, QFont, QKeyEvent, QMouseEvent, QPainter, QPaintEvent, QPen, QPolygonF,
+from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QKeyEvent, QMouseEvent, QPainter, QPaintEvent, QPen, QPolygonF,
                            QResizeEvent, QWheelEvent)
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -158,6 +162,8 @@ class TriangleView(QWidget):
         self._hover: Hit | None = None
         self._mouse: Point | None = None
         self._has_focus_frame = False
+        self._preview_points: np.ndarray | None = None     # (N, 2) editor-space points
+        self._preview_color = QColor(255, 255, 255)
 
     # --- data ---------------------------------------------------------------------------------------------
     def set_entries(self, entries: list[TriangleEntry], selected_key: object = 0) -> None:
@@ -194,6 +200,18 @@ class TriangleView(QWidget):
 
     def is_dragging(self) -> bool:
         return self._drag is not None
+
+    def set_variation_preview(self, points: np.ndarray | None, color: QColor | None = None) -> None:
+        """Show `points` (editor space, shape (N, 2)) as dots in `color`; None hides the preview."""
+        self._preview_points = None if points is None or len(points) == 0 else np.asarray(points, dtype=np.float64)
+        if color is not None:
+            self._preview_color = QColor(color)
+        self.update()
+
+    @property
+    def variation_preview_count(self) -> int:
+        """How many preview dots are shown (tests)."""
+        return 0 if self._preview_points is None else int(len(self._preview_points))
 
     # --- view ---------------------------------------------------------------------------------------------
     @property
@@ -471,7 +489,7 @@ class TriangleView(QWidget):
             Qt.Key.Key_Insert: "duplicate", Qt.Key.Key_Delete: "delete",
             Qt.Key.Key_Space: "toggle-pivot", Qt.Key.Key_W: "toggle-pivot",
             Qt.Key.Key_A: "toggle-select", Qt.Key.Key_M: "mode-move", Qt.Key.Key_R: "mode-rotate", Qt.Key.Key_S: "mode-scale",
-            Qt.Key.Key_T: "next-affine",
+            Qt.Key.Key_T: "next-affine", Qt.Key.Key_V: "toggle-var-preview",
         }
         if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
             self.zoom_by(ZOOM_STEP)
@@ -600,6 +618,7 @@ class TriangleView(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), BACKGROUND)
         self._paint_grid(painter)
+        self._paint_variation_preview(painter)
         self._paint_reference(painter)
         if self.show_ghosts:
             for e in self._entries:
@@ -645,6 +664,22 @@ class TriangleView(QWidget):
         origin = self.to_screen((0.0, 0.0))
         painter.drawLine(QPointF(origin.x(), 0), QPointF(origin.x(), h))
         painter.drawLine(QPointF(0, origin.y()), QPointF(w, origin.y()))
+
+    def _paint_variation_preview(self, painter: QPainter) -> None:
+        """The preview dots, plotted through numpy into an image (tens of thousands of points stay cheap)."""
+        pts = self._preview_points
+        w, h = self.width(), self.height()
+        if pts is None or w <= 0 or h <= 0:
+            return
+        px = np.floor(w / 2 + (pts[:, 0] - self._center[0]) * self._ppu).astype(np.int64)
+        py = np.floor(h / 2 - (pts[:, 1] - self._center[1]) * self._ppu).astype(np.int64)
+        inside = (px >= 0) & (px < w) & (py >= 0) & (py < h)
+        if not inside.any():
+            return
+        image = np.zeros((h, w, 4), dtype=np.uint8)
+        c = self._preview_color
+        image[py[inside], px[inside]] = (c.red(), c.green(), c.blue(), 210)
+        painter.drawImage(0, 0, QImage(image.data, w, h, w * 4, QImage.Format.Format_RGBA8888))
 
     def _points(self, triangle: Triangle) -> list[QPointF]:
         return [self.to_screen(p) for p in triangle]

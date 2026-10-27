@@ -121,6 +121,11 @@ black before.
     re-renders on `flame_restored` (undo / redo / paste did not re-render before). `config`: `HIGHLIGHT_COLOR`,
     `EDIT_RENDER_DELAY_MS`, `EDITOR_PREVIEW_*`. Icons: `editor_icon(name)`. Tests: `tests/test_editor.py` (19).
     `tests/conftest.py` skips `samples/apophysis-7x/` (the Apophysis source tree) like `aposource`.
+    Round 2: Apophysis's **variation preview** (`render/xform_preview.py`: grid ±range at density·5 per unit
+    through `apply_xform` `depth` times; `TriangleView.set_variation_preview` plots the dots through numpy into
+    an image; toolbar `act_var_preview` / key `V`; sliders on the Colors tab; QSettings `editor/var_preview*`),
+    and the preview **quality levels** as `QualityLevel`s (`ui/editor_preview.py`: Low 2 spp, Medium 5 spp +
+    oversample 2 / filter 0.5, High 15 spp, 2 passes; `quality_level()` maps names / numbers; the box is 380×240).
 
 ## Known gaps / next steps
 * Not available (see `tools/apo_decompile.py --batch` report): DLL-only plugins with loops (tile, tile_hyp,
@@ -133,8 +138,7 @@ black before.
 * CPU speed of a few compiled formulas is low (crackle ~20 µs/point, eMod ~3 µs/point): both branches of every
   divergent `if` are evaluated; the GPU path is fine.
 * Random Batch has no symmetry options yet (Apophysis: bilateral / rotational); parameters stay at defaults.
-* Transform Editor: no variation-preview grid (Apophysis's *Toggle variation preview*) and no rotate / scale
-  widget grips around the selected triangle (edges and modifier keys cover it); `ParamInfo.min/max` are shown
+* Transform Editor: no rotate / scale widget grips around the selected triangle (edges and modifier keys cover it); `ParamInfo.min/max` are shown
   in tooltips but not enforced; the pre affine is an editing convenience (it composes with the normal affine),
   so it adds no new shapes — placing it after the `pre_` variations instead would (one-line change in
   `apply_xform` / `_xform_function`).

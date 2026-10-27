@@ -161,8 +161,10 @@ shown in the main window, every change is undoable from either window (`Ctrl+Z`)
 * **Toolbar**: new flame (one linear transform, camera reset; palette and colouring kept), add / duplicate /
   delete / link transforms (a *linked* transform takes over the selected transform's xaos links, as in
   Apophysis), undo / redo, copy / paste triangle coordinates, the select / move / rotate / scale modes, world
-  pivot, rotate 90°, flip, the final transform on / off, fit. The context menu (right-click) has the same, and
-  *View ▸ Reload formulas* re-reads the formula folders.
+  pivot, rotate 90°, flip, **variation preview** (`V`: a grid of points sent through the selected transform is
+  drawn on the canvas in its colour, so what its variations and parameters do is visible on the triangles —
+  range, depth and density are the sliders on the Colors tab, as in Apophysis), the final transform on / off,
+  fit. The context menu (right-click) has the same, and *View ▸ Reload formulas* re-reads the formula folders.
 * **Transform header**: the transform list (coloured), a **name** — a label to keep track of what each
   transform does, saved in the file and shown in the list, on the canvas and in the Info tab — and the weight.
 * **Tabs** (Apophysis's): **Variations** — every loaded formula (the flam3 classics, the Apophysis 7X built-ins,
@@ -177,8 +179,10 @@ shown in the main window, every change is undoable from either window (`Ctrl+Z`)
   weights from triangle area*. **Transform** — the X / Y / O vectors of all three affines, rectangular or polar,
   with reset buttons, and *Auto-calculate pre_zscale* (keeps `pre_zscale = √|det|`, Apophysis's 3D helper).
   **Colors** — the transform colour on the palette strip, colour speed (flam3's, with Apophysis's `symmetry`
-  shown beside it), opacity, direct colour (`var_color`) and *solo*.
-* **Previews**: the editor's own small preview (right-click for low / medium / high quality) follows every drag;
+  shown beside it), opacity, direct colour (`var_color`), *solo*, and the variation preview's range / depth /
+  density.
+* **Previews**: the editor's own preview (right-click for the quality: *Low* 2 samples per pixel, *Medium* 5
+  and *High* 15, the latter two anti-aliased like the main viewport, High in two passes) follows every drag;
   the **main viewport** waits until the edits pause — a second after the last change (`EDIT_RENDER_DELAY_MS`)
   it re-renders at full quality, so dragging never keeps the GPU / CPU churning.
 

@@ -357,6 +357,13 @@ def _editor_pixmap(name: str, size: int) -> QPixmap:
         painter.setBrush(GLYPH_COLOR)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawPolygon([QPointF(13.5 * u, 2.5 * u), QPointF(13.5 * u, 7 * u), QPointF(9 * u, 7 * u)])
+    elif name == "var-preview":
+        painter.setPen(QPen(GLYPH_COLOR, max(1.0, 1.2 * u), Qt.PenStyle.DotLine))
+        _triangle(painter, u, 2.5, 13.5, 11)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(GLYPH_ACCENT)
+        for cx, cy in ((5, 11), (8, 11), (11, 11), (5, 8), (8, 8), (5, 5), (9.5, 6.5), (12, 9), (7, 13.5)):
+            painter.drawEllipse(QPointF(cx * u, cy * u), 1.0 * u, 1.0 * u)
     elif name == "erase":
         painter.drawRect(QRectF(2.5 * u, 2.5 * u, 11 * u, 11 * u))
         painter.setPen(QPen(GLYPH_COLOR, max(1.0, 1.2 * u), Qt.PenStyle.DotLine))

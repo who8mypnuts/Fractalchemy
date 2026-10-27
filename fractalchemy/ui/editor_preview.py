@@ -5,12 +5,15 @@ the main viewport waits until the edits pause. Only one preview render is in fli
 arriving while one runs is rendered as soon as it lands (never sooner than `EDITOR_PREVIEW_THROTTLE_MS`
 after the previous start), so every frame delivered is a complete picture and the preview keeps up at
 whatever rate the engine manages. Renders go through the shared `RenderService` at `PRIORITY_EDITOR`,
-ahead of the viewport. Right-click for the quality (Apophysis's low / medium / high).
+ahead of the viewport. Right-click for the quality — Apophysis's low / medium / high, as `QualityLevel`s:
+samples per pixel, supersampling and filter radius (the anti-aliasing the main viewport uses), passes.
 """
 
 from __future__ import annotations
 
 import numpy as np
+from dataclasses import dataclass
+
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QImage, QPainter, QPaintEvent
 from PySide6.QtWidgets import QMenu, QSizePolicy, QWidget
@@ -23,7 +26,20 @@ from .fractal_document import FractalDocument
 
 BACKGROUND = QColor(24, 24, 24)
 TEXT = QColor(110, 110, 110)
-QUALITIES = (("Low", 1.0), ("Medium", 2.0), ("High", 5.0))
+
+
+@dataclass(frozen=True)
+class QualityLevel:
+    """One entry of the preview's quality menu."""
+    name: str
+    quality: float          # samples per pixel (Apophysis "density")
+    oversample: int         # buckets per pixel side (2 = the viewport's 2×2 anti-aliasing)
+    filter_radius: float
+    passes: int             # progressive passes: more than one shows a rough picture sooner
+
+
+QUALITIES = (QualityLevel("Low", 2.0, 1, 0.0, 1), QualityLevel("Medium", 5.0, 2, 0.5, 1), QualityLevel("High", 15.0, 2, 0.5, 2))
+DEFAULT_QUALITY = QUALITIES[1]
 KEY = ("editor-preview",)
 WATCHDOG_MS = 10000
 
@@ -33,10 +49,10 @@ class EditorPreview(QWidget):
 
     Signals:
         rendered(RenderStats): After every delivered pass.
-        quality_changed(float): The chosen preview quality (samples per pixel).
+        quality_changed(str): The name of the chosen quality level (`Low` / `Medium` / `High`).
     """
     rendered = Signal(object)
-    quality_changed = Signal(float)
+    quality_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None, size: tuple[int, int] = config.EDITOR_PREVIEW_SIZE):
         super().__init__(parent)
@@ -48,7 +64,7 @@ class EditorPreview(QWidget):
         self._pending = False
         self._busy = False
         self._solo: int | None = None
-        self.quality = config.EDITOR_PREVIEW_QUALITY
+        self.level: QualityLevel = DEFAULT_QUALITY
         self._throttle = QTimer(self, singleShot=True, interval=config.EDITOR_PREVIEW_THROTTLE_MS)
         self._throttle.timeout.connect(self._flush)
         self._watchdog = QTimer(self, singleShot=True, interval=WATCHDOG_MS)   # a render that never reports frees the slot
@@ -86,11 +102,12 @@ class EditorPreview(QWidget):
             self._solo = index
             self.request()
 
-    def set_quality(self, quality: float) -> None:
-        quality = max(0.1, float(quality))
-        if quality != self.quality:
-            self.quality = quality
-            self.quality_changed.emit(quality)
+    def set_quality(self, level: "QualityLevel | str | float") -> None:
+        """Choose a quality level by object, name, or samples per pixel (the nearest level)."""
+        level = quality_level(level)
+        if level != self.level:
+            self.level = level
+            self.quality_changed.emit(level.name)
             self.request()
 
     # --- rendering ------------------------------------------------------------------------------------------
@@ -135,9 +152,10 @@ class EditorPreview(QWidget):
             return
         rect = _fitted(QSize(max(1, flame.camera.width), max(1, flame.camera.height)), self.rect())
         flame.camera = flame.camera.at_size(rect.width(), rect.height())
-        settings = RenderSettings(rect.width(), rect.height(), passes=config.EDITOR_PREVIEW_PASSES, quality=self.quality,
-                                  points=config.EDITOR_PREVIEW_POINTS, fuse=config.EDITOR_PREVIEW_FUSE, oversample=1,
-                                  filter_radius=0.0, refine_to=0.0)
+        level = self.level
+        settings = RenderSettings(rect.width(), rect.height(), passes=level.passes, quality=level.quality,
+                                  points=config.EDITOR_PREVIEW_POINTS, fuse=config.EDITOR_PREVIEW_FUSE,
+                                  oversample=level.oversample, filter_radius=level.filter_radius, refine_to=0.0)
         self._generation += 1
         self._busy = True
         self._service.submit(KEY, flame, settings, PRIORITY_EDITOR)
@@ -185,14 +203,30 @@ class EditorPreview(QWidget):
     def _menu(self, pos) -> None:
         menu = QMenu(self)
         group = QActionGroup(menu)
-        for label, quality in QUALITIES:
-            action = QAction(f"{label} quality", menu)
+        for level in QUALITIES:
+            action = QAction(f"{level.name} quality", menu)
+            action.setToolTip(f"{level.quality:g} samples per pixel" + (", anti-aliased" if level.oversample > 1 else ""))
             action.setCheckable(True)
-            action.setChecked(abs(self.quality - quality) < 1e-9)
-            action.triggered.connect(lambda _c=False, q=quality: self.set_quality(q))
+            action.setChecked(level == self.level)
+            action.triggered.connect(lambda _c=False, lv=level: self.set_quality(lv))
             group.addAction(action)
             menu.addAction(action)
         menu.exec(self.mapToGlobal(pos))
 
 
-__all__ = ["EditorPreview", "QUALITIES"]
+def quality_level(value: "QualityLevel | str | float") -> QualityLevel:
+    """The level for a name (`High`), a level, or a samples-per-pixel number (the nearest level)."""
+    if isinstance(value, QualityLevel):
+        return value
+    if isinstance(value, str):
+        for level in QUALITIES:
+            if level.name.lower() == value.strip().lower():
+                return level
+        try:
+            value = float(value)
+        except ValueError:
+            return DEFAULT_QUALITY
+    return min(QUALITIES, key=lambda level: abs(level.quality - float(value)))
+
+
+__all__ = ["EditorPreview", "QualityLevel", "QUALITIES", "DEFAULT_QUALITY", "quality_level"]

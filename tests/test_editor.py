@@ -557,6 +557,67 @@ def test_keys_on_the_canvas_nudge_rotate_and_switch_modes(editor):
     assert view.pixels_per_unit > 0
 
 
+def test_variation_preview_points_follow_the_transform():
+    from fractalchemy.render.xform_preview import preview_grid, variation_preview
+    x, y = preview_grid(2, 2)
+    assert x.shape == (41 * 41,) and x.min() == -2 and x.max() == 2 and abs(np.diff(np.unique(x))[0] - 0.1) < 1e-12
+    xform = XForm(coefs=(0.5, 0.1, -0.2, 0.5, 0.3, -0.1), post=(1, 0, 0, 1, 0.25, 0))
+    points = variation_preview(xform, 2, 2, 1)
+    a, b, c, d, e, f = xform.coefs
+    expected = np.column_stack([a * x + c * y + e + 0.25, b * x + d * y + f])        # linear: affine, then the post affine
+    assert points.shape == expected.shape and np.allclose(points, expected)
+    twice = variation_preview(xform, 2, 2, 2)
+    assert np.allclose(twice, np.column_stack([a * points[:, 0] + c * points[:, 1] + e + 0.25, b * points[:, 0] + d * points[:, 1] + f]))
+    xform.pre = (2, 0, 0, 2, 0, 0)
+    assert np.allclose(variation_preview(xform, 2, 2, 1), np.column_stack([a * 2 * x + c * 2 * y + e + 0.25, b * 2 * x + d * 2 * y + f]))
+    spherical = variation_preview(XForm(variations={"spherical": 1.0}), 1, 1, 1)
+    assert np.isfinite(spherical).all() and len(spherical) <= 121
+    assert len(variation_preview(XForm(variations={"julian": 1.0, "pre_blur": 0.5}, params={"julian_power": 4}), 5, 5, 3)) == 251 * 251
+
+
+def test_variation_preview_button_shows_the_selected_transforms_grid_on_the_canvas(editor):
+    ed = editor.editor
+    view = ed.view
+    assert ed.act_var_preview in ed.toolbar.actions() and not ed.act_var_preview.isChecked() and view.variation_preview_count == 0
+    ed.context.select(0)
+    ed.act_var_preview.setChecked(True)
+    assert view.variation_preview_count == 41 * 41                      # range ±2, density 2: a 41 × 41 grid
+    ed.colors_tab.var_preview_sliders["density"].setValue(1)
+    assert view.variation_preview_count == 21 * 21 and ed.colors_tab.var_preview_labels["density"].text() == "5"
+    ed.colors_tab.var_preview_sliders["range"].setValue(3)
+    assert view.variation_preview_count == 31 * 31 and ed.colors_tab.var_preview_labels["range"].text() == "±3"
+    assert int(ed._settings.value("editor/var_preview_range")) == 3
+    ed.context.select(1)                                                 # spherical: the origin's point is dropped
+    assert 0 < view.variation_preview_count <= 31 * 31
+    ed.triangle_tab.move_right.click()                                   # an edit recomputes (still shown)
+    assert view.variation_preview_count > 0
+    from PySide6.QtTest import QTest
+    view.setFocus()
+    QTest.keyClick(view, Qt.Key.Key_V)
+    assert not ed.act_var_preview.isChecked() and view.variation_preview_count == 0
+    view.set_variation_preview(np.array([[0.0, 0.0], [0.5, 0.5]]))
+    view.grab()                                                          # paints the dots without error
+
+
+def test_preview_quality_levels():
+    from fractalchemy.ui.editor_preview import DEFAULT_QUALITY, QUALITIES, quality_level
+    assert [q.name for q in QUALITIES] == ["Low", "Medium", "High"] and DEFAULT_QUALITY.name == "Medium"
+    assert QUALITIES[0].quality < QUALITIES[1].quality < QUALITIES[2].quality and QUALITIES[1].quality == 5.0
+    assert quality_level("high") is QUALITIES[2] and quality_level(5.0) is QUALITIES[1] and quality_level("nope") is DEFAULT_QUALITY
+    assert quality_level("2") is QUALITIES[0] and quality_level(QUALITIES[2]) is QUALITIES[2]
+
+
+def test_preview_quality_is_chosen_and_remembered(editor):
+    ed = editor.editor
+    names = []
+    ed.preview.quality_changed.connect(names.append)
+    ed.preview.set_quality("High")
+    assert ed.preview.level.name == "High" and names == ["High"] and ed._settings.value("editor/preview_quality") == "High"
+    ed.preview.set_quality("High")
+    assert names == ["High"]
+    wait_until(lambda: ed.preview.stats is not None and ed.preview.stats.passes_total == 2, 30000)
+
+
 def test_copy_and_paste_triangle_and_clipboard_parsing(editor):
     ed, doc = editor.editor, editor.document
     ed.context.select(0)

@@ -30,12 +30,13 @@ from ..fractal import xform_ops
 from ..fractal.scene import Affine, XForm, identity_affine
 from ..fractal.triangles import CORNER_O, CORNER_X, CORNER_Y, Triangle
 from ..render.service import RenderService
+from ..render.xform_preview import variation_preview
 from ..widgets.icons import action_icon, editor_icon
 from ..widgets.triangle_view import (MODE_MOVE, MODE_ROTATE, MODE_SCALE, PIVOT_LOCAL, PIVOT_WORLD, TriangleEntry,
                                      TriangleView, transform_color)
 from .editor_context import FINAL_KEY, MODE_LABELS, MODE_NORMAL, MODE_POST, MODE_PRE, MODE_TIPS, MODES, EditorContext
 from .editor_panels import ColorsTab, TransformTab, TriangleTab, VariablesTab, VariationsTab, XaosTab
-from .editor_preview import EditorPreview
+from .editor_preview import DEFAULT_QUALITY, EditorPreview, quality_level
 from .fractal_document import FractalDocument
 
 WINDOW_TITLE = "Transform Editor"
@@ -220,6 +221,9 @@ class EditorWindow(QMainWindow):
         self.act_link = self._action("Add linked transform", "linked-transform", self.add_linked_transform, None,
                                      "Add a transform linked by xaos: the selected one leads only to it, and it leads on where the selected one did")
         self.act_final = self._action("Final transform", "final-transform", self._toggle_final, "Ctrl+F", "Enable or disable the final transform", checkable=True)
+        self.act_var_preview = self._action("Variation preview", "var-preview", self._set_var_preview, None,
+                                            "Show a grid of points sent through the selected transform on the canvas "
+                                            "(range / depth / density on the Colors tab) — key V on the canvas", checkable=True)
         self.act_undo = self._action("Undo", action_icon("undo"), self.document.undo, QKeySequence.StandardKey.Undo, "Undo the last change to the fractal")
         self.act_redo = self._action("Redo", action_icon("redo"), self.document.redo, "Ctrl+Shift+Z", "Redo the change you undid")
         self.act_copy = self._action("Copy triangle", action_icon("copy"), self.copy_triangle, "Ctrl+C", "Copy the selected triangle's coordinates")
@@ -260,7 +264,7 @@ class EditorWindow(QMainWindow):
         for item in (self.act_new_flame, self.act_add, self.act_duplicate, self.act_delete, self.act_link, None, self.act_undo, self.act_redo, None,
                      self.act_copy, self.act_paste, None, self.act_select, self.act_move, self.act_rotate, self.act_scale,
                      self.act_pivot, None, self.act_rot_ccw, self.act_rot_cw, self.act_flip_h, self.act_flip_v, None,
-                     self.act_final, self.act_fit):
+                     self.act_var_preview, self.act_final, self.act_fit):
             if item is None:
                 toolbar.addSeparator()
             else:
@@ -276,8 +280,8 @@ class EditorWindow(QMainWindow):
                      self.act_rotate, self.act_scale, self.act_pivot):
             menu_edit.addSeparator() if item is None else menu_edit.addAction(item)
         menu_view = self.menuBar().addMenu("View")
-        for item in (self.act_fit, self.act_zoom_in, self.act_zoom_out, None, self.act_ghosts, self.act_helpers, self.act_xform_colors,
-                     None, self.act_reload, None, self.act_close):
+        for item in (self.act_fit, self.act_zoom_in, self.act_zoom_out, None, self.act_var_preview, self.act_ghosts, self.act_helpers,
+                     self.act_xform_colors, None, self.act_reload, None, self.act_close):
             menu_view.addSeparator() if item is None else menu_view.addAction(item)
 
     def _connect(self) -> None:
@@ -305,6 +309,8 @@ class EditorWindow(QMainWindow):
         self.name_edit.editingFinished.connect(self._on_name_edited)
         self.weight_box.valueChanged.connect(self._on_weight_edited)
         self.colors_tab.solo_toggled.connect(self._on_solo)
+        self.colors_tab.var_preview_changed.connect(self._save_var_preview_settings)
+        self.colors_tab.var_preview_changed.connect(self.update_variation_preview)
         self.transform_tab.auto_zscale_toggled.connect(self._on_auto_zscale)
         self.triangle_tab.rotate_left90.clicked.connect(lambda: self.rotate_selected(90.0))
         self.triangle_tab.rotate_right90.clicked.connect(lambda: self.rotate_selected(-90.0))
@@ -323,10 +329,14 @@ class EditorWindow(QMainWindow):
     def _load_settings(self) -> None:
         s = self._settings
         try:
-            self.preview.quality = float(s.value(f"{SETTINGS_GROUP}/preview_quality", config.EDITOR_PREVIEW_QUALITY))
+            self.preview.level = quality_level(s.value(f"{SETTINGS_GROUP}/preview_quality", DEFAULT_QUALITY.name))
             self.act_xform_colors.setChecked(s.value(f"{SETTINGS_GROUP}/transform_colors", "false") in ("true", True))
             self.act_ghosts.setChecked(s.value(f"{SETTINGS_GROUP}/ghosts", "true") in ("true", True))
             self.act_helpers.setChecked(s.value(f"{SETTINGS_GROUP}/helpers", "true") in ("true", True))
+            self.colors_tab.set_var_preview_settings(int(s.value(f"{SETTINGS_GROUP}/var_preview_range", 2)),
+                                                     int(s.value(f"{SETTINGS_GROUP}/var_preview_depth", 1)),
+                                                     int(s.value(f"{SETTINGS_GROUP}/var_preview_density", 2)))
+            self.act_var_preview.setChecked(s.value(f"{SETTINGS_GROUP}/var_preview", "false") in ("true", True))
             geometry = s.value(f"{SETTINGS_GROUP}/geometry")
             if geometry is not None:
                 self.restoreGeometry(geometry)
@@ -354,6 +364,7 @@ class EditorWindow(QMainWindow):
         self._settings.setValue(f"{SETTINGS_GROUP}/transform_colors", self.act_xform_colors.isChecked())
         self._settings.setValue(f"{SETTINGS_GROUP}/ghosts", self.act_ghosts.isChecked())
         self._settings.setValue(f"{SETTINGS_GROUP}/helpers", self.act_helpers.isChecked())
+        self._settings.setValue(f"{SETTINGS_GROUP}/var_preview", self.act_var_preview.isChecked())
         super().closeEvent(event)
 
     # --- modes ----------------------------------------------------------------------------------------------
@@ -400,6 +411,33 @@ class EditorWindow(QMainWindow):
         self._use_transform_colors = on
         self._refresh_view()
         self._fill_combo()
+        self.update_variation_preview()
+
+    def _set_var_preview(self, on: bool) -> None:
+        self.update_variation_preview()
+        self.info_label.setText("Variation preview: a grid of points through the selected transform" if on else "")
+
+    def _save_var_preview_settings(self) -> None:
+        r, d, n = self.colors_tab.var_preview_settings()
+        self._settings.setValue(f"{SETTINGS_GROUP}/var_preview_range", r)
+        self._settings.setValue(f"{SETTINGS_GROUP}/var_preview_depth", d)
+        self._settings.setValue(f"{SETTINGS_GROUP}/var_preview_density", n)
+
+    def update_variation_preview(self) -> None:
+        """Recompute the canvas's variation preview for the selected transform (or hide it)."""
+        xform = self.context.xform()
+        if not self.act_var_preview.isChecked() or xform is None:
+            self.view.set_variation_preview(None)
+            return
+        range_units, depth, density = self.colors_tab.var_preview_settings()
+        try:
+            points = variation_preview(xform, range_units, density, depth)
+        except Exception as exc:  # noqa: BLE001 - a formula that cannot run on this input: show nothing, say why
+            self.view.set_variation_preview(None)
+            self.info_label.setText(f"Variation preview unavailable: {exc}")
+            return
+        points[:, 1] = -points[:, 1]          # fractal y (down) → editor y (up)
+        self.view.set_variation_preview(points, self._entry_color(self.context.selected, xform))
 
     # --- document → editor ----------------------------------------------------------------------------------
     def _on_flame_replaced(self) -> None:
@@ -434,6 +472,7 @@ class EditorWindow(QMainWindow):
         self.act_duplicate.setEnabled(has_flame and not self.context.is_final)
         self.setWindowTitle(f"{WINDOW_TITLE} — {flame.name}" if has_flame else WINDOW_TITLE)
         self._on_undo_changed(self.document.can_undo, self.document.can_redo)
+        self.update_variation_preview()
         self.preview.request()
 
     def _on_transforms_changed(self) -> None:
@@ -461,6 +500,8 @@ class EditorWindow(QMainWindow):
             self.xaos_tab.refresh()          # the other transform's links / name show here too
         if what in ("fields", "all"):
             self._fill_combo_texts()
+        if index == self.context.selected and what in ("affine", "variations", "params", "all"):
+            self.update_variation_preview()
         self.preview.request()
 
     def _on_palette_changed(self) -> None:
@@ -488,6 +529,7 @@ class EditorWindow(QMainWindow):
         self.act_duplicate.setEnabled(flame is not None and not self.context.is_final)
         if self.colors_tab.solo.isChecked():
             self.preview.set_solo(None if self.context.is_final else key)
+        self.update_variation_preview()
         self.view.update()
 
     # --- refreshing the parts ---------------------------------------------------------------------------------
@@ -757,6 +799,8 @@ class EditorWindow(QMainWindow):
             self.act_rotate.setChecked(True)
         elif command == "mode-scale":
             self.act_scale.setChecked(True)
+        elif command == "toggle-var-preview":
+            self.act_var_preview.setChecked(not self.act_var_preview.isChecked())
         elif command == "next-affine":
             self.set_mode(MODES[(MODES.index(self.context.mode) + 1) % len(MODES)])
 
