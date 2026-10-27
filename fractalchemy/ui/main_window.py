@@ -47,7 +47,7 @@ CUSTOM_WIDGETS = {
 }
 SCANNING_MESSAGE = "Scanning fractal library…"
 LIBRARY_PANE_WIDTH = 300
-SETTINGS_PANE_WIDTH = 230
+SETTINGS_PANE_WIDTH = 300
 MESSAGE_MS = 6000
 ABOUT_TEXT = (
     f"<h3>{config.APP_NAME} {config.APP_VERSION}</h3>"
@@ -107,7 +107,7 @@ class MainWindow(QMainWindow):
         self.actionThumbnailView.toggled.connect(self.fractalLibraryPanel.set_thumbnail_view)
         self.actionExit.triggered.connect(self.close)
         self.actionAbout.triggered.connect(self.about)
-        self.actionFormulas.triggered.connect(self.show_formulas)
+        self.actionFormulas.triggered.connect(lambda: self.show_formulas())
         self.actionAboutQt.triggered.connect(lambda: QMessageBox.aboutQt(self, f"About Qt — {config.APP_NAME}"))
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
@@ -121,6 +121,7 @@ class MainWindow(QMainWindow):
         self.document.flame_replaced.connect(self._on_flame_replaced)
         self.document.camera_changed.connect(self._on_camera_changed)
         self.document.palette_changed.connect(self._on_palette_changed)
+        self.settingsPanel.info.formula_activated.connect(self.show_formulas)
 
     def _connect_library(self) -> None:
         panel = self.fractalLibraryPanel
@@ -137,6 +138,7 @@ class MainWindow(QMainWindow):
     def _connect_render(self) -> None:
         self.render_service.engine_ready.connect(self.status.set_engine)
         self.viewport.render_progress.connect(self.status.show_progress)
+        self.viewport.render_progress.connect(self.settingsPanel.info.show_render)
         self.viewport.render_failed.connect(lambda message: self._message(f"Cannot render: {message}"))
 
     def _connect_viewer_controls(self) -> None:
@@ -216,11 +218,13 @@ class MainWindow(QMainWindow):
     def about(self) -> None:
         QMessageBox.about(self, f"About {config.APP_NAME}", ABOUT_TEXT)
 
-    def show_formulas(self) -> None:
-        """Open (or raise) the formula browser."""
+    def show_formulas(self, name: str = "") -> None:
+        """Open (or raise) the formula browser, on formula `name` if given."""
         if self._formula_browser is None:
             from .formula_browser import FormulaBrowser
             self._formula_browser = FormulaBrowser(self)
+        if name:
+            self._formula_browser.select(name)
         self._formula_browser.show()
         self._formula_browser.raise_()
         self._formula_browser.activateWindow()
@@ -231,6 +235,7 @@ class MainWindow(QMainWindow):
         self.status.show_fractal(flame, source)
         self.status.show_idle()
         self.viewerBar.show_flame(flame)
+        self.settingsPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
         self.setWindowTitle(f"{config.APP_NAME} — {flame.name}" if flame else config.APP_NAME)
 
     def _on_camera_changed(self) -> None:
@@ -238,9 +243,11 @@ class MainWindow(QMainWindow):
         if flame is not None:
             cx, cy = flame.camera.center
             self._message(f"center {cx:.4f}, {cy:.4f}   zoom {flame.camera.zoom:.2f}", 2000)
+        self.settingsPanel.info.show_camera()
 
     def _on_palette_changed(self) -> None:
         self._message("Gradient applied to the fractal", 2000)
+        self.settingsPanel.info.show_palette()
 
     def _message(self, text: str, ms: int = MESSAGE_MS) -> None:
         self.statusBar().showMessage(text, ms)

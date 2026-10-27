@@ -1,6 +1,7 @@
-"""The collapsible panel on the right of the viewport: tabs of options, starting with render settings.
+"""The collapsible panel on the right of the viewport: an *Info* tab describing the loaded fractal,
+then tabs of options, starting with render settings.
 
-Values persist in QSettings so the preview quality you chose is there next time.
+Values (and the tab you were on) persist in QSettings so they are there next time.
 """
 
 from __future__ import annotations
@@ -9,15 +10,17 @@ from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import QDoubleSpinBox, QFormLayout, QLabel, QSpinBox, QTabWidget, QVBoxLayout, QWidget
 
 from .. import config
+from .info_panel import InfoPanel
 
 PASSES_KEY = "preview/passes"
 QUALITY_KEY = "preview/quality"
+TAB_KEY = "panel/tab"
 PASSES_RANGE = (1, 50)
 QUALITY_RANGE = (0.5, 500.0)
 
 
 class SettingsPanel(QWidget):
-    """Tabbed options panel.
+    """Tabbed panel: *Info* (facts about the fractal), *Render* (preview settings).
 
     Signals:
         render_settings_changed(int, float): (passes, quality) whenever either box changes.
@@ -28,12 +31,14 @@ class SettingsPanel(QWidget):
         super().__init__(parent)
         self._settings = settings
         self.tabs = QTabWidget(self)
+        self.info = InfoPanel(self)
         self.passes_box = QSpinBox(self)
         self.quality_box = QDoubleSpinBox(self)
         self._build()
         self._load()
         self.passes_box.valueChanged.connect(self._changed)
         self.quality_box.valueChanged.connect(self._changed)
+        self.tabs.currentChanged.connect(self._tab_changed)
         self.setMinimumWidth(180)
 
     def attach_settings(self, settings: QSettings | None) -> None:
@@ -58,7 +63,10 @@ class SettingsPanel(QWidget):
         note.setWordWrap(True)
         note.setEnabled(False)
         form.addRow(note)
+        self.tabs.addTab(self.info, "Info")
         self.tabs.addTab(render, "Render")
+        self.tabs.setTabToolTip(0, "What the loaded fractal is made of")
+        self.tabs.setTabToolTip(1, "Preview render settings")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addWidget(self.tabs)
@@ -94,6 +102,17 @@ class SettingsPanel(QWidget):
                 pass
         self.passes_box.setValue(passes)
         self.quality_box.setValue(quality)
+        if self._settings is not None:
+            try:
+                tab = int(self._settings.value(TAB_KEY, 0))
+            except (TypeError, ValueError):
+                tab = 0
+            if 0 <= tab < self.tabs.count():
+                self.tabs.setCurrentIndex(tab)
+
+    def _tab_changed(self, index: int) -> None:
+        if self._settings is not None:
+            self._settings.setValue(TAB_KEY, index)
 
     def _changed(self, *_args) -> None:
         if self._settings is not None:

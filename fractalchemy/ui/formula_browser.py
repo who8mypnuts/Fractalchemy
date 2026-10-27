@@ -136,6 +136,22 @@ class FormulaBrowser(QWidget):
                 visible += hit
             group.setHidden(visible == 0)
 
+    def select(self, name: str) -> None:
+        """Show formula `name` (clearing any filter that hides it); unknown names just clear the selection."""
+        for g in range(self.tree.topLevelItemCount()):
+            group = self.tree.topLevelItem(g)
+            for i in range(group.childCount()):
+                item = group.child(i)
+                if item.data(0, Qt.ItemDataRole.UserRole) == name:
+                    if item.isHidden():
+                        self.search.clear()
+                    group.setExpanded(True)
+                    self.tree.setCurrentItem(item)
+                    self.tree.scrollToItem(item)
+                    return
+        self.tree.setCurrentItem(None)
+        self.details.setPlainText(f"{name}: not available (no loaded formula has this name).")
+
     def _show_details(self, item: QTreeWidgetItem | None, _previous=None) -> None:
         name = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
         var = V.REGISTRY.get(name) if name else None

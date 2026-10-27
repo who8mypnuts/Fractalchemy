@@ -40,11 +40,20 @@ formulas of Fractalchemy. Design and reference: **docs/formulas.md** (read it fi
    SDK builds), affine `TM(a..f)` members of the Aposhack-pack SDK layout, `--batch`/`--refresh`),
    `tools/pemeta.py`.
 6. **UI**: *Help ▸ Formulas…* (`ui/formula_browser.py`): searchable catalogue grouped by origin, parameter
-   details, load errors, user folder path. Status bar still lists ignored unknown variations.
+   details, load errors, user folder path (`select(name)` jumps to one). Status bar still lists ignored unknown
+   variations. **Info tab** (`ui/info_panel.py`, first tab of the settings panel, before *Render*): property
+   tree of the loaded fractal — file/entry/format, size + camera (3D rows), transforms (weight share, colour,
+   variations + parameters, affine/post/xaos), distinct formulas with facts (double-click → formula browser),
+   colouring + palette strip, last render stats. Fed by `MainWindow` from the document's signals and
+   `viewport.render_progress`; the chosen tab persists (`panel/tab`).
 7. **Tests**: `test_formula_lang.py` (compiler features), `test_formulas_loader.py` (user folders, override,
    cache, errors), `test_variations.py` now runs every registered formula through both engines (one of twelve
    points may differ: float32 discontinuities), engine 3D/DC/pre-post tests, flame 3D attribute round trip,
-   formula browser test. **1338 passed** at the last full run (after the final reconstruction refresh).
+   formula browser test, `test_info_panel.py` (6). **1345 passed** at the last full run.
+
+Also fixed: the `.flame` reader treated `modulus` / `modulus_x` / `modulus_y` as transform attributes (a
+baseline assumption); they are the `modulus` plugin, which is now in the library — flames using it rendered
+black before.
 
 ## Known gaps / next steps
 * Not available (see `tools/apo_decompile.py --batch` report): DLL-only plugins with loops (tile, tile_hyp,

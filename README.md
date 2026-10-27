@@ -44,8 +44,13 @@ python -m pytest
     full resolution. Meanwhile the previous picture is simply repositioned under the new view (never stretched),
     and a newer view always cancels the older render, so a stale image never overwrites the current one.
 * **Settings panel** (right, collapsible via its divider arrow or *View ▸ Show/Hide Settings Panel* `Ctrl+Shift+L`):
-  tabs of options — today *Render* with **Passes** and **Quality** (samples per pixel) for the preview; both
-  re-render immediately and persist between runs.
+  * *Info* — what the loaded fractal is made of: file / entry / format, size and camera (incl. the 3D camera),
+    every transform with its weight share, colour, variations and their parameters, affine / post / xaos, the
+    distinct **formulas** it uses (use count, pre/normal/post, 3D, direct colour, random, origin — double-click
+    one to open it in the formula browser; unavailable ones are flagged), the colouring and palette strip, and
+    the facts of the last preview render.
+  * *Render* — **Passes** and **Quality** (samples per pixel) for the preview; both re-render immediately.
+  The values and the tab you were on persist between runs.
 * **Status bar** across the bottom: the loaded fractal (name, transform count, size, file, ignored
   variations), render facts (engine, render size, samples, samples/second — the full GPU name is in the
   tooltip), **Pass n of N**, and a progress bar.

@@ -18,7 +18,7 @@ from ..variations import REGISTRY, canonical_name, normalize, parameter_owner
 # xform attributes that are not variations
 XFORM_ATTRS = {
     "weight", "color", "symmetry", "color_speed", "opacity", "coefs", "post", "chaos", "name", "animate",
-    "plotmode", "var_color", "modulus", "modulus_x", "modulus_y", "enabled", "var", "var1", "vars",
+    "plotmode", "var_color", "enabled", "var", "var1", "vars",
     "motion_frequency", "motion_function", "motion_offset",
 }
 _HEX_TRIPLET = re.compile(r"[0-9A-Fa-f]{6}")

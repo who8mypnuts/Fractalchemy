@@ -165,3 +165,14 @@ def test_flame_xml_reads_and_writes_the_3d_camera_and_plugin_attributes():
     assert again.camera == cam and again.xforms[0].var_color == 0.6 and again.xforms[1].params == flame.xforms[1].params
     assert 'cam_perspective="0.25"' in flame_to_xml(flame) and "cam_pitch" not in flame_to_xml(Flame("flat", [XForm()]))
     assert Flame.from_dict(flame.to_dict()).camera == cam and Flame.from_dict(flame.to_dict()).xforms[0].var_color == 0.6
+
+
+def test_modulus_is_a_variation_not_an_xform_attribute(samples):
+    """Apophysis has no per-transform `modulus`; it is the modulus plugin (with modulus_x / modulus_y)."""
+    text = """<flame name="m" size="600 600" center="0 0" scale="270">
+  <xform weight="0.5" color="0" modulus="1" coefs="1 0 0 1 0 0" modulus_x="1" modulus_y="0.5" opacity="0"/>
+</flame>"""
+    xform = parse_text(text)[0].xforms[0]
+    assert xform.variations == {"modulus": 1.0} and xform.params == {"modulus_x": 1.0, "modulus_y": 0.5}
+    flame = load_flames(samples / "sample flames" / "69e8n5w1.flame")[0]
+    assert all(x.variations == {"modulus": 1.0} for x in flame.xforms) and not flame.unsupported

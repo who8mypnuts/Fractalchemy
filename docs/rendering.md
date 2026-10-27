@@ -8,12 +8,15 @@ faithful preview of the final render.
 
 ```
                      fractalchemy/fractal            (shared, Qt-free)
-            Flame · XForm · Camera · Coloring · palette
-            variations.py  — every variation defined for numpy AND GLSL
+            Flame · XForm · Camera (2D + 3D) · Coloring · palette
+            variations.py  — the registry: every variation defined for numpy AND GLSL
             formats/       — .flame (Apophysis/flam3) · .chaos (Chaotica) · .fa (ours)
                                │
+                     fractalchemy/formulas           (the formulas themselves)
+            builtin/ (Python)  ·  library/*.c (plugin dialect → lang/ compiler)  ·  user folders
+                               │
                  CompiledFlame (render/compiled.py)
-        resolved variations · xaos selection table · palette array
+        resolved + prepared variations (pre → normal → post) · xaos table · palette
                 ┌──────────────┴───────────────┐
       Preview engine (render/gpu_engine.py)   CPU engine (render/cpu_engine.py)
       moderngl / OpenGL 3.3, float32          numpy, float64, one population per thread
@@ -31,10 +34,17 @@ faithful preview of the final render.
   weights, parameters, xaos row), an optional `final` transform, `Camera`, `Coloring` and a
   256-entry palette. Conventions follow flam3/Apophysis exactly (coefficient order, y pointing down,
   `color_speed = (1 − symmetry) / 2`, `scale · 2^zoom` pixels per unit) so files round-trip.
-* `variations.py` is the single catalogue. Each entry carries a numpy function and a GLSL snippet
-  written from the same formula, with the same helper names (`t`, `w`, `r2`, `r`, `theta`, `phi`,
-  `P_<param>`, `rnd(s)`). `tests/test_variations.py` runs both on the same points and asserts they agree,
-  so a variation cannot silently mean different things in the two engines.
+* `variations.py` is the registry; the formulas themselves live in `fractalchemy/formulas/` (see
+  [formulas.md](formulas.md)). Each entry carries a numpy function and GLSL written from the same formula —
+  either natively (`builtin/`, helper names `t`, `w`, `r2`, `r`, `theta`, `phi`, `P_<param>`, `rnd(s)`) or
+  compiled from the Apophysis plugin C dialect (`library/`). `tests/test_variations.py` runs every one on
+  the same points in both engines and asserts they agree, so a variation cannot silently mean different
+  things in the two engines.
+* Points carry `(x, y, z, colour)`. A transform runs, in Apophysis's order: colour blend → pre-affine →
+  `pre_` variations (rewrite the input point) → normal variations (accumulate) → `post_` variations
+  (rewrite the accumulator) → post affine → direct colour blend (`var_color`). After the final transform
+  the 3D camera (pitch, yaw, perspective, zpos, depth of field; `render/projection.py`) projects onto the
+  flat camera.
 * `formats/` turn files into `Flame`s. Unknown variations are recorded in `Flame.unsupported` and shown
   in the status bar rather than refusing the file. `.fa` is JSON (`Flame.to_dict()`), so it is diff-friendly
   and extensible: unknown keys are ignored, missing keys take defaults.
@@ -104,5 +114,6 @@ and tested against each other.
 | Deep render | arbitrary-precision reference orbit + perturbation | later — matters for escape-time formulas more than flames |
 | Output | PNG / TIFF / OpenEXR with saved render settings | to come |
 
-Adding a variation: add one `@variation(...)` entry in `variations.py` with both forms; the tests pick it up.
+Adding a variation: drop a plugin-dialect `.c` file (or a `@variation(...)` Python module) into a formulas
+folder; the tests pick it up (see formulas.md).
 Adding a format: implement `FractalFormat` in `fractal/formats/` and list it in `FORMATS`.
