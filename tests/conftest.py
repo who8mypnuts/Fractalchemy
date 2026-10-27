@@ -5,6 +5,10 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from fractalchemy import config  # noqa: E402
+
+config.PREVIEW_REFINE_TO = 0.0   # windows built by the tests stop at their configured passes (render tests opt in)
+
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 NOT_SAMPLES = ("aposource",)  # reference source code kept under samples/, not gradient files
 

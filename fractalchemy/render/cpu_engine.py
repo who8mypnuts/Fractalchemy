@@ -19,6 +19,7 @@ from .. import config
 from ..fractal.scene import Camera, Flame
 from ..fractal.variations import Point
 from .compiled import CompiledFlame, CompiledXForm
+from .filtering import bucket_transform
 from .projection import project
 from .settings import RenderSettings, RenderStats
 from .tonemap import ToneParams, tonemap
@@ -53,14 +54,17 @@ class CpuRenderJob:
         self.compiled = CompiledFlame.build(flame)
         self.threads = max(1, min(threads, settings.points // 256 or 1))
         self.ppu = flame.camera.pixels_per_unit(settings.width, settings.height)
-        self.pixel_transform = flame.camera.pixel_transform(settings.width, settings.height)
+        self.bucket_size = settings.bucket_size    # supersampled + gutter (Apophysis oversample / filter)
+        self.pixel_transform = bucket_transform(flame.camera.pixel_transform(settings.width, settings.height),
+                                                settings.oversample, settings.gutter)
         self.coloring = flame.coloring
-        self.histogram = np.zeros((settings.height, settings.width, 4), dtype=np.float64)
+        self.histogram = np.zeros((self.bucket_size[1], self.bucket_size[0], 4), dtype=np.float64)
         self.stats = RenderStats(engine=f"CPU (numpy, {self.threads} threads)", passes_total=settings.passes,
-                                 width=settings.width, height=settings.height, notes=list(self.compiled.notes))
+                                 width=settings.width, height=settings.height, notes=list(self.compiled.notes),
+                                 samples_target=settings.samples_target)
         per_thread = max(64, settings.points // self.threads)
         self._workers = [_Worker(self.compiled, per_thread, settings.seed * 7919 + i, self.pixel_transform,
-                                 settings.width, settings.height, flame.camera) for i in range(self.threads)]
+                                 self.bucket_size[0], self.bucket_size[1], flame.camera) for i in range(self.threads)]
         self._pool = ThreadPoolExecutor(max_workers=self.threads, thread_name_prefix="render-cpu")
         self._elapsed = 0.0
         self._fused = False
@@ -71,7 +75,8 @@ class CpuRenderJob:
         if not self._fused:
             list(self._pool.map(lambda w: w.fuse(self.settings.fuse), self._workers))
             self._fused = True
-        per_worker = max(1, self.settings.samples_per_pass // self.threads)
+        wanted = self.settings.next_pass_samples(self.stats.passes_done, self.stats.samples)
+        per_worker = max(1, -(-wanted // self.threads))
         results = list(self._pool.map(lambda w: w.run(per_worker, cancelled), self._workers))
         if cancelled():
             return None
@@ -86,8 +91,9 @@ class CpuRenderJob:
 
     def image(self) -> np.ndarray:
         """The current histogram tone-mapped to RGBA8."""
-        params = ToneParams.derive(self.coloring, self.ppu, self.stats.samples)
-        return tonemap(self.histogram, params)
+        s = self.settings
+        params = ToneParams.derive(self.coloring, self.ppu, self.stats.samples, s.oversample)
+        return tonemap(self.histogram, params, s.oversample, s.filter_radius, (s.width, s.height))
 
     def close(self) -> None:
         self._pool.shutdown(wait=False)

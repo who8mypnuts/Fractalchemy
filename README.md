@@ -50,7 +50,9 @@ python -m pytest
     one to open it in the formula browser; unavailable ones are flagged), the colouring and palette strip, and
     the facts of the last preview render.
   * *Image* — everything that shapes the picture, each group with a ↻ *Revert* (back to the file's values):
-    **Preview** (passes and quality — samples per pixel — for the preview; persist between runs);
+    **Preview** (passes and quality — samples per pixel — then *Keep refining to* a quality cap while
+    nothing changes, each extra pass doubling the samples; **Oversample** and **Filter** are Apophysis's
+    supersampling and Gaussian filter radius, 2 / 0.5 = plain 2×2 anti-aliasing; all persist between runs);
     **Camera** (zoom slider + box, Apophysis log2 zoom around the image centre; pan arrows moving the view
     by 10% of the image along the screen axes, rotation respected; centre x / y and rotation boxes);
     **3D camera** (pitch, yaw, perspective, z position, depth blur — Apophysis's `cam_*` attributes, so a
@@ -61,7 +63,8 @@ python -m pytest
   into its entry of the `.flame` / `.fa` file it came from. The tab you were on persists between runs.
 * **Status bar** across the bottom: the loaded fractal (name, transform count, size, file, ignored
   variations), render facts (engine, render size, samples, samples/second — the full GPU name is in the
-  tooltip), **Pass n of N**, and a progress bar.
+  tooltip), **Pass n of N** → **Refining · q 64** → **q 500 ✓** (samples per pixel), and a progress bar.
+  Zoomed-in views get Apophysis's `4^zoom` extra samples so they stay as clean as the whole picture.
 * *Windows ▸ Gradient Library* (`F6`) or the toolbar button opens the **Gradient Library** window —
   the gradient editor described below. It is a tool window that stays above the main window; closing it
   only hides it, so the gradient you are editing (and any unsaved edits) stay put until you reopen it.

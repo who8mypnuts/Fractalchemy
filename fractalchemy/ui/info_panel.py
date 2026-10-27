@@ -214,6 +214,8 @@ class InfoPanel(QWidget):
         for label, text in CAMERA_ROWS.items():
             _row(group, label, text(flame))
         _row(group, "Transforms", f"{len(flame.xforms)}" + (" + final" if flame.final else ""))
+        _row(group, "Render hints", f"oversample {flame.oversample}  ·  filter {fmt(flame.filter_radius)}",
+             tooltip="The file's own supersampling / filter radius for final renders (the preview has its own, on the Image tab)")
         if flame.unsupported:
             _row(group, "Ignored", ", ".join(flame.unsupported), tooltip="Variations the file uses that no loaded formula provides")
 
@@ -291,7 +293,8 @@ class InfoPanel(QWidget):
             return
         _row(group, "Engine", stats.engine)
         _row(group, "Image", f"{stats.width} × {stats.height}")
-        _row(group, "Passes", f"{stats.passes_done} of {stats.passes_total}")
+        _row(group, "Passes", f"{stats.passes_done} of {stats.passes_total}" + ("  ·  refining" if stats.refining else ""))
+        _row(group, "Quality", f"{stats.quality:.1f} samples per pixel", tooltip="Samples per pixel accumulated so far")
         _row(group, "Samples", _millions(stats.samples) + (f"  ·  {_millions(stats.samples / stats.seconds)}/s" if stats.seconds > 0 else ""))
         _row(group, "Time", f"{stats.seconds:.1f} s")
         for note in stats.notes:

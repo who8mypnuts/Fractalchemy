@@ -263,7 +263,9 @@ class FractalViewport(QWidget):
                                                    rect.width() / z, rect.height() / z)}
         flame = self._document.flame.copy()
         flame.camera = camera
-        settings = self.settings.with_size(width, height).scaled(scale)
+        settings = self.settings.with_size(width, height).scaled(scale).for_zoom(self._document.flame.camera.zoom).within_bucket_limit()
+        if scale < 1.0:
+            settings = settings.with_refine(0.0)   # the transient low-resolution render: the full one follows
         self._service.submit(self._current_key, flame, settings, PRIORITY_VIEWPORT)
 
     def _on_pass(self, key: object, image: np.ndarray, stats: RenderStats) -> None:

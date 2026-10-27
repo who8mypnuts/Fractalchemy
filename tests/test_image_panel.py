@@ -209,3 +209,41 @@ def test_save_fractal_writes_the_adjusted_flame_back_into_its_entry(qapp, tmp_pa
     finally:
         win.gradient_library.document.modified = False
         win.close()
+
+
+def test_preview_options_persist_and_reach_the_viewport(qapp, tmp_path):
+    from fractalchemy.ui.settings_panel import FILTER_KEY, OVERSAMPLE_KEY, REFINE_KEY, SettingsPanel
+
+    settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+    panel = SettingsPanel(settings=settings)
+    seen = []
+    panel.render_options_changed.connect(lambda o, f, r: seen.append((o, f, r)))
+    assert (panel.oversample, panel.filter_radius) == (2, 0.5) and panel.refine_to == 0.0   # tests run with refining off
+    panel.image.refine_check.setChecked(True)
+    panel.image.refine_box.setValue(300.0)
+    panel.image.oversample_box.setValue(3)
+    panel.image.filter_box.setValue(1.0)
+    assert seen[-1] == (3, 1.0, 300.0) and int(settings.value(OVERSAMPLE_KEY)) == 3
+    assert float(settings.value(FILTER_KEY)) == 1.0 and float(settings.value(REFINE_KEY)) == 300.0
+    panel.image.refine_check.setChecked(False)
+    assert panel.refine_to == 0.0 and not panel.image.refine_box.isEnabled() and float(settings.value(REFINE_KEY)) == 0.0
+    again = SettingsPanel(settings=settings)
+    assert (again.oversample, again.filter_radius, again.refine_to) == (3, 1.0, 0.0)
+    again.set_options(2, 0.5, 200.0)
+    assert again.image.refine_check.isChecked() and again.refine_to == 200.0
+
+
+def test_main_window_applies_preview_options_to_the_viewport(qapp, tmp_path):
+    from fractalchemy.library.catalog import FRACTAL_CATALOG
+    from fractalchemy.library.roots import LibraryRoots
+    from fractalchemy.ui.main_window import MainWindow
+
+    settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+    win = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key), prefer_gpu=False, settings=settings)
+    try:
+        assert (win.viewport.settings.oversample, win.viewport.settings.filter_radius, win.viewport.settings.refine_to) == (2, 0.5, 0.0)
+        win.settingsPanel.set_options(1, 0.2, 150.0)
+        assert (win.viewport.settings.oversample, win.viewport.settings.filter_radius, win.viewport.settings.refine_to) == (1, 0.2, 150.0)
+    finally:
+        win.gradient_library.document.modified = False
+        win.close()

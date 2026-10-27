@@ -17,6 +17,9 @@ from .info_panel import InfoPanel
 
 PASSES_KEY = "preview/passes"
 QUALITY_KEY = "preview/quality"
+OVERSAMPLE_KEY = "preview/oversample"
+FILTER_KEY = "preview/filter"
+REFINE_KEY = "preview/refine_to"       # 0 = refining off
 TAB_KEY = "panel/tab"
 
 
@@ -25,8 +28,10 @@ class SettingsPanel(QWidget):
 
     Signals:
         render_settings_changed(int, float): (passes, quality) whenever either preview box changes.
+        render_options_changed(int, float, float): (oversample, filter radius, refine-to quality or 0).
     """
     render_settings_changed = Signal(int, float)
+    render_options_changed = Signal(int, float, float)
 
     def __init__(self, parent: QWidget | None = None, settings: QSettings | None = None):
         super().__init__(parent)
@@ -39,6 +44,7 @@ class SettingsPanel(QWidget):
         self._build()
         self._load()
         self.image.render_settings_changed.connect(self._changed)
+        self.image.render_options_changed.connect(self._options_changed)
         self.tabs.currentChanged.connect(self._tab_changed)
         self.setMinimumWidth(180)
 
@@ -74,19 +80,48 @@ class SettingsPanel(QWidget):
         if self.image.set_preview(passes, quality):
             self._changed()
 
+    @property
+    def oversample(self) -> int:
+        return self.image.oversample
+
+    @property
+    def filter_radius(self) -> float:
+        return self.image.filter_radius
+
+    @property
+    def refine_to(self) -> float:
+        return self.image.refine_to
+
+    def set_options(self, oversample: int, filter_radius: float, refine_to: float) -> None:
+        """Set oversample / filter / refinement; emits once if anything changed."""
+        if self.image.set_options(oversample, filter_radius, refine_to):
+            self._options_changed()
+
     def _load(self) -> None:
         passes, quality = config.PREVIEW_PASSES, config.PREVIEW_QUALITY
+        oversample, filter_radius, refine_to = config.PREVIEW_OVERSAMPLE, config.PREVIEW_FILTER, config.PREVIEW_REFINE_TO
         tab = 0
         if self._settings is not None:
             try:
                 passes = int(self._settings.value(PASSES_KEY, passes))
                 quality = float(self._settings.value(QUALITY_KEY, quality))
+                oversample = int(self._settings.value(OVERSAMPLE_KEY, oversample))
+                filter_radius = float(self._settings.value(FILTER_KEY, filter_radius))
+                refine_to = float(self._settings.value(REFINE_KEY, refine_to))
                 tab = int(self._settings.value(TAB_KEY, 0))
             except (TypeError, ValueError):
                 pass
         self.image.set_preview(passes, quality)
+        self.image.set_options(oversample, filter_radius, refine_to)
         if 0 <= tab < self.tabs.count():
             self.tabs.setCurrentIndex(tab)
+
+    def _options_changed(self) -> None:
+        if self._settings is not None:
+            self._settings.setValue(OVERSAMPLE_KEY, self.oversample)
+            self._settings.setValue(FILTER_KEY, self.filter_radius)
+            self._settings.setValue(REFINE_KEY, self.refine_to)
+        self.render_options_changed.emit(self.oversample, self.filter_radius, self.refine_to)
 
     def _tab_changed(self, index: int) -> None:
         if self._settings is not None:

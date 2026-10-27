@@ -202,6 +202,9 @@ class Flame:
         palette: 256 RGB triples (0..255); indexed by the point colour 0..1.
         unsupported: Variation names present in the file that no engine implements (ignored when rendering).
         source_version: The `version` attribute of the file the flame came from, for messages.
+        oversample: The file's own supersampling factor for final renders (Apophysis `oversample`).
+        filter_radius: The file's own spatial filter radius (Apophysis `filter`). The preview uses its own
+            settings; these are kept for round-tripping and shown as information.
     """
     name: str = "flame"
     xforms: list[XForm] = field(default_factory=list)
@@ -211,6 +214,8 @@ class Flame:
     palette: list[RGB] = field(default_factory=lambda: [(int(255 * i / 255),) * 3 for i in range(PALETTE_SIZE)])
     unsupported: list[str] = field(default_factory=list)
     source_version: str = ""
+    oversample: int = 1
+    filter_radius: float = 0.2
 
     @property
     def gradient(self) -> Gradient:
@@ -229,7 +234,7 @@ class Flame:
         """Independent copy (transforms, camera, colouring and palette duplicated)."""
         return Flame(self.name, [x.copy() for x in self.xforms], self.final.copy() if self.final else None,
                      self.camera.copy(), self.coloring.copy(), list(self.palette), list(self.unsupported),
-                     self.source_version)
+                     self.source_version, self.oversample, self.filter_radius)
 
     # --- serialisation (the .fa format and tests use this) ------------------
     def to_dict(self) -> dict:
@@ -247,6 +252,8 @@ class Flame:
             "xforms": [_xform_to_dict(x) for x in self.xforms],
             "final": _xform_to_dict(self.final) if self.final else None,
             "unsupported": list(self.unsupported),
+            "oversample": self.oversample,
+            "filter_radius": self.filter_radius,
         }
 
     @classmethod
@@ -266,6 +273,8 @@ class Flame:
                               col.get("vibrancy", 1.0), col.get("contrast", 1.0), tuple(col.get("background", (0, 0, 0)))),
             palette=palette or Flame().palette,
             unsupported=list(data.get("unsupported", [])),
+            oversample=int(data.get("oversample", 1)),
+            filter_radius=float(data.get("filter_radius", 0.2)),
         )
 
 

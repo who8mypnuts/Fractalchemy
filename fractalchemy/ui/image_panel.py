@@ -13,13 +13,14 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
-    QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSpinBox,
-    QToolButton, QVBoxLayout, QWidget,
+    QCheckBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QScrollArea,
+    QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 
+from .. import config
 from ..widgets.color_dialog import ColorPickerDialog
 from ..widgets.float_row import FloatRow
 from ..widgets.silent import set_value_silently
@@ -87,8 +88,10 @@ class ImagePanel(QWidget):
 
     Signals:
         render_settings_changed(int, float): (passes, quality) whenever either preview box changes.
+        render_options_changed(): Oversample, filter radius or the refinement cap changed.
     """
     render_settings_changed = Signal(int, float)
+    render_options_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -97,6 +100,10 @@ class ImagePanel(QWidget):
         # preview effort
         self.passes_box = QSpinBox(self)
         self.quality_box = QDoubleSpinBox(self)
+        self.oversample_box = QSpinBox(self)
+        self.filter_box = QDoubleSpinBox(self)
+        self.refine_check = QCheckBox("Keep refining to", self)
+        self.refine_box = QDoubleSpinBox(self)
         # camera
         self.zoom = FloatRow("Zoom", *ZOOM_RANGE, decimals=2, step=0.1, spin_range=(-20.0, 40.0), parent=self)
         self.center_x = QDoubleSpinBox(self)
@@ -156,7 +163,20 @@ class ImagePanel(QWidget):
         self.quality_box.setDecimals(1)
         self.quality_box.setSingleStep(1.0)
         self.quality_box.setToolTip("Samples per pixel over the whole preview (Apophysis 'quality')")
-        for box in (self.passes_box, self.quality_box):
+        self.oversample_box.setRange(1, config.MAX_OVERSAMPLE)
+        self.oversample_box.setToolTip("Supersampling: buckets per pixel side before the spatial filter (Apophysis 'oversample')")
+        self.filter_box.setRange(0.0, config.MAX_FILTER_RADIUS)
+        self.filter_box.setDecimals(2)
+        self.filter_box.setSingleStep(0.1)
+        self.filter_box.setToolTip("Radius of the Gaussian filter summing buckets into pixels (Apophysis 'filter radius'); "
+                                   "oversample 2 with 0.5 is plain 2×2 anti-aliasing, larger radii soften the picture")
+        self.refine_check.setToolTip("After the passes, keep adding samples while nothing changes (each extra pass doubles them)")
+        self.refine_box.setRange(1.0, config.MAX_REFINE_QUALITY)
+        self.refine_box.setDecimals(0)
+        self.refine_box.setSingleStep(100.0)
+        self.refine_box.setPrefix("q ")
+        self.refine_box.setToolTip("Quality (samples per pixel) at which refining stops")
+        for box in (self.passes_box, self.quality_box, self.oversample_box, self.filter_box, self.refine_box):
             box.setKeyboardTracking(False)
             box.setFixedWidth(SPIN_WIDTH + 8)
         group = QGroupBox("Preview", self)
@@ -164,6 +184,9 @@ class ImagePanel(QWidget):
         form.setHorizontalSpacing(4)
         form.addRow("Passes", self.passes_box)
         form.addRow("Quality", self.quality_box)
+        form.addRow("Oversample", self.oversample_box)
+        form.addRow("Filter", self.filter_box)
+        form.addRow(self.refine_check, self.refine_box)
         return group
 
     def _camera_group(self) -> QGroupBox:
@@ -250,6 +273,10 @@ class ImagePanel(QWidget):
     def _connect(self) -> None:
         self.passes_box.valueChanged.connect(self._preview_changed)
         self.quality_box.valueChanged.connect(self._preview_changed)
+        self.oversample_box.valueChanged.connect(self._options_changed)
+        self.filter_box.valueChanged.connect(self._options_changed)
+        self.refine_box.valueChanged.connect(self._options_changed)
+        self.refine_check.toggled.connect(self._options_changed)
         self.zoom.value_changed.connect(lambda v: self._edit(lambda d: d.set_view(zoom=v)))
         self.center_x.valueChanged.connect(lambda v: self._edit(lambda d: d.set_view(center=(v, d.flame.camera.center[1]))))
         self.center_y.valueChanged.connect(lambda v: self._edit(lambda d: d.set_view(center=(d.flame.camera.center[0], v))))
@@ -354,4 +381,34 @@ class ImagePanel(QWidget):
 
     def _preview_changed(self, *_args) -> None:
         self.render_settings_changed.emit(self.passes, self.quality)
+
+    # --- render options ------------------------------------------------------------------------------------
+    @property
+    def oversample(self) -> int:
+        return self.oversample_box.value()
+
+    @property
+    def filter_radius(self) -> float:
+        return self.filter_box.value()
+
+    @property
+    def refine_to(self) -> float:
+        """Refinement cap as a quality; 0 when refining is off."""
+        return self.refine_box.value() if self.refine_check.isChecked() else 0.0
+
+    def set_options(self, oversample: int, filter_radius: float, refine_to: float) -> bool:
+        """Set the option controls silently; True if anything changed."""
+        before = (self.oversample, self.filter_radius, self.refine_to)
+        set_value_silently(self.oversample_box, int(oversample))
+        set_value_silently(self.filter_box, float(filter_radius))
+        with QSignalBlocker(self.refine_check):
+            self.refine_check.setChecked(refine_to > 0)
+        if refine_to > 0:
+            set_value_silently(self.refine_box, float(refine_to))
+        self.refine_box.setEnabled(refine_to > 0)
+        return (self.oversample, self.filter_radius, self.refine_to) != before
+
+    def _options_changed(self, *_args) -> None:
+        self.refine_box.setEnabled(self.refine_check.isChecked())
+        self.render_options_changed.emit()
 

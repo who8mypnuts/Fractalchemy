@@ -177,3 +177,13 @@ def test_modulus_is_a_variation_not_an_xform_attribute(samples):
     assert xform.variations == {"modulus": 1.0} and xform.params == {"modulus_x": 1.0, "modulus_y": 0.5}
     flame = load_flames(samples / "sample flames" / "69e8n5w1.flame")[0]
     assert all(x.variations == {"modulus": 1.0} for x in flame.xforms) and not flame.unsupported
+
+
+def test_flame_files_keep_their_oversample_and_filter_hints():
+    text = '<flame name="a" size="10 10" supersample="3" filter="0.7"><xform weight="1" coefs="1 0 0 1 0 0"/></flame>'
+    flame = parse_text(text)[0]
+    assert flame.oversample == 3 and flame.filter_radius == 0.7
+    again = parse_text(flame_to_xml(flame))[0]
+    assert (again.oversample, again.filter_radius) == (3, 0.7) and 'oversample="3" filter="0.7"' in flame_to_xml(flame)
+    assert Flame.from_dict(flame.to_dict()).filter_radius == 0.7 and flame.copy().oversample == 3
+    assert parse_text('<flame name="b" size="10 10"><xform weight="1" coefs="1 0 0 1 0 0"/></flame>')[0].oversample == 1

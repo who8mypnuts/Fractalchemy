@@ -10,7 +10,7 @@ from fractalchemy.render.compiled import CompiledFlame, CompiledXForm, selection
 from fractalchemy.render.cpu_engine import CpuEngine
 from fractalchemy.render.gpu_engine import gpu_available
 from fractalchemy.render.service import PRIORITY_THUMBNAIL, RenderService, wait_for
-from fractalchemy.render.settings import RenderSettings
+from fractalchemy.render.settings import RenderSettings, RenderStats
 from fractalchemy.render.tonemap import FULLSCREEN_VERTEX_GLSL, TONEMAP_GLSL, ToneParams, tonemap
 from tests.conftest import spin
 
@@ -77,25 +77,59 @@ def test_tonemap_numpy_behaves_like_apophysis():
     assert brighter[..., :3].mean() > image[..., :3].mean()
 
 
+def _glsl_tonemap(ctx, hist: np.ndarray, params: ToneParams, oversample: int, radius: float, size: tuple[int, int]) -> np.ndarray:
+    """Run the two GLSL passes (bucket log scale, then filter + gamma) on a histogram of buckets."""
+    import moderngl
+    from fractalchemy.render.tonemap import SCALE_GLSL, filter_uniforms
+    bh, bw = hist.shape[:2]
+    hist_tex = ctx.texture((bw, bh), 4, np.ascontiguousarray(hist, dtype=np.float32).tobytes(), dtype="f4")
+    hist_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+    scaled_tex = ctx.texture((bw, bh), 4, dtype="f4")
+    scaled_tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+    scale = ctx.program(vertex_shader=FULLSCREEN_VERTEX_GLSL, fragment_shader=SCALE_GLSL)
+    ctx.framebuffer([scaled_tex]).use()
+    ctx.viewport = (0, 0, bw, bh)
+    hist_tex.use(0)
+    scale["u_histogram"].value = 0
+    scale["u_k1"].value, scale["u_k2"].value = params.k1, params.k2
+    ctx.vertex_array(scale, []).render(mode=moderngl.TRIANGLES, vertices=3)
+    prog = ctx.program(vertex_shader=FULLSCREEN_VERTEX_GLSL, fragment_shader=TONEMAP_GLSL)
+    out = ctx.texture(size, 4)
+    fbo = ctx.framebuffer([out])
+    fbo.use()
+    ctx.viewport = (0, 0, *size)
+    scaled_tex.use(1)
+    prog["u_scaled"].value = 1
+    for name, value in (params.as_uniforms() | filter_uniforms(oversample, radius)).items():
+        if name in prog:
+            prog[name].value = value
+    ctx.vertex_array(prog, []).render(mode=moderngl.TRIANGLES, vertices=3)
+    return np.frombuffer(fbo.read(components=4), dtype=np.uint8).reshape(size[1], size[0], 4)
+
+
 @needs_gl
 def test_tonemap_glsl_matches_numpy(gl_context):
-    import moderngl
     ctx = gl_context
     hist = synthetic_histogram()
     params = ToneParams.derive(Coloring(brightness=6, gamma=2.2, gamma_threshold=0.05, vibrancy=0.6, background=(0, 30, 60)), 40.0, 600_000)
     expected = tonemap(hist, params)
-    prog = ctx.program(vertex_shader=FULLSCREEN_VERTEX_GLSL, fragment_shader=TONEMAP_GLSL)
-    tex = ctx.texture((16, 8), 4, hist.tobytes(), dtype="f4")
-    tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
-    out = ctx.texture((16, 8), 4)
-    fbo = ctx.framebuffer([out])
-    fbo.use()
-    tex.use(0)
-    prog["u_histogram"].value = 0
-    for name, value in params.as_uniforms().items():
-        prog[name].value = value
-    ctx.vertex_array(prog, []).render(mode=moderngl.TRIANGLES, vertices=3)
-    actual = np.frombuffer(fbo.read(components=4), dtype=np.uint8).reshape(8, 16, 4)
+    actual = _glsl_tonemap(ctx, hist, params, 1, 0.2, (16, 8))
+    assert np.abs(actual[..., :3].astype(int) - expected[..., :3].astype(int)).max() <= 2
+
+
+@needs_gl
+def test_tonemap_glsl_matches_numpy_with_oversample_and_filter(gl_context):
+    ctx = gl_context
+    settings = RenderSettings(6, 3, oversample=2, filter_radius=0.8)
+    assert settings.filter_width == 6 and settings.gutter == 2 and settings.bucket_size == (16, 10)
+    rng = np.random.default_rng(5)
+    hist = np.zeros((10, 16, 4), dtype=np.float32)
+    hist[..., 3] = rng.integers(0, 60, (10, 16))
+    hist[..., :3] = rng.random((10, 16, 3)) * hist[..., 3:]
+    params = ToneParams.derive(Coloring(brightness=5, gamma=3.0, gamma_threshold=0.02, background=(20, 0, 0)), 30.0, 50_000, 2)
+    expected = tonemap(hist, params, 2, 0.8, (6, 3))
+    actual = _glsl_tonemap(ctx, hist, params, 2, 0.8, (6, 3))
+    assert expected.shape == (3, 6, 4) and expected[..., :3].std() > 5   # a real picture, not a flat one
     assert np.abs(actual[..., :3].astype(int) - expected[..., :3].astype(int)).max() <= 2
 
 
@@ -192,6 +226,41 @@ def test_service_runs_viewport_before_thumbnails(service):
     service.submit("view", sierpinski(), SMALL)
     assert wait_for(lambda: (spin(20), len(order) == 4)[1], timeout=30)
     assert order[0] == "view" or order[1] == "view"   # the viewport pre-empts queued thumbnails
+
+
+def test_refining_render_yields_to_thumbnails_and_resumes_with_its_samples(service):
+    passes = []
+    finished = []
+    service.pass_done.connect(lambda key, image, stats: passes.append((key, stats.samples, stats.refining)))
+    service.job_finished.connect(lambda key, stats: finished.append((key, stats.samples, stats.quality)))
+    view = RenderSettings(96, 64, passes=1, quality=2, points=2048, fuse=5, refine_to=40)
+    service.submit("view", sierpinski(), view)
+    assert wait_for(lambda: (spin(20), any(k == "view" and refining for k, _s, refining in passes))[1], timeout=30)
+    service.submit(("thumb", 1), sierpinski(), RenderSettings(32, 24, passes=1, quality=20, points=1024), PRIORITY_THUMBNAIL)
+    assert wait_for(lambda: (spin(20), len(finished) == 2)[1], timeout=60)
+    assert finished[0][0] == ("thumb", 1)                  # the thumbnail ran while the viewport was refining
+    assert finished[1][0] == "view" and finished[1][2] >= 40   # and the viewport went on to its refinement cap
+    samples = [s for k, s, _r in passes if k == "view"]
+    assert samples == sorted(samples) and samples[-1] >= 40 * 96 * 64   # accumulated, never restarted
+    assert not service._paused
+
+
+def test_settings_refinement_and_zoom_rules():
+    s = RenderSettings(100, 50, passes=2, quality=4, refine_to=40)
+    assert s.samples_total == 20000 and s.samples_per_pass == 10000 and s.samples_target == 200000
+    assert s.next_pass_samples(0, 0) == 10000 and s.next_pass_samples(2, 20000) == 20000   # doubling
+    assert s.next_pass_samples(2, 150000) == 50000                                           # capped at the target
+    assert RenderSettings(100, 50, quality=4, refine_to=3).samples_target == 0             # cap below quality: off
+    zoomed = s.for_zoom(1.0)
+    assert zoomed.density_scale == 4.0 and zoomed.samples_total == 80000 and zoomed.samples_target == 800000
+    assert s.for_zoom(-2.0).density_scale == 1.0 and s.for_zoom(9.0).density_scale == 64.0
+    assert s.with_refine(-5).refine_to == 0.0 and s.with_filter(9, 7).oversample == 4
+    big = RenderSettings(4000, 2500, oversample=4, filter_radius=0.5)
+    assert big.within_bucket_limit().oversample == 1 and big.within_bucket_limit(200_000_000).oversample == 4
+    assert RenderSettings(1200, 800, oversample=4).within_bucket_limit().oversample == 4
+    stats = RenderStats(passes_done=2, passes_total=2, samples=30000, width=100, height=50, samples_target=200000)
+    assert stats.passes_finished and stats.refining and not stats.finished and stats.quality == 6.0
+    assert RenderStats(passes_done=2, passes_total=2, samples=30000, width=100, height=50).finished
 
 
 @pytest.fixture(scope="module")

@@ -77,6 +77,8 @@ def flame_from_element(el: ET.Element) -> Flame:
             contrast=_float(el.get("contrast"), 1.0), background=_background(el.get("background", "0 0 0")),
         ),
         source_version=el.get("version", ""),
+        oversample=max(1, int(_float(el.get("oversample", el.get("supersample")), 1.0))),
+        filter_radius=max(0.0, _float(el.get("filter"), 0.2)),
     )
     unsupported: set[str] = set()
     flame.xforms = [_xform_from_element(x, unsupported) for x in el.findall("xform")]
@@ -155,7 +157,7 @@ def flame_to_xml(flame: Flame, indent: str = "") -> str:
     head = (
         f'<flame name="{_attr(flame.name)}" version="{config.APP_NAME} {config.APP_VERSION}" '
         f'size="{cam.width} {cam.height}" center="{_g(cam.center[0])} {_g(cam.center[1])}" scale="{_g(cam.scale)}" '
-        f'zoom="{_g(cam.zoom)}" rotate="{_g(cam.rotate)}" {_camera_3d_attrs(cam)}oversample="1" filter="0.2" quality="5" '
+        f'zoom="{_g(cam.zoom)}" rotate="{_g(cam.rotate)}" {_camera_3d_attrs(cam)}oversample="{flame.oversample}" filter="{_g(flame.filter_radius)}" quality="5" '
         f'background="{_g(col.background[0] / 255)} {_g(col.background[1] / 255)} {_g(col.background[2] / 255)}" '
         f'brightness="{_g(col.brightness)}" gamma="{_g(col.gamma)}" gamma_threshold="{_g(col.gamma_threshold)}" '
         f'vibrancy="{_g(col.vibrancy)}" contrast="{_g(col.contrast)}">'

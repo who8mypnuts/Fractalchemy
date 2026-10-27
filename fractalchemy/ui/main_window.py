@@ -154,10 +154,17 @@ class MainWindow(QMainWindow):
         bar.resolution_chosen.connect(self.document.set_image_size)
         view.view_changed.connect(bar.show_zoom)
         panel.render_settings_changed.connect(self._apply_render_settings)
+        panel.render_options_changed.connect(self._apply_render_options)
         self._apply_render_settings(panel.passes, panel.quality, render=False)
+        self._apply_render_options(panel.oversample, panel.filter_radius, panel.refine_to, render=False)
 
     def _apply_render_settings(self, passes: int, quality: float, render: bool = True) -> None:
-        settings = self.viewport.settings.with_effort(passes, quality)
+        self._set_render_settings(self.viewport.settings.with_effort(passes, quality), render)
+
+    def _apply_render_options(self, oversample: int, filter_radius: float, refine_to: float, render: bool = True) -> None:
+        self._set_render_settings(self.viewport.settings.with_filter(oversample, filter_radius).with_refine(refine_to), render)
+
+    def _set_render_settings(self, settings, render: bool) -> None:
         if render:
             self.viewport.set_render_settings(settings)
         else:

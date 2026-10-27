@@ -59,11 +59,21 @@ formulas of Fractalchemy. Design and reference: **docs/formulas.md** (read it fi
    cache, errors), `test_variations.py` now runs every registered formula through both engines (one of twelve
    points may differ: float32 discontinuities), engine 3D/DC/pre-post tests, flame 3D attribute round trip,
    formula browser test, `test_info_panel.py` (6), `test_image_panel.py` (8: document setters, pan geometry,
-   FloatRow, panel ↔ document, save round trip). **1353 passed** at the last full run.
+   FloatRow, panel ↔ document, save round trip, preview options). **1360 passed** at the last full run.
 
 Also fixed: the `.flame` reader treated `modulus` / `modulus_x` / `modulus_y` as transform attributes (a
 baseline assumption); they are the `modulus` plugin, which is now in the library — flames using it rendered
 black before.
+
+8. **Preview quality** (no denoising): histogram = supersampled buckets + gutter (`RenderSettings.bucket_size`,
+   `render/filtering.py` = Apophysis `CreateFilter`), tone map in two stages (per-bucket log scale →
+   kernel gather → gamma; `SCALE_GLSL` + `TONEMAP_GLSL`, numpy `tonemap(hist, params, os, radius, size)`);
+   continuous refinement (`refine_to`, doubling passes, `RenderStats.samples_target/refining/quality`),
+   `RenderService` pauses/resumes pre-empted jobs (`_paused`, `PRIORITY_REFINE`); Apophysis zoom rule
+   (`for_zoom`, `density_scale`); `within_bucket_limit` memory guard; Image tab ▸ Preview has Oversample /
+   Filter / Keep refining (persisted: `preview/oversample|filter|refine_to`); status bar shows `q`.
+   `Flame.oversample/filter_radius` round-trip the file's own hints. Tests run with `PREVIEW_REFINE_TO = 0`
+   (conftest) so GUI renders finish quickly; `test_render.py` covers refinement + yielding.
 
 ## Known gaps / next steps
 * Not available (see `tools/apo_decompile.py --batch` report): DLL-only plugins with loops (tile, tile_hyp,
@@ -80,7 +90,10 @@ black before.
   (type, default, min/max, cyclic, non-zero) is ready for it, and `FormulaBrowser` shows the catalogue.
 * *Save Fractal* rewrites the `<flame>` element from the model, so attributes we do not model
   (`plotmode`, `animate`, motion, `estimator_*`) are dropped from that entry; colouring edits re-render
-  instead of re-tonemapping the kept histogram (a possible speed-up).
+  instead of re-tonemapping the kept histogram (a possible speed-up, now that jobs can be kept alive).
+* On software OpenGL (llvmpipe, as in the test sandbox) refinement to q 500 takes minutes; on a real GPU
+  seconds. The GPU plot pass is one draw of `PREVIEW_POINTS` points per iteration — batching several
+  iterations per draw would cut driver overhead further if throughput matters.
 * `samples/aposource/` is still the raw input (not scanned by the tests); it can be dropped once no longer wanted.
 
 ## Previous task log

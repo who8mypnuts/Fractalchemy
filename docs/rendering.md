@@ -25,7 +25,7 @@ faithful preview of the final render.
                 tone map (render/tonemap.py): numpy + GLSL, same constants
                                │
              RenderService (render/service.py): one worker thread,
-             priority queue, cancellation, progressive passes
+             priority queue, cancellation, progressive passes, pause/resume of refining jobs
 ```
 
 ## The scene (`fractalchemy/fractal`)
@@ -90,6 +90,34 @@ Normalising by `samples` (iterations plotted so far) is what makes progressive p
 consistently instead of saturating. The numpy and GLSL versions are derived from one `ToneParams`
 and tested against each other.
 
+### Supersampling and the spatial filter
+
+As in Apophysis/flam3 the histogram is a grid of *buckets*: `oversample` buckets per pixel side plus a
+gutter (`RenderSettings.bucket_size`). The tone map runs in two stages — the log-density scale above is
+applied **per bucket**, then `render/filtering.py`'s Gaussian kernel (Apophysis `CreateFilter`: width from
+`2 · 1.8 · oversample · filter_radius`, parity of `oversample`, `exp(−2 r²)`, normalised) sums each pixel's
+buckets, and gamma / vibrancy / background are applied to the result. Oversample 2 with radius 0.5 is a
+plain 2×2 box (anti-aliasing of thin lines, slightly less speckle in faint areas because the log is taken
+before averaging); larger radii soften. Oversample 1 / radius 0.2 is Apophysis's own preview (no filter).
+No density estimation or other denoising is done anywhere.
+
+## Preview quality: samples, refinement, zoom
+
+Graininess is only ever sample count: at quality *q* a pixel of average density has seen *q* samples, so
+its relative noise is 1/√q; the GPU and CPU engines produce the same noise at equal counts (tested against
+each other and a high-quality reference). Three faithful things make the preview clean:
+
+* **Passes then refinement.** The configured `passes` deliver `quality` quickly; after them the job keeps
+  adding passes that each *double* the samples (`RenderSettings.next_pass_samples`) until
+  `refine_to` (default q 500) — Chaotica-style "it gets better while you look". The status bar shows
+  `Refining · q 37` and finally `q 500 ✓`. A refining job yields to *any* other request (thumbnails) and
+  is **paused, not restarted**: `RenderService` keeps the job and its histogram and resumes it behind the
+  other work (`PRIORITY_REFINE`). The transient half-size render while interacting never refines.
+* **Apophysis's zoom rule.** Apophysis renders `quality · 4^zoom` samples per pixel, so a zoomed-in view
+  (where most iterations land outside the frame) is not starved; `RenderSettings.for_zoom` does the
+  same (never fewer than nominal, capped at 64× = zoom 3).
+* **Oversample / filter** as above (defaults 2 / 0.5, `MAX_BUCKETS` lowers the oversample for huge viewports).
+
 ## Responsiveness
 
 * `RenderService` runs one worker thread that owns the engine (OpenGL contexts are thread-bound).
@@ -109,8 +137,8 @@ and tested against each other.
 | Mode | Numerics | Status |
 |---|---|---|
 | Interactive | float32 GPU, progressive | **done** (this preview engine) |
-| Refined preview | more passes / full quality on the GPU | settings exist (`passes`, `quality`), UI to come |
-| Precision render | float64 CPU (multi-threaded) and/or fp64 GPU, density estimation, oversampling, filters | CPU engine is the base; filtering/DE to come |
+| Refined preview | continuous refinement, oversample + filter | **done** (Image tab ▸ Preview) |
+| Precision render | float64 CPU (multi-threaded) and/or fp64 GPU at chosen quality / size | CPU engine is the base; output to come |
 | Deep render | arbitrary-precision reference orbit + perturbation | later — matters for escape-time formulas more than flames |
 | Output | PNG / TIFF / OpenEXR with saved render settings | to come |
 

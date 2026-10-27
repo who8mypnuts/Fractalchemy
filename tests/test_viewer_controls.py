@@ -193,3 +193,15 @@ def test_status_bar_widgets_never_overlap(window):
     assert status.render.text().startswith("GPU  ·  1920×1080") and "Pass 3 of 6" in status.passes.text()
     assert status.render.width() >= status.render.fontMetrics().horizontalAdvance(status.render.text())
     assert status.progress.geometry().right() <= window.statusBar().width()
+
+
+def test_status_bar_shows_quality_and_refinement(window):
+    from fractalchemy.render.settings import RenderStats
+    status = window.status
+    status.show_progress(RenderStats("CPU", 6, 6, 3_000_000, 0, 2.0, 500, 300, [], samples_target=30_000_000))
+    assert status.passes.text() == "Refining  ·  q 20" and "towards q 200" in status.passes.toolTip()
+    assert status.progress.maximum() == 30_000_000 and status.progress.value() == 3_000_000
+    status.show_progress(RenderStats("CPU", 6, 6, 30_000_000, 0, 9.0, 500, 300, [], samples_target=30_000_000))
+    assert status.passes.text() == "q 200  ✓"
+    status.show_progress(RenderStats("CPU", 2, 6, 600_000, 0, 1.0, 500, 300))
+    assert status.passes.text() == "Pass 2 of 6" and status.progress.maximum() == 6

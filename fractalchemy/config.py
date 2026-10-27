@@ -31,6 +31,14 @@ PREVIEW_PASSES = 6              # progressive passes per viewport render
 PREVIEW_QUALITY = 8.0           # samples per pixel over all passes (Apophysis "quality")
 PREVIEW_POINTS = 1 << 17        # point population iterated in parallel (GPU: per draw; CPU: per thread batch)
 PREVIEW_FUSE = 20               # warm-up iterations before plotting
+PREVIEW_OVERSAMPLE = 2          # supersampled buckets per pixel side (Apophysis "oversample"; 1 = none)
+PREVIEW_FILTER = 0.5            # spatial filter radius in output pixels (Apophysis "filter radius")
+MAX_OVERSAMPLE = 4
+MAX_BUCKETS = 24_000_000        # histogram buckets a preview may use (≈ 2 × 16 bytes each on the GPU); oversample is lowered to fit
+MAX_FILTER_RADIUS = 2.0
+PREVIEW_REFINE_TO = 500.0       # keep refining the idle preview (doubling passes) up to this quality; 0 = stop at PREVIEW_QUALITY
+MAX_REFINE_QUALITY = 20000.0
+ZOOM_DENSITY_MAX = 64.0         # Apophysis renders quality · 4^zoom samples per pixel; capped here (zoom 3) for interactivity
 INTERACTIVE_SCALE = 0.5         # viewport resolution factor while dragging / zooming
 INTERACTION_SETTLE_MS = 250     # after the last interaction, re-render at full resolution
 THUMBNAIL_SIZE = (120, 75)      # fractal library thumbnails

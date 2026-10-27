@@ -14,7 +14,7 @@ from ..fractal.scene import Flame
 from ..render.settings import RenderStats
 
 RENDER_SAMPLE_TEXT = "GPU  ·  3840×2160  ·  999.9 M samples  ·  999.9 M/s"
-PASSES_SAMPLE_TEXT = "Pass 50 of 50  ✓"
+PASSES_SAMPLE_TEXT = "Refining  ·  q 20000"
 PROGRESS_WIDTH = 150
 
 
@@ -86,9 +86,21 @@ class RenderStatus:
             facts.append(f"{_count(stats.samples_per_second)}/s")
         self.render.setText("  ·  ".join(facts))
         self.render.setToolTip(stats.engine + ("\n" + "\n".join(stats.notes) if stats.notes else ""))
-        self.passes.setText(f"Pass {stats.passes_done} of {stats.passes_total}" + ("  ✓" if stats.finished else ""))
-        self.progress.setRange(0, stats.passes_total)
-        self.progress.setValue(stats.passes_done)
+        quality = f"q {stats.quality:.0f}" if stats.quality >= 10 else f"q {stats.quality:.1f}"
+        if stats.refining:
+            self.passes.setText(f"Refining  ·  {quality}")
+        elif stats.finished:
+            self.passes.setText(f"{quality}  ✓")
+        else:
+            self.passes.setText(f"Pass {stats.passes_done} of {stats.passes_total}")
+        self.passes.setToolTip(f"{quality}: samples per pixel so far"
+                               + (f"; refining towards q {stats.samples_target / max(1, stats.width * stats.height):.0f}" if stats.refining else ""))
+        if stats.refining:
+            self.progress.setRange(0, max(1, stats.samples_target))
+            self.progress.setValue(min(stats.samples, stats.samples_target))
+        else:
+            self.progress.setRange(0, stats.passes_total)
+            self.progress.setValue(stats.passes_done)
         self.progress.setToolTip("\n".join(stats.notes) if stats.notes else "")
 
 

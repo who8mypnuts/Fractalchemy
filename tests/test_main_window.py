@@ -204,7 +204,7 @@ def test_opening_a_flame_renders_it_in_the_viewport_with_status(fractal_window, 
     assert win.viewport.image is not None and win.viewport.image.width() == win.viewport.image_rect.width()
     assert win.viewport.image_rect.width() <= win.viewport.width() and win.viewport.is_fit
     assert "rotated" in win.status.fractal.text() and "6 transforms + final" in win.status.fractal.text()
-    assert "Pass 6 of 6" in win.status.passes.text()
+    assert win.status.passes.text().startswith("q ") and win.status.passes.text().endswith("✓")   # finished: quality reached
     assert win.status.progress.value() == win.status.progress.maximum() == 6
     assert "samples" in win.status.render.text() and win.status.render.text().startswith("CPU")
     assert win.windowTitle() == "Fractalchemy — rotated"
