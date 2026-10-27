@@ -168,6 +168,11 @@ class InfoPanel(QWidget):
             return
         self.palette_label.setPixmap(palette_pixmap(self._flame.palette, self._strip_width()))
 
+    def show_coloring(self) -> None:
+        """Refresh the colouring rows (after brightness / gamma / background edits)."""
+        if self._flame is not None and "Colouring" in self._groups:
+            self._fill_coloring(self._flame)
+
     def show_render(self, stats: RenderStats) -> None:
         """Facts of the last delivered render pass."""
         self._stats = stats

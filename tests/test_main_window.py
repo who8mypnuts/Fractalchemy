@@ -41,7 +41,8 @@ def test_menu_bar_has_windows_and_help_menus(window):
     assert [a.text() for a in window.menuWindows.actions()] == ["Gradient Library"]
     assert [a.text() for a in window.menuHelp.actions()] == ["Formulas…", "", "About Fractalchemy…", "About Qt…"]
     assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
-    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Exit"]
+    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save Fractal", "Exit"]
+    assert not window.actionSaveFractal.isEnabled()   # nothing loaded, nothing changed
 
 
 def test_toolbar_holds_the_gradient_library_button_with_popup_text(window):

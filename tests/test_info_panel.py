@@ -111,7 +111,7 @@ def test_unavailable_formulas_are_flagged_and_double_click_emits_the_name(panel)
 def test_settings_panel_has_info_first_and_remembers_the_tab(qapp, tmp_path):
     settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
     panel = SettingsPanel(settings=settings)
-    assert [panel.tabs.tabText(i) for i in range(panel.tabs.count())] == ["Info", "Render"]
+    assert [panel.tabs.tabText(i) for i in range(panel.tabs.count())] == ["Info", "Image"]
     assert panel.tabs.currentIndex() == 0 and panel.tabs.widget(0) is panel.info
     panel.tabs.setCurrentIndex(1)
     assert int(settings.value(TAB_KEY)) == 1

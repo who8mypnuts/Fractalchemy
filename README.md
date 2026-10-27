@@ -20,7 +20,7 @@ python -m pytest
 ## What it does today
 
 ### Main window
-* Menu bar: *File* (Open Fractal…, Exit), *Edit* (Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
+* Menu bar: *File* (Open Fractal…, Save Fractal `Ctrl+S`, Exit), *Edit* (Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
   Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
   *Windows* (Gradient Library `F6`), *Help* (Formulas…, About).
 * Toolbar: **Open Fractal**, **Gradient Library** (hover for tooltips).
@@ -49,8 +49,16 @@ python -m pytest
     distinct **formulas** it uses (use count, pre/normal/post, 3D, direct colour, random, origin — double-click
     one to open it in the formula browser; unavailable ones are flagged), the colouring and palette strip, and
     the facts of the last preview render.
-  * *Render* — **Passes** and **Quality** (samples per pixel) for the preview; both re-render immediately.
-  The values and the tab you were on persist between runs.
+  * *Image* — everything that shapes the picture, each group with a ↻ *Revert* (back to the file's values):
+    **Preview** (passes and quality — samples per pixel — for the preview; persist between runs);
+    **Camera** (zoom slider + box, Apophysis log2 zoom around the image centre; pan arrows moving the view
+    by 10% of the image along the screen axes, rotation respected; centre x / y and rotation boxes);
+    **3D camera** (pitch, yaw, perspective, z position, depth blur — Apophysis's `cam_*` attributes, so a
+    2D flame becomes a tilted plane and variations with depth — `julia3D`, `curl3D`, `ztranslate`,
+    `zcone`, `blur3D`, `zblur`, `zscale`, `pre_`/`post_rotate_x/y`, `linear3D`, … — show real 3D);
+    **Colouring** (brightness, gamma, gamma threshold, vibrancy, background colour via the live picker).
+  Every change re-renders; the title shows `*` until *File ▸ Save Fractal* writes the adjusted flame back
+  into its entry of the `.flame` / `.fa` file it came from. The tab you were on persists between runs.
 * **Status bar** across the bottom: the loaded fractal (name, transform count, size, file, ignored
   variations), render facts (engine, render size, samples, samples/second — the full GPU name is in the
   tooltip), **Pass n of N**, and a progress bar.

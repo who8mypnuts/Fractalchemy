@@ -7,6 +7,7 @@ Gradient Library is a separate tool window opened from *Windows* or the toolbar.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QSettings
@@ -14,7 +15,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from .. import config
-from ..fractal.formats import load_flame, open_dialog_filter
+from ..fractal.formats import fractal_format_for, load_flame, open_dialog_filter
 from ..fractal.scene import Flame
 from ..library.catalog import FRACTAL_CATALOG
 from ..library.context_menu import LibraryContextMenu
@@ -28,6 +29,7 @@ from ..widgets.icons import gradient_icon
 from .background import run_in_background
 from .fractal_document import FractalDocument
 from .fractal_library_panel import LIST_ICON_SIZE, FractalLibraryPanel
+from .file_actions import RECENT_WRITE_SECONDS
 from .fractal_viewport import FractalViewport
 from .gradient_library_window import GradientLibraryWindow
 from .gradient_link import GradientLink
@@ -47,7 +49,7 @@ CUSTOM_WIDGETS = {
 }
 SCANNING_MESSAGE = "Scanning fractal library…"
 LIBRARY_PANE_WIDTH = 300
-SETTINGS_PANE_WIDTH = 300
+SETTINGS_PANE_WIDTH = 320
 MESSAGE_MS = 6000
 ABOUT_TEXT = (
     f"<h3>{config.APP_NAME} {config.APP_VERSION}</h3>"
@@ -79,6 +81,7 @@ class MainWindow(QMainWindow):
         self.fractal_menu = LibraryContextMenu(self.fractal_library, self.open_item, self)
         self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
         self._formula_browser = None
+        self._fractal_writes: dict[Path, float] = {}   # our own saves, so the file watcher does not reload them
         self.gradient_library = GradientLibraryWindow(roots, self)
         self.gradient_link = GradientLink(self.document, self.gradient_library, self.viewport, self)
         self.splitter.first_label, self.splitter.last_label = "fractal library", "settings panel"
@@ -87,6 +90,7 @@ class MainWindow(QMainWindow):
         for pane, stretch in ((0, 0), (1, 1), (2, 0)):   # window resizes go to the viewport, not the side panes
             self.splitter.setStretchFactor(pane, stretch)
         self.settingsPanel.attach_settings(settings if settings is not None else QSettings())
+        self.settingsPanel.bind(self.document)
         self._connect_actions()
         self._connect_document()
         self._connect_library()
@@ -99,6 +103,7 @@ class MainWindow(QMainWindow):
     def _connect_actions(self) -> None:
         self.actionOpenFractal.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_DialogOpenButton))
         self.actionOpenFractal.triggered.connect(self.open_file)
+        self.actionSaveFractal.triggered.connect(self.save_fractal)
         self.actionGradientLibrary.setIcon(gradient_icon())
         self.actionGradientLibrary.triggered.connect(self.show_gradient_library)
         self.actionEditFractalLibrary.triggered.connect(self.edit_fractal_library)
@@ -121,6 +126,8 @@ class MainWindow(QMainWindow):
         self.document.flame_replaced.connect(self._on_flame_replaced)
         self.document.camera_changed.connect(self._on_camera_changed)
         self.document.palette_changed.connect(self._on_palette_changed)
+        self.document.coloring_changed.connect(self.settingsPanel.info.show_coloring)
+        self.document.modified_changed.connect(self._on_modified_changed)
         self.settingsPanel.info.formula_activated.connect(self.show_formulas)
 
     def _connect_library(self) -> None:
@@ -184,6 +191,35 @@ class MainWindow(QMainWindow):
         self.document.replace(flame, path, index)
         self._message(f"Loaded '{flame.name}' from {path.name}")
 
+    def can_save_fractal(self) -> bool:
+        """True when the shown flame came from a file entry that can be rewritten (.flame / .fa)."""
+        path = self.document.source_path
+        return path is not None and self.document.flame is not None and fractal_format_for(path).can_replace
+
+    def save_fractal(self) -> None:
+        """Write the adjusted flame back into its entry of the file it came from (Ctrl+S)."""
+        if not self.can_save_fractal():
+            self._message("This fractal did not come from a file that can be written")
+            return
+        path, index, flame = self.document.source_path, self.document.source_index, self.document.flame
+        try:
+            fractal_format_for(path).replace(flame, path, index)
+        except (OSError, ValueError) as exc:
+            self._report_error("Could not save fractal", exc)
+            return
+        self._fractal_writes[path] = time.monotonic()
+        self.document.mark_saved()
+        self._message(f"Saved '{flame.name}' into {path.name}")
+
+    def _on_modified_changed(self, modified: bool) -> None:
+        self.actionSaveFractal.setEnabled(modified and self.can_save_fractal())
+        self._update_title()
+
+    def _update_title(self) -> None:
+        flame = self.document.flame
+        star = "*" if self.document.modified else ""
+        self.setWindowTitle(f"{config.APP_NAME} — {flame.name}{star}" if flame else config.APP_NAME)
+
     # --- library slots ------------------------------------------------------
     def add_fractal_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Add folder to the fractal library")
@@ -207,7 +243,8 @@ class MainWindow(QMainWindow):
 
     def _on_external_change(self, path: Path) -> None:
         """Reload the shown flame if another program changed its file (not our own gradient saves)."""
-        if path == self.document.source_path and not self.gradient_library.files.wrote_recently(path):
+        if path == self.document.source_path and not self.gradient_library.files.wrote_recently(path) \
+                and time.monotonic() - self._fractal_writes.get(path, -1e9) > RECENT_WRITE_SECONDS:
             self.open_path(path, self.document.source_index)
 
     # --- other slots --------------------------------------------------------
@@ -236,7 +273,8 @@ class MainWindow(QMainWindow):
         self.status.show_idle()
         self.viewerBar.show_flame(flame)
         self.settingsPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
-        self.setWindowTitle(f"{config.APP_NAME} — {flame.name}" if flame else config.APP_NAME)
+        self.actionSaveFractal.setEnabled(False)
+        self._update_title()
 
     def _on_camera_changed(self) -> None:
         flame = self.document.flame

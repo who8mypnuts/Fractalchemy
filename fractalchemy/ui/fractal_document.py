@@ -15,21 +15,27 @@ class FractalDocument(QObject):
 
     Signals:
         flame_replaced(): A different flame was loaded.
-        camera_changed(): The view (center / zoom / rotation) of the current flame changed.
+        camera_changed(): The view (center / zoom / rotation / 3D camera) of the current flame changed.
         palette_changed(): The flame's colours changed (e.g. edited in the Gradient Library).
+        coloring_changed(): Brightness / gamma / threshold / vibrancy / background changed.
         image_size_changed(): The output resolution chosen for the viewer changed.
+        modified_changed(bool): Whether the flame differs from what was loaded / last saved.
     """
     flame_replaced = Signal()
     camera_changed = Signal()
     palette_changed = Signal()
+    coloring_changed = Signal()
     image_size_changed = Signal()
+    modified_changed = Signal(bool)
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
         self._flame: Flame | None = None
+        self._original: Flame | None = None   # as loaded, so adjustments can be reverted
         self._source_path: Path | None = None
         self._source_index = 0
         self._image_size: tuple[int, int] | None = None   # None = the flame's own size
+        self._modified = False
 
     @property
     def flame(self) -> Flame | None:
@@ -67,11 +73,34 @@ class FractalDocument(QObject):
     def is_showing(self, path: Path, index: int) -> bool:
         return self._source_path == path and self._source_index == index
 
+    @property
+    def modified(self) -> bool:
+        """True once the camera / colouring / palette has been edited since loading or saving."""
+        return self._modified
+
+    def mark_saved(self) -> None:
+        """The current state is now what the file holds."""
+        if self._flame is not None:
+            self._original = self._flame.copy()
+        self._set_modified(False)
+
+    def _set_modified(self, modified: bool) -> None:
+        if modified != self._modified:
+            self._modified = modified
+            self.modified_changed.emit(modified)
+
+    @property
+    def original(self) -> Flame | None:
+        """The flame as it was loaded (before any camera / colouring adjustments)."""
+        return self._original
+
     def replace(self, flame: Flame, source_path: Path | None = None, source_index: int = 0) -> None:
         """Show `flame` (the document keeps its own copy)."""
         self._flame = flame.copy()
+        self._original = flame.copy()
         self._source_path = source_path
         self._source_index = source_index
+        self._set_modified(False)
         self.flame_replaced.emit()
 
     def set_view(self, center: tuple[float, float] | None = None, zoom: float | None = None, rotate: float | None = None) -> None:
@@ -85,7 +114,69 @@ class FractalDocument(QObject):
             camera.zoom = float(zoom)
         if rotate is not None:
             camera.rotate = float(rotate)
+        self._set_modified(True)
         self.camera_changed.emit()
+
+    def pan(self, dx: float, dy: float) -> None:
+        """Move the view by a fraction of the image (`dx = 0.1` shows what lies 10% of the width to the right).
+
+        Screen directions: y down, the camera's rotation respected.
+        """
+        if self._flame is None:
+            return
+        camera = self._flame.camera
+        w, h = camera.width, camera.height
+        x0, y0 = camera.unproject(w / 2, h / 2, w, h)
+        x1, y1 = camera.unproject(w / 2 + dx * w, h / 2 + dy * h, w, h)
+        self.set_view(center=(camera.center[0] + x1 - x0, camera.center[1] + y1 - y0))
+
+    def set_camera_3d(self, pitch: float | None = None, yaw: float | None = None, perspective: float | None = None,
+                      zpos: float | None = None, dof: float | None = None) -> None:
+        """Change the 3D camera (angles in radians; None leaves a value alone). No-op without a flame."""
+        if self._flame is None:
+            return
+        camera = self._flame.camera
+        for name, value in (("pitch", pitch), ("yaw", yaw), ("perspective", perspective), ("zpos", zpos), ("dof", dof)):
+            if value is not None:
+                setattr(camera, name, float(value))
+        self._set_modified(True)
+        self.camera_changed.emit()
+
+    def set_coloring(self, brightness: float | None = None, gamma: float | None = None, gamma_threshold: float | None = None,
+                     vibrancy: float | None = None, contrast: float | None = None, background=None) -> None:
+        """Change the tone mapping (None leaves a value alone). No-op without a flame."""
+        if self._flame is None:
+            return
+        coloring = self._flame.coloring
+        for name, value in (("brightness", brightness), ("gamma", gamma), ("gamma_threshold", gamma_threshold),
+                            ("vibrancy", vibrancy), ("contrast", contrast)):
+            if value is not None:
+                setattr(coloring, name, float(value))
+        if background is not None:
+            coloring.background = tuple(int(c) for c in background)
+        self._set_modified(True)
+        self.coloring_changed.emit()
+
+    def revert_view(self) -> None:
+        """Put the centre / zoom / rotation back to the loaded file's values."""
+        if self._flame is None or self._original is None:
+            return
+        o = self._original.camera
+        self.set_view(center=o.center, zoom=o.zoom, rotate=o.rotate)
+
+    def revert_camera_3d(self) -> None:
+        """Put the 3D camera back to the loaded file's values."""
+        if self._flame is None or self._original is None:
+            return
+        o = self._original.camera
+        self.set_camera_3d(o.pitch, o.yaw, o.perspective, o.zpos, o.dof)
+
+    def revert_coloring(self) -> None:
+        """Put the tone mapping back to the loaded file's values."""
+        if self._flame is None or self._original is None:
+            return
+        o = self._original.coloring
+        self.set_coloring(o.brightness, o.gamma, o.gamma_threshold, o.vibrancy, o.contrast, o.background)
 
     def set_gradient(self, gradient: Gradient) -> None:
         """Recolour the current flame from a Gradient (no-op without a flame, or if nothing changes)."""
@@ -95,4 +186,5 @@ class FractalDocument(QObject):
         if palette == self._flame.palette:
             return
         self._flame.palette = palette
+        self._set_modified(True)
         self.palette_changed.emit()

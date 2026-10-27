@@ -82,6 +82,7 @@ class FractalViewport(QWidget):
         document.flame_replaced.connect(self._on_flame_replaced)
         document.camera_changed.connect(self._render_interactive)
         document.palette_changed.connect(self._render_interactive)
+        document.coloring_changed.connect(self._render_interactive)
         document.image_size_changed.connect(self._on_image_size_changed)
         service.pass_done.connect(self._on_pass)
         service.job_failed.connect(self._on_failed)
@@ -211,7 +212,8 @@ class FractalViewport(QWidget):
         centre = self.screen_to_image(QPointF(rect.x() + rect.width() / 2, rect.y() + rect.height() / 2))
         cx, cy = camera.unproject(centre.x(), centre.y(), camera.width, camera.height)
         ppu = camera.pixels_per_unit(camera.width, camera.height) * z
-        return Camera((cx, cy), ppu, 0.0, camera.rotate, rect.width(), rect.height()), rect.width(), rect.height()
+        return (Camera((cx, cy), ppu, 0.0, camera.rotate, rect.width(), rect.height(),
+                       camera.pitch, camera.yaw, camera.perspective, camera.zpos, camera.dof), rect.width(), rect.height())
 
     # --- rendering ----------------------------------------------------------
     def _on_flame_replaced(self) -> None:
