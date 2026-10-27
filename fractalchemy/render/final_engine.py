@@ -71,6 +71,31 @@ class FinalProgress:
 
 
 @dataclass
+class TileStats:
+    """Facts about one rendered tile (for the render report).
+
+    Attributes:
+        index: 0-based tile number.
+        pixel_rect: (x, y, width, height) of the output pixels it produced.
+        buckets: Buckets accumulated, gutter included.
+        samples: Iterations run for it.
+        render_seconds, filter_seconds: Time sampling and time filtering / tone-mapping.
+        hits: Opacity-weighted points that landed in the tile (gutter included).
+        lit_buckets: Buckets hit at least once.
+        max_count: Largest bucket count.
+    """
+    index: int
+    pixel_rect: tuple[int, int, int, int]
+    buckets: int
+    samples: int
+    render_seconds: float
+    filter_seconds: float = 0.0
+    hits: float = 0.0
+    lit_buckets: int = 0
+    max_count: float = 0.0
+
+
+@dataclass
 class FinalResult:
     """What a render produced.
 
@@ -82,6 +107,11 @@ class FinalResult:
         engine: Sampler name.
         notes: Remarks (engine fallback, ignored variations, …).
         settings: The settings used.
+        tiles: Per-tile statistics, in render order (tiles never started are absent).
+        plan: The tile plan followed.
+        started_at, finished_at: Wall-clock times (`time.time()`).
+        paused_seconds: Time spent paused.
+        denoise_seconds: Time of the image-space denoiser (0 when none ran).
     """
     image: np.ndarray
     complete: bool
@@ -90,6 +120,12 @@ class FinalResult:
     engine: str
     notes: list[str] = field(default_factory=list)
     settings: FinalRenderSettings = field(default_factory=FinalRenderSettings)
+    tiles: list[TileStats] = field(default_factory=list)
+    plan: TilePlan | None = None
+    started_at: float = 0.0
+    finished_at: float = 0.0
+    paused_seconds: float = 0.0
+    denoise_seconds: float = 0.0
 
 
 ProgressCallback = Callable[[FinalProgress], None]
@@ -110,8 +146,11 @@ class FinalRenderer:
         self.sampler = None
         self.plan: TilePlan | None = None
         self._started = 0.0
+        self._started_wall = 0.0
         self._render_seconds = 0.0
         self._post_seconds: list[float] = []
+        self._tile_stats: list[TileStats] = []
+        self._denoise_seconds = 0.0
         self._samples_done = 0
         self._preview = _Preview(settings, self.flame.coloring)
         self._last_preview = 0.0
@@ -121,6 +160,7 @@ class FinalRenderer:
     def run(self, progress: ProgressCallback = lambda p: None) -> FinalResult:
         """Render to completion (or cancellation); always closes the sampler."""
         self._started = time.perf_counter()
+        self._started_wall = time.time()
         self.sampler, note = create_sampler(self.flame, self.compiled, self.settings.engine, self.settings.cpu_threads,
                                             self.settings.seed, self.settings.fuse)
         if note:
@@ -150,7 +190,9 @@ class FinalRenderer:
                 break
         if complete:
             self._denoise(image, progress)
-        result = FinalResult(image, complete, self._elapsed(), self._samples_done, self.sampler.name, self.notes, s)
+        result = FinalResult(image, complete, self._elapsed(), self._samples_done, self.sampler.name, self.notes, s,
+                             self._tile_stats, self.plan, self._started_wall, time.time(), self.control.paused_seconds,
+                             self._denoise_seconds)
         progress(self._progress(PHASE_DONE if complete else PHASE_CANCELLED, 1.0, len(self.plan.tiles), preview=True))
         return result
 
@@ -162,6 +204,7 @@ class FinalRenderer:
         target = s.samples_per_tile
         done = 0
         batch = FIRST_BATCH
+        tile_started = self._elapsed()
         while done < target and not self.control.cancelled():
             started = time.perf_counter()
             ran = self.sampler.accumulate(min(batch, target - done), self.control)
@@ -172,6 +215,7 @@ class FinalRenderer:
             if took > 0 and ran > 0:
                 batch = int(min(1 << 30, max(1 << 18, ran * BATCH_SECONDS / took)))
             progress(self._progress(PHASE_RENDER, self._fraction(index, done), index + 1, preview=self._preview_due(tile, done)))
+        self._tile_stats.append(TileStats(index, tile.pixel_rect(s.oversample), tile.buckets, done, self._elapsed() - tile_started))
         return done
 
     def _preview_due(self, tile: Tile, samples: int) -> bool:
@@ -190,6 +234,7 @@ class FinalRenderer:
         progress(self._progress(PHASE_FILTER, self._fraction(index, self.settings.samples_per_tile), index + 1))
         params = ToneParams.derive(self.flame.coloring, self.ppu * self.settings.oversample, max(1, samples))
         histogram = self.sampler.histogram()
+        self._record_histogram(histogram)
         scaled = _log_scale_planar(histogram, params)
         de = self.settings.density_estimation
         if de is not None:
@@ -202,16 +247,27 @@ class FinalRenderer:
         image[py:py + ph, px:px + pw] = (rgba * 65535.0 + 0.5).astype(np.uint16)
         self._preview.tile_from_pixels(rgba, px, py)
         self._post_seconds.append(time.perf_counter() - started)
+        self._tile_stats[-1].filter_seconds = self._post_seconds[-1]
         progress(self._progress(PHASE_FILTER, self._fraction(index + 1, 0), index + 1, preview=True))
+
+    def _record_histogram(self, histogram: np.ndarray) -> None:
+        """Hit statistics of the current tile (one pass over the count plane)."""
+        counts = histogram[3]
+        stats = self._tile_stats[-1]
+        stats.hits = float(counts.sum())
+        stats.lit_buckets = int(np.count_nonzero(counts))
+        stats.max_count = float(counts.max()) if counts.size else 0.0
 
     def _denoise(self, image: np.ndarray, progress: ProgressCallback) -> None:
         kind = denoiser_kind(self.settings.denoiser)
         if kind.key in ("none", "density") or not kind.available:
             return
+        started = time.perf_counter()
         progress(self._progress(PHASE_DENOISE, 1.0, len(self.plan.tiles)))
         rgb = image[..., :3].astype(np.float32) / 65535.0
         rgb = denoise(rgb, kind.key, self.settings.denoise_strength)
         image[..., :3] = (np.clip(rgb, 0.0, 1.0) * 65535.0 + 0.5).astype(np.uint16)
+        self._denoise_seconds = time.perf_counter() - started
         self._preview.whole(image)
 
     # --- geometry -----------------------------------------------------------------------
@@ -332,5 +388,5 @@ def _to_rgba8(rgba: np.ndarray) -> np.ndarray:
     return (np.clip(rgba, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
 
 
-__all__ = ["FinalRenderer", "FinalProgress", "FinalResult", "PHASE_RENDER", "PHASE_FILTER", "PHASE_DENOISE",
+__all__ = ["FinalRenderer", "FinalProgress", "FinalResult", "TileStats", "PHASE_RENDER", "PHASE_FILTER", "PHASE_DENOISE",
            "PHASE_SAVE", "PHASE_DONE", "PHASE_CANCELLED"]

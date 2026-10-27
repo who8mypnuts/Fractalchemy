@@ -245,7 +245,7 @@ class RenderWindow(QMainWindow):
                 return
         self._persist()
         self.last_outcome = None
-        self.job = FinalRenderJob(flame, s, self)
+        self.job = FinalRenderJob(flame, s, self, source=self._source_text())
         self.job.progressed.connect(self._on_progress)
         self.job.succeeded.connect(self._on_succeeded)
         self.job.failed.connect(self._on_failed)
@@ -262,6 +262,10 @@ class RenderWindow(QMainWindow):
         """Keep the elapsed time moving between engine reports (engine start-up, long batches)."""
         if self.job is not None and not self.job.paused:
             self.progress_panel.show_elapsed(time.perf_counter() - self._job_started - self.job.control.paused_seconds)
+
+    def _source_text(self) -> str:
+        path = self.document.source_path
+        return f"{path} (entry {self.document.source_index + 1})" if path else ""
 
     def toggle_pause(self) -> None:
         """Pause / resume the running render."""

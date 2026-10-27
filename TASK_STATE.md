@@ -320,3 +320,19 @@ toolbar button (`render_icon()`: framed picture with a green go-badge; `link_ico
 - Image memory is `8 B × pixels` (uint16 RGBA) on top of the tile budget; gigapixel renders need the disk.
 - Possible next steps: render queue (several jobs), post-process window (re-tone-map a kept histogram),
   EXR / float output, reading `quality` / `oversample` / `filter` attributes from `.flame` files as defaults.
+
+## Follow-ups (same session)
+- Link button: bold blue joined chain when linked, faint grey broken chain with a red cut when free; no auto-raise;
+  state-describing tooltips. Filter dropdown entries no longer name other programs ("Gaussian", "Mitchell-Netravali").
+- **Fractal and Render Details** report: `render/report.py` builds a `Report` (sections of `Item`s with machine value +
+  human display, and `Table`s) from flame + settings + `FinalResult`, rendered as Markdown, HTML (standalone, styled)
+  or text (`key<TAB>value` per line, dotted lower-case keys, `#` comments; tables as `section.rowid.column`).
+  Sections: output, render settings (filter taps / reach, tiles, budget…), timing & statistics (phases, per-tile
+  table with hits / hit ratio / lit buckets / densest bucket), system, fractal summary, camera (extent in units),
+  colouring, palette stats (dominant hues, luminance, smoothness), transforms table (probability, affines,
+  determinant, variations, params, xaos), variations usage table, xaos matrix, notes.
+  `FinalResult` gained `tiles: list[TileStats]`, `plan`, `started_at` / `finished_at`, `paused_seconds`,
+  `denoise_seconds`. Settings: `save_details` (default off) + `details_format` ("md" / "txt" / "html");
+  `FinalRenderJob(..., source=)` writes `<image>.<ext>` after the image and sidecar; `FinalOutcome.report`;
+  the result line links to it. OutputPanel: checkbox + format combo (combo enabled only when checked).
+- Tests: `test_report_is_complete_in_all_three_formats` (+ job / window coverage); suite 365 passed, pyflakes clean.

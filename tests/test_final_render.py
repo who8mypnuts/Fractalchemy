@@ -19,6 +19,7 @@ from fractalchemy.render.final_settings import FinalRenderSettings, plan_tiles
 from fractalchemy.render.gpu_engine import gpu_available
 from fractalchemy.render.output import (FORMATS, SaveOptions, format_for_path, output_format, read_embedded_parameters,
                                         save_image, size_problem, with_extension)
+from fractalchemy.render.report import build_report, machine_text, render_report, report_extension
 from fractalchemy.render.samplers import RenderControl
 from fractalchemy.render.settings import RenderSettings
 from fractalchemy.render.tonemap import ToneParams, finish, log_scale, tonemap
@@ -260,12 +261,55 @@ def test_gpu_request_falls_back_to_cpu_with_a_note(monkeypatch):
         sampler.close()
 
 
+# --- the details report -----------------------------------------------------------------------------
+def _xaos_flame() -> Flame:
+    flame = sierpinski()
+    flame.xforms[0].chaos = [1.0, 0.0, 2.0]
+    flame.xforms[1].variations = {"julian": 0.7, "linear": 0.3}
+    flame.xforms[1].params = {"julian_power": 3.0, "julian_dist": 1.0}
+    flame.xforms[1].name = "pipe|name"
+    flame.final = XForm(variations={"spherical": 1.0}, color_speed=0.0)
+    return flame
+
+
+def test_report_is_complete_in_all_three_formats(tmp_path):
+    flame = _xaos_flame()
+    settings = FinalRenderSettings(64, 48, memory_limit_mb=1, denoiser="density", output_path=str(tmp_path / "a.png"), **QUICK)
+    result, _ = _render(flame, settings)
+    (tmp_path / "a.png").write_bytes(b"x" * 1234)
+    report = build_report(flame, settings, result, tmp_path / "a.png", tmp_path / "a.flame", "lib/a.flame (entry 1)", tmp_path / "a.md")
+    keys = [sec.key for sec in report.sections]
+    assert keys[:10] == ["output", "render", "timing", "system", "fractal", "camera", "coloring", "palette", "transforms", "variations"]
+    assert "xaos" in keys
+    text = render_report(report, "txt")
+    records = [line.split("\t") for line in text.splitlines() if not line.startswith("#")]
+    assert all(len(r) == 2 and " " not in r[0] and r[0] == r[0].lower() for r in records)     # key<TAB>value, grep-able keys
+    values = dict(records)
+    assert values["output.file_bytes"] == "1234" and values["output.complete"] == "true" and values["render.tiles"] == str(result.plan.count)
+    assert values["timing.tiles.count"] == str(len(result.tiles)) and float(values["timing.samples"]) == result.samples
+    assert values["fractal.transforms"] == "3" and values["fractal.final_transform"] == "true" and values["fractal.xaos"] == "true"
+    assert values["transforms.2.variations"] == "julian=0.7 linear=0.3" and values["transforms.2.params"] == "julian_dist=1 julian_power=3"
+    assert values["transforms.final.variations"] == "spherical=1" and values["xaos.1.to_2"] == "0"
+    assert values["variations.julian.parameters"] == "dist power" and values["variations.linear.transforms"] == "3"
+    assert values["palette.entries"] == "256" and values["camera.pixels_per_unit"] and values["system.cpu_count"]
+    assert len(set(r[0] for r in records)) == len(records)                                   # every key unique
+    md = render_report(report, "md")
+    assert md.startswith("# Fractalchemy render report") and "| Field | Value |" in md and "pipe\\|name" in md
+    assert "| Render completed | yes |" in md and "### Xaos matrix" in md
+    html_text = render_report(report, "html")
+    assert html_text.startswith("<!DOCTYPE html>") and "<h2 id=\"variations\">" in html_text and "pipe|name" in html_text
+    assert "<script" not in html_text and "&lt;" not in html_text.split("<body>")[0]
+    assert machine_text(True) == "true" and machine_text(-0.0) == "0" and machine_text([1, 2.5]) == "1, 2.5"
+    assert report_extension("html") == ".html" and report_extension("bogus") == ".md"
+
+
 # --- the Qt job ---------------------------------------------------------------------------------------
 def test_render_job_renders_saves_and_reports(qapp, tmp_path):
     flame = sierpinski()
     path = tmp_path / "out" / "gasket.png"
-    settings = FinalRenderSettings(64, 48, output_path=str(path), save_parameters=True, embed_parameters=True, **QUICK)
-    job = FinalRenderJob(flame, settings)
+    settings = FinalRenderSettings(64, 48, output_path=str(path), save_parameters=True, embed_parameters=True,
+                                   save_details=True, details_format="txt", **QUICK)
+    job = FinalRenderJob(flame, settings, source="memory")
     reports, outcomes, failures = [], [], []
     job.progressed.connect(reports.append)
     job.succeeded.connect(outcomes.append)
@@ -278,6 +322,8 @@ def test_render_job_renders_saves_and_reports(qapp, tmp_path):
     assert outcome.path == path and path.exists() and outcome.sidecar == path.with_suffix(".flame")
     assert "sierpinski" in read_embedded_parameters(path) and "<flame" in outcome.sidecar.read_text()
     assert reports[-1].phase == PHASE_DONE and outcome.result.complete
+    assert outcome.report == path.with_suffix(".txt") and "fractal.source\tmemory" in outcome.report.read_text()
+    assert f"output.parameters_file\t{outcome.sidecar}" in outcome.report.read_text()
 
 
 def test_render_job_reports_setup_failures(qapp, tmp_path):

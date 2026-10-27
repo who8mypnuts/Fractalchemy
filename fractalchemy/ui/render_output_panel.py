@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, Q
 
 from ..render.final_settings import FinalRenderSettings
 from ..render.output import FORMATS, format_for_path, output_format, with_extension
+from ..render.report import REPORT_FORMATS
 
 
 class OutputPanel(QGroupBox):
@@ -38,6 +39,8 @@ class OutputPanel(QGroupBox):
         self.save_parameters = QCheckBox("Save parameters (.flame) beside the image", self)
         self.embed_parameters = QCheckBox("Embed parameters in the image", self)
         self.save_incomplete = QCheckBox("Save incomplete renders when stopped", self)
+        self.save_details = QCheckBox("Save fractal and render details beside the image", self)
+        self.details_format = QComboBox(self)
         self._build()
 
     def _build(self) -> None:
@@ -56,6 +59,11 @@ class OutputPanel(QGroupBox):
         self.transparent.setToolTip("Write the background as transparency instead of the background colour")
         self.embed_parameters.setToolTip("Store the flame's parameters in the file's metadata (PNG text, JPEG comment, TIFF description)")
         self.save_incomplete.setToolTip("Stopping early still writes the tiles finished so far (correctly exposed, grainier)")
+        self.save_details.setToolTip("Write a report with every render setting, timing and statistic, and a full breakdown "
+                                     "of the fractal (transforms, variations, palette, camera) next to the image")
+        for key, label, _ext in REPORT_FORMATS:
+            self.details_format.addItem(label, key)
+        self.details_format.setToolTip("Markdown and HTML read nicely; the text form is one key<TAB>value per line for grep / awk / cut")
         form = QFormLayout(self)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         row = QHBoxLayout()
@@ -75,11 +83,15 @@ class OutputPanel(QGroupBox):
         form.addRow(self.save_parameters)
         form.addRow(self.embed_parameters)
         form.addRow(self.save_incomplete)
+        row = QHBoxLayout()
+        row.addWidget(self.save_details, 1)
+        row.addWidget(self.details_format)
+        form.addRow(row)
         self.browse.clicked.connect(self._browse)
         self.path.editingFinished.connect(self._on_path_edited)
         self.format_box.currentIndexChanged.connect(self._on_format_changed)
         for widget in (self.depth, self.quality, self.lossless, self.transparent, self.save_parameters,
-                       self.embed_parameters, self.save_incomplete):
+                       self.embed_parameters, self.save_incomplete, self.save_details, self.details_format):
             signal = widget.currentIndexChanged if isinstance(widget, QComboBox) else (
                 widget.valueChanged if isinstance(widget, QSpinBox) else widget.toggled)
             signal.connect(self._emit)
@@ -89,7 +101,7 @@ class OutputPanel(QGroupBox):
     def apply(self, s: FinalRenderSettings) -> None:
         """Show the settings' values (no signal)."""
         widgets = (self.path, self.format_box, self.depth, self.quality, self.lossless, self.transparent,
-                   self.save_parameters, self.embed_parameters, self.save_incomplete)
+                   self.save_parameters, self.embed_parameters, self.save_incomplete, self.save_details, self.details_format)
         for w in widgets:
             w.blockSignals(True)
         self.path.setText(s.output_path)
@@ -101,6 +113,8 @@ class OutputPanel(QGroupBox):
         self.save_parameters.setChecked(s.save_parameters)
         self.embed_parameters.setChecked(s.embed_parameters)
         self.save_incomplete.setChecked(s.save_incomplete)
+        self.save_details.setChecked(s.save_details)
+        self.details_format.setCurrentIndex(max(0, self.details_format.findData(s.details_format)))
         for w in widgets:
             w.blockSignals(False)
         self._refresh_dependent()
@@ -110,7 +124,8 @@ class OutputPanel(QGroupBox):
         return replace(s, output_path=self.path.text().strip(), output_format=self.format_box.currentData(),
                        depth=self.depth.currentData(), lossy_quality=self.quality.value(), lossless=self.lossless.isChecked(),
                        transparent=self.transparent.isChecked(), save_parameters=self.save_parameters.isChecked(),
-                       embed_parameters=self.embed_parameters.isChecked(), save_incomplete=self.save_incomplete.isChecked())
+                       embed_parameters=self.embed_parameters.isChecked(), save_incomplete=self.save_incomplete.isChecked(),
+                       save_details=self.save_details.isChecked(), details_format=self.details_format.currentData())
 
     def set_path(self, path: str) -> None:
         """Set the destination (selects the matching format for its suffix, or fixes the suffix)."""
@@ -155,6 +170,7 @@ class OutputPanel(QGroupBox):
         self.lossless.setEnabled(fmt.lossless_option)
         self.transparent.setEnabled(fmt.alpha)
         self.embed_parameters.setEnabled(fmt.key in ("png", "jpeg", "tiff", "svg", "webp", "avif", "heif", "jxl"))
+        self.details_format.setEnabled(self.save_details.isChecked())
 
     def _emit(self, *_args) -> None:
         self._refresh_dependent()

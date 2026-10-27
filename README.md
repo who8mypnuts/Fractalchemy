@@ -112,6 +112,14 @@ window hides it — the render carries on; quitting asks first.
   the format cannot use them: bit depth, quality / lossless, **transparent background**. *Save parameters*
   writes a `.flame` beside the image; *Embed parameters* stores them in the file (PNG text chunk, JPEG comment,
   TIFF description, EXIF comment elsewhere); *Save incomplete renders* keeps what was done when you stop.
+  *Save fractal and render details* (off by default) writes a report beside the image — `name.md`, `name.txt`
+  or `name.html` — with every render setting, the tile plan, timings per phase and per tile, sample counts,
+  speeds, hit ratios and bucket statistics, the system it ran on, and a full breakdown of the fractal:
+  camera and colouring, palette statistics (dominant hues, luminance, smoothness), every transform (weights,
+  probabilities, affines, determinants, variations, parameters, xaos), and a per-variation usage table.
+  The text form is one `key<TAB>value` record per line with dotted lower-case keys and `#` comments, so
+  `grep '^timing\.' name.txt | cut -f2` or `awk -F'\t' '$1=="render.samples_per_second"'` work as-is for
+  tracking usage over time.
 * **Progress** — a live preview that fills in tile by tile, a progress bar, elapsed and **remaining** time
   (from the measured sample rate), speed and tile counter. Before you start, the window estimates the time from
   the preview engine's or the last render's measured speed. **Pause / Resume** and **Stop** (which still saves if
@@ -215,7 +223,8 @@ fractalchemy/
                         the final renderer: final_settings (options, tile plan), filters (reconstruction filters,
                         density estimation), denoise, samplers (+ cpu_workers: shared-memory worker processes),
                         final_engine (tiles → filter → tone map → denoise), output (formats, 16-bit PNG / TIFF,
-                        SVG, metadata), final_service (FinalRenderJob thread)
+                        SVG, metadata), report (fractal + render details in md / txt / html),
+                        final_service (FinalRenderJob thread)
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,

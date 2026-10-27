@@ -66,6 +66,9 @@ def test_output_panel_keeps_format_and_extension_in_step(qapp, tmp_path):
     assert panel.lossless.isEnabled()
     panel.lossless.setChecked(True)
     assert not panel.quality.isEnabled()
+    assert not panel.save_details.isChecked() and not panel.details_format.isEnabled()     # off by default
+    panel.save_details.setChecked(True)
+    assert panel.details_format.isEnabled() and panel.details_format.currentData() == "md"
 
 
 def test_time_and_rate_formatting():
@@ -107,6 +110,7 @@ def test_window_renders_in_the_background_and_keeps_its_snapshot(render_window, 
     document.replace(sierpinski())
     out = tmp_path / "gasket.png"
     _quick(window, out)
+    window.output_panel.save_details.setChecked(True)
     window.start(ask_overwrite=False)
     assert window.rendering and not window.start_button.isEnabled() and window.stop_button.isEnabled()
     assert not window.size_panel.isEnabled()
@@ -116,6 +120,8 @@ def test_window_renders_in_the_background_and_keeps_its_snapshot(render_window, 
     wait_until(lambda: not window.rendering, timeout_ms=60000)
     spin(50)
     assert window.last_outcome is not None and window.last_outcome.path == out and out.exists()
+    assert window.last_outcome.report == out.with_suffix(".md") and "## Transforms" in out.with_suffix(".md").read_text()
+    assert "gasket.md" in window.progress_panel.result.text()
     assert 'name="sierpinski"' in read_embedded_parameters(out)
     assert window.windowTitle().endswith("changed-later") and window.output_panel.path.text().endswith("changed-later.png")
     assert "Finished" in window.progress_panel.result.text() and window.start_button.isEnabled()
@@ -149,7 +155,10 @@ def test_settings_persist_between_windows(render_window, tmp_path):
     window.quality_panel.density.setEditText("777")
     window.quality_panel.filter_box.setCurrentIndex(window.quality_panel.filter_box.findData("mitchell"))
     window.output_panel.depth.setCurrentIndex(1)
+    window.output_panel.save_details.setChecked(True)
+    window.output_panel.details_format.setCurrentIndex(window.output_panel.details_format.findData("html"))
     again = RenderWindow(FractalDocument(), settings=settings)
+    assert again.current_settings().save_details and again.current_settings().details_format == "html"
     assert again.current_settings().quality == 777 and again.current_settings().filter_kind == "mitchell"
     assert again.current_settings().depth == 16 and again.quality_panel.radius.value() == 1.0   # Mitchell's own radius
     again.close()

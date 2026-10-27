@@ -60,6 +60,8 @@ class FinalRenderSettings:
         save_parameters: Write a `.flame` with the parameters next to the image.
         embed_parameters: Store the parameters in the image's metadata.
         save_incomplete: Keep what was rendered when the render is stopped early.
+        save_details: Write a fractal + render report beside the image.
+        details_format: Report format key: "md", "txt" or "html" (`report.REPORT_FORMATS`).
         fuse: Warm-up iterations per point before plotting.
         seed: Random seed.
     """
@@ -86,6 +88,8 @@ class FinalRenderSettings:
     save_parameters: bool = False
     embed_parameters: bool = True
     save_incomplete: bool = True
+    save_details: bool = False
+    details_format: str = "md"
     fuse: int = 30
     seed: int = 1
 

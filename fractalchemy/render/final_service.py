@@ -24,6 +24,7 @@ from ..fractal.scene import Flame
 from .final_engine import PHASE_SAVE, FinalProgress, FinalRenderer, FinalResult
 from .final_settings import FinalRenderSettings
 from .output import SaveOptions, output_format, parameters_text, save_image, write_sidecar
+from .report import build_report, report_extension, write_report
 from .samplers import RenderControl
 
 PROGRESS_INTERVAL = 0.25   # seconds between progress signals (previews always go through)
@@ -37,11 +38,13 @@ class FinalOutcome:
         result: The render.
         path: Where the image was written (None if not saved — cancelled without `save_incomplete`, or no path).
         sidecar: The `.flame` written beside it, if any.
+        report: The fractal + render details file written beside it, if any.
         notes: Engine remarks plus anything that went wrong while saving extras.
     """
     result: FinalResult
     path: Path | None
     sidecar: Path | None = None
+    report: Path | None = None
     notes: list[str] = field(default_factory=list)
 
 
@@ -57,10 +60,17 @@ class FinalRenderJob(QThread):
     succeeded = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, flame: Flame, settings: FinalRenderSettings, parent: QObject | None = None):
+    def __init__(self, flame: Flame, settings: FinalRenderSettings, parent: QObject | None = None, source: str = ""):
+        """Args:
+            flame: What to render (copied).
+            settings: How.
+            parent: Qt owner.
+            source: Where the flame came from (file and entry), for the details report.
+        """
         super().__init__(parent)
         self.flame = flame.copy()
         self.settings = settings
+        self.source = source
         self.control = RenderControl()
         self.started_at = 0.0
         self._last_signal = 0.0
@@ -106,6 +116,11 @@ class FinalRenderJob(QThread):
                     outcome.sidecar = write_sidecar(self.flame, outcome.path)
                 except OSError as exc:
                     outcome.notes.append(f"Parameters could not be written: {exc}")
+            if self.settings.save_details:
+                try:
+                    outcome.report = self._write_report(outcome)
+                except Exception as exc:  # noqa: BLE001 - the image is saved; a report failure is a note
+                    outcome.notes.append(f"Details could not be written: {exc}")
             self.progressed.emit(replace(final, preview=None))   # back to Finished / Stopped once the file is written
         self.succeeded.emit(outcome)
 
@@ -116,6 +131,12 @@ class FinalRenderJob(QThread):
             return
         self._last_signal = now
         self.progressed.emit(progress)
+
+    def _write_report(self, outcome: FinalOutcome) -> Path:
+        fmt = self.settings.details_format
+        path = outcome.path.with_suffix(report_extension(fmt))
+        report = build_report(self.flame, self.settings, outcome.result, outcome.path, outcome.sidecar, self.source, path)
+        return write_report(report, path, fmt)
 
     def _save(self, result: FinalResult) -> Path:
         s = self.settings

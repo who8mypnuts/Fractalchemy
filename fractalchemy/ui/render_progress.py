@@ -159,8 +159,9 @@ class RenderProgressPanel(QWidget):
         if outcome.path is not None:
             p = outcome.path
             line += (f'<br>Saved <a href="file:{p}">{p.name}</a> in <a href="file:{p.parent}">{p.parent}</a>')
-            if outcome.sidecar is not None:
-                line += f" (+ {outcome.sidecar.name})"
+            extras = [x for x in (outcome.sidecar, outcome.report) if x is not None]
+            if extras:
+                line += " (+ " + ", ".join(f'<a href="file:{x}">{x.name}</a>' for x in extras) + ")"
         elif not r.complete:
             line += "<br>Nothing was saved (stopped before completion; see 'Save incomplete renders')."
         notes = [n for n in outcome.notes if n]
