@@ -63,7 +63,7 @@ def test_apophysis_attributes_are_interpreted(samples):
     assert rotated.final is not None and "lazysusan" in rotated.final.variations
     assert rotated.final.params["lazysusan_spin"] == pytest.approx(1.570796)
     power = [f for f in load_flames(samples / FLAMES / "bel2.flame") if f.name == "power source"][0]
-    assert power.camera.rotate == -30 and "crackle" in power.unsupported
+    assert power.camera.rotate == -30 and "crackle" in power.xforms[0].variations and not power.unsupported
 
 
 def test_flame_xml_writer_round_trips_everything_we_model(samples):
@@ -104,7 +104,7 @@ def test_chaotica_worlds_load_with_camera_and_xaos(samples):
     assert tram.final is not None and tram.final.variations == {"bipolar": 1.0}
     assert tram.camera.rotate == -197.31 and tram.camera.scale == pytest.approx(960 / 1.25)
     assert tram.xforms[1].chaos == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    assert "collideoscope" in tram.unsupported
+    assert "collideoscope" in tram.xforms[0].variations and not tram.unsupported   # a plugin the formula library supplies
     assert not fractal_format_for(samples / FLAMES / "tatasz_tram_rails.chaos").can_append
 
 
@@ -146,3 +146,22 @@ def test_fractal_catalog_scans_only_fractal_files(samples):
     gradients = scan_directory(samples / "sample gradients", FRACTAL_CATALOG)
     assert gradients.files == []
     assert FRACTAL_CATALOG.roots_key == "fractal_library/roots" != FRACTAL_CATALOG.key + "x"
+
+
+# --- 3D camera, direct colour and plugin parameters in flame XML ----------------
+def test_flame_xml_reads_and_writes_the_3d_camera_and_plugin_attributes():
+    text = """<flame name="deep" size="640 480" center="0 0" scale="200" cam_pitch="0.5" cam_yaw="-0.25" cam_dist="4" cam_zpos="0.1" cam_dof="0.2">
+  <xform weight="0.5" color="0" var_color="0.6" collideoscope="1" collideoscope_a="0.3" collideoscope_num="4" coefs="1 0 0 1 0 0"/>
+  <xform weight="0.5" color="1" dc_bubble="1" julia3D="0.5" julia3D_power="3" interference2="0.2" intrfr2_a1="2" intrfr2_t1="1" coefs="1 0 0 1 0 0"/>
+</flame>"""
+    flame = parse_text(text)[0]
+    cam = flame.camera
+    assert (cam.pitch, cam.yaw, cam.zpos, cam.dof) == (0.5, -0.25, 0.1, 0.2) and cam.perspective == pytest.approx(0.25)
+    assert flame.xforms[0].var_color == 0.6 and flame.xforms[0].params["collideoscope_num"] == 4
+    assert flame.xforms[1].variations == {"dc_bubble": 1.0, "julia3D": 0.5, "interference2": 0.2}
+    assert flame.xforms[1].params["intrfr2_a1"] == 2 and flame.xforms[1].params["intrfr2_t1"] == 1   # parameters named unlike their variation
+    assert not flame.unsupported
+    again = parse_text(flame_to_xml(flame))[0]
+    assert again.camera == cam and again.xforms[0].var_color == 0.6 and again.xforms[1].params == flame.xforms[1].params
+    assert 'cam_perspective="0.25"' in flame_to_xml(flame) and "cam_pitch" not in flame_to_xml(Flame("flat", [XForm()]))
+    assert Flame.from_dict(flame.to_dict()).camera == cam and Flame.from_dict(flame.to_dict()).xforms[0].var_color == 0.6

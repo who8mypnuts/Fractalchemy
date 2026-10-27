@@ -54,6 +54,7 @@ class RenderService(QThread):
     def __init__(self, parent: QObject | None = None, prefer_gpu: bool = True):
         super().__init__(parent)
         self._prefer_gpu = prefer_gpu
+        self._fallback = None
         self._queue: list[_Request] = []
         self._cond = threading.Condition()
         self._seq = count()
@@ -110,6 +111,8 @@ class RenderService(QThread):
                 self._render(request)
         finally:
             self.engine.close()
+            if self._fallback is not None:
+                self._fallback.close()
 
     def _create_engine(self):
         if self._prefer_gpu:
@@ -125,6 +128,15 @@ class RenderService(QThread):
         engine = CpuEngine()
         self.engine_name = self.engine_name or f"CPU (numpy, {engine.threads} threads)"
         return engine
+
+    def _fallback_engine(self):
+        """The CPU engine, for flames the GPU engine cannot compile (created on first need)."""
+        if self.engine.name == "CPU":
+            raise RuntimeError("the CPU engine failed")
+        if self._fallback is None:
+            from .cpu_engine import CpuEngine
+            self._fallback = CpuEngine()
+        return self._fallback
 
     def _next(self) -> _Request | None:
         with self._cond:
@@ -148,10 +160,18 @@ class RenderService(QThread):
 
         try:
             job = self.engine.start(request.flame, request.settings)
-        except Exception as exc:  # noqa: BLE001 - report and move on
+        except ValueError as exc:   # the flame itself is unusable
             self._finish(request.key)
             self.job_failed.emit(request.key, str(exc))
             return
+        except Exception as exc:  # noqa: BLE001 - e.g. a formula's GLSL that this driver rejects: use the CPU for it
+            try:
+                job = self._fallback_engine().start(request.flame, request.settings)
+                job.stats.notes.append(f"rendered on the CPU: {str(exc).splitlines()[0][:120]}")
+            except Exception as exc2:  # noqa: BLE001 - report and move on
+                self._finish(request.key)
+                self.job_failed.emit(request.key, str(exc2 if self.engine.name == "CPU" else exc))
+                return
         try:
             while not job.stats.finished:
                 image = job.run_pass(cancelled)

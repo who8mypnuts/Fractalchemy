@@ -39,7 +39,7 @@ def test_application_is_named_fractalchemy(window):
 def test_menu_bar_has_windows_and_help_menus(window):
     assert menu_titles(window) == ["File", "Edit", "View", "Windows", "Help"]
     assert [a.text() for a in window.menuWindows.actions()] == ["Gradient Library"]
-    assert [a.text() for a in window.menuHelp.actions()] == ["About Fractalchemy…", "About Qt…"]
+    assert [a.text() for a in window.menuHelp.actions()] == ["Formulas…", "", "About Fractalchemy…", "About Qt…"]
     assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
     assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Exit"]
 
@@ -259,3 +259,24 @@ def test_thumbnail_view_renders_icons_for_entries(fractal_window):
     assert not icon.isNull() and icon.pixmap(120, 75).width() == 120
     win.actionThumbnailView.setChecked(False)
     assert not win.thumbnails.enabled and panel.list_button.isChecked()
+
+
+# --- formula browser ------------------------------------------------------------
+def test_help_menu_opens_the_formula_browser(window):
+    assert any(a.text().startswith("Formulas") for a in window.menuHelp.actions())
+    window.actionFormulas.trigger()
+    browser = window._formula_browser
+    assert browser is not None and browser.isVisible()
+    groups = [browser.tree.topLevelItem(i).text(0) for i in range(browser.tree.topLevelItemCount())]
+    assert "Built-in (flam3 / Apophysis)" in groups and "Apophysis 7X sources" in groups
+    assert "formulas loaded" in browser.summary.text()
+    browser.search.setText("collideoscope")
+    visible = [browser.tree.topLevelItem(i) for i in range(browser.tree.topLevelItemCount()) if not browser.tree.topLevelItem(i).isHidden()]
+    assert len(visible) == 1
+    item = next(visible[0].child(i) for i in range(visible[0].childCount()) if not visible[0].child(i).isHidden())
+    browser.tree.setCurrentItem(item)
+    text = browser.details.toPlainText()
+    assert text.startswith("collideoscope") and "collideoscope_num" in text and "int" in text and "Origin:" in text
+    window.actionFormulas.trigger()   # re-opening just raises the same window
+    assert window._formula_browser is browser
+    browser.close()

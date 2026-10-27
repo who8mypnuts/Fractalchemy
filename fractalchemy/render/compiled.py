@@ -1,8 +1,10 @@
 """A Flame pre-digested for rendering: resolved variations, selection table, palette array.
 
 Both engines start from this so they agree on which variations run with which
-parameters, how xaos weights turn into selection probabilities, and how the
-palette is indexed.
+parameters, in which order (Apophysis's rule: `pre_` variations first, then the rest,
+then `post_` ones), how xaos weights turn into selection probabilities, and how the
+palette is indexed. Prepared (per-transform constant) values of formula-style
+variations are computed here, once, and travel with the parameters.
 """
 
 from __future__ import annotations
@@ -12,12 +14,14 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..fractal.scene import Affine, Flame, XForm
-from ..fractal.variations import REGISTRY, Variation, params_for
+from ..fractal.variations import NORMAL, POST, PRE, REGISTRY, Variation, params_for
+
+PREPARE_SEED = 12345   # prepare-time randomness (e.g. JuliaRandomN) is the same for every render of a flame
 
 
 @dataclass(frozen=True)
 class CompiledVariation:
-    """One active variation on an xform, with its full parameter set."""
+    """One active variation on an xform, with its full parameter set (prepared values included)."""
     variation: Variation
     weight: float
     params: dict[str, float]
@@ -25,20 +29,38 @@ class CompiledVariation:
 
 @dataclass(frozen=True)
 class CompiledXForm:
-    """An xform with variations resolved against the registry."""
+    """An xform with variations resolved against the registry and ordered pre → normal → post."""
     coefs: Affine
     post: Affine
     color: float
     color_speed: float
     opacity: float
+    var_color: float
     pre_blur: float
     variations: tuple[CompiledVariation, ...]
     has_post: bool
+
+    @property
+    def pre(self) -> tuple[CompiledVariation, ...]:
+        return tuple(v for v in self.variations if v.variation.kind == PRE)
+
+    @property
+    def normal(self) -> tuple[CompiledVariation, ...]:
+        return tuple(v for v in self.variations if v.variation.kind == NORMAL)
+
+    @property
+    def posts(self) -> tuple[CompiledVariation, ...]:
+        return tuple(v for v in self.variations if v.variation.kind == POST)
+
+    @property
+    def direct_color(self) -> bool:
+        return any(v.variation.dc for v in self.variations)
 
     @classmethod
     def build(cls, xform: XForm) -> "CompiledXForm":
         active = []
         pre_blur = 0.0
+        rng = np.random.default_rng(PREPARE_SEED)
         for name, weight in xform.variations.items():
             var = REGISTRY.get(name)
             if var is None or weight == 0:
@@ -46,12 +68,15 @@ class CompiledXForm:
             if name == "pre_blur":
                 pre_blur = weight
                 continue
-            if not var.glsl and var.name in ("zblur", "zscale", "ztranslate", "zcone", "pre_zscale", "pre_ztranslate",
-                                             "post_zscale", "post_ztranslate"):
-                continue  # depth-only: nothing to do in 2D
-            active.append(CompiledVariation(var, weight, params_for(name, xform.params)))
+            params = params_for(name, xform.params)
+            if var.prepare is not None:
+                params.update(var.prepare(params, weight, tuple(xform.coefs), rng))
+            params.update(var.tables)
+            active.append(CompiledVariation(var, weight, params))
+        order = {PRE: 0, NORMAL: 1, POST: 2}
+        active.sort(key=lambda cv: order.get(cv.variation.kind, 1))
         return cls(tuple(xform.coefs), tuple(xform.post), xform.color, min(1.0, max(0.0, xform.color_speed)),
-                   min(1.0, max(0.0, xform.opacity)), pre_blur, tuple(active), xform.has_post())
+                   min(1.0, max(0.0, xform.opacity)), xform.var_color, pre_blur, tuple(active), xform.has_post())
 
 
 @dataclass(frozen=True)

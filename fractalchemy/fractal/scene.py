@@ -46,6 +46,7 @@ class XForm:
         params: Variation parameters, keyed `variation_param` as in flame files (`julian_power`).
         chaos: Xaos row — relative weights of choosing each xform *after* this one; None = all equal.
         name: Optional label from the file.
+        var_color: How much direct-colour variations change the point colour (Apophysis `var_color`, 0..1).
     """
     weight: float = 0.5
     color: float = 0.0
@@ -57,6 +58,7 @@ class XForm:
     params: dict[str, float] = field(default_factory=dict)
     chaos: list[float] | None = None
     name: str = ""
+    var_color: float = 1.0
 
     @property
     def symmetry(self) -> float:
@@ -92,6 +94,10 @@ class Camera:
         zoom: Extra magnification, 2^zoom (Apophysis semantics).
         rotate: Rotation in degrees (Apophysis `rotate`; `angle` is −rotate in radians).
         width, height: The flame's own image size; other viewports scale from it.
+        pitch, yaw: 3D camera angles in radians (Apophysis `cam_pitch` / `cam_yaw`).
+        perspective: Perspective strength (Apophysis `cam_perspective`; 0 = orthographic).
+        zpos: Depth offset subtracted before projection (`cam_zpos`).
+        dof: Depth-of-field blur amount (`cam_dof`).
     """
     center: tuple[float, float] = (0.0, 0.0)
     scale: float = 200.0
@@ -99,6 +105,25 @@ class Camera:
     rotate: float = 0.0
     width: int = 800
     height: int = 600
+    pitch: float = 0.0
+    yaw: float = 0.0
+    perspective: float = 0.0
+    zpos: float = 0.0
+    dof: float = 0.0
+
+    def is_3d(self) -> bool:
+        """True if the camera does anything a flat projection would not."""
+        return any((self.pitch, self.yaw, self.perspective, self.zpos, self.dof))
+
+    def matrix(self) -> tuple[tuple[float, float, float], ...]:
+        """Apophysis's 3×3 camera matrix (row i = source axis x, y, z; column j = output axis)."""
+        cp, sp = math.cos(self.pitch), math.sin(self.pitch)
+        cy, sy = math.cos(-self.yaw), math.sin(-self.yaw)
+        return (
+            (cy, cp * sy, sp * sy),
+            (-sy, cp * cy, sp * cy),
+            (0.0, -sp, cp),
+        )
 
     def at_size(self, width: int, height: int) -> "Camera":
         """The camera for an output image of another size.
@@ -109,7 +134,8 @@ class Camera:
         is exactly that scale.
         """
         ppu = self.scale * (2.0 ** self.zoom) * width / max(1, self.width)
-        return Camera(self.center, ppu, 0.0, self.rotate, max(1, int(width)), max(1, int(height)))
+        return Camera(self.center, ppu, 0.0, self.rotate, max(1, int(width)), max(1, int(height)),
+                      self.pitch, self.yaw, self.perspective, self.zpos, self.dof)
 
     def pixels_per_unit(self, view_width: int, view_height: int) -> float:
         """Scale for a viewport of another size: the flame's framed area always fits inside it."""
@@ -211,7 +237,9 @@ class Flame:
         return {
             "name": self.name,
             "camera": {"center": list(self.camera.center), "scale": self.camera.scale, "zoom": self.camera.zoom,
-                       "rotate": self.camera.rotate, "width": self.camera.width, "height": self.camera.height},
+                       "rotate": self.camera.rotate, "width": self.camera.width, "height": self.camera.height,
+                       "pitch": self.camera.pitch, "yaw": self.camera.yaw, "perspective": self.camera.perspective,
+                       "zpos": self.camera.zpos, "dof": self.camera.dof},
             "coloring": {"brightness": self.coloring.brightness, "gamma": self.coloring.gamma,
                          "gamma_threshold": self.coloring.gamma_threshold, "vibrancy": self.coloring.vibrancy,
                          "contrast": self.coloring.contrast, "background": list(self.coloring.background)},
@@ -231,7 +259,9 @@ class Flame:
             xforms=[_xform_from_dict(x) for x in data.get("xforms", [])],
             final=_xform_from_dict(data["final"]) if data.get("final") else None,
             camera=Camera(tuple(cam.get("center", (0.0, 0.0))), cam.get("scale", 200.0), cam.get("zoom", 0.0),
-                          cam.get("rotate", 0.0), int(cam.get("width", 800)), int(cam.get("height", 600))),
+                          cam.get("rotate", 0.0), int(cam.get("width", 800)), int(cam.get("height", 600)),
+                          cam.get("pitch", 0.0), cam.get("yaw", 0.0), cam.get("perspective", 0.0),
+                          cam.get("zpos", 0.0), cam.get("dof", 0.0)),
             coloring=Coloring(col.get("brightness", 4.0), col.get("gamma", 4.0), col.get("gamma_threshold", 0.01),
                               col.get("vibrancy", 1.0), col.get("contrast", 1.0), tuple(col.get("background", (0, 0, 0)))),
             palette=palette or Flame().palette,
@@ -242,10 +272,11 @@ class Flame:
 def _xform_to_dict(x: XForm) -> dict:
     return {"weight": x.weight, "color": x.color, "color_speed": x.color_speed, "opacity": x.opacity,
             "coefs": list(x.coefs), "post": list(x.post), "variations": dict(x.variations), "params": dict(x.params),
-            "chaos": x.chaos, "name": x.name}
+            "chaos": x.chaos, "name": x.name, "var_color": x.var_color}
 
 
 def _xform_from_dict(d: dict) -> XForm:
     return XForm(d.get("weight", 0.5), d.get("color", 0.0), d.get("color_speed", 0.5), d.get("opacity", 1.0),
                  tuple(d.get("coefs", identity_affine())), tuple(d.get("post", identity_affine())),
-                 dict(d.get("variations", {"linear": 1.0})), dict(d.get("params", {})), d.get("chaos"), d.get("name", ""))
+                 dict(d.get("variations", {"linear": 1.0})), dict(d.get("params", {})), d.get("chaos"), d.get("name", ""),
+                 d.get("var_color", 1.0))

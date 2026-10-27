@@ -89,6 +89,8 @@
     <property name="title">
      <string>Help</string>
     </property>
+    <addaction name="actionFormulas"/>
+    <addaction name="separator"/>
     <addaction name="actionAbout"/>
     <addaction name="actionAboutQt"/>
    </widget>
@@ -182,6 +184,10 @@
    <property name="toolTip"><string>Gradient Library</string></property>
    <property name="statusTip"><string>Show the Gradient Library window to browse, edit and save gradients</string></property>
    <property name="shortcut"><string>F6</string></property>
+  </action>
+  <action name="actionFormulas">
+   <property name="text"><string>Formulas…</string></property>
+   <property name="toolTip"><string>Browse the loaded formulas (variations and plugins)</string></property>
   </action>
   <action name="actionAbout">
    <property name="text"><string>About Fractalchemy…</string></property>

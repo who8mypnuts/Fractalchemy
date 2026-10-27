@@ -16,9 +16,10 @@ from typing import Callable
 import numpy as np
 
 from .. import config
-from ..fractal.scene import Flame
+from ..fractal.scene import Camera, Flame
 from ..fractal.variations import Point
 from .compiled import CompiledFlame, CompiledXForm
+from .projection import project
 from .settings import RenderSettings, RenderStats
 from .tonemap import ToneParams, tonemap
 
@@ -59,7 +60,7 @@ class CpuRenderJob:
                                  width=settings.width, height=settings.height, notes=list(self.compiled.notes))
         per_thread = max(64, settings.points // self.threads)
         self._workers = [_Worker(self.compiled, per_thread, settings.seed * 7919 + i, self.pixel_transform,
-                                 settings.width, settings.height) for i in range(self.threads)]
+                                 settings.width, settings.height, flame.camera) for i in range(self.threads)]
         self._pool = ThreadPoolExecutor(max_workers=self.threads, thread_name_prefix="render-cpu")
         self._elapsed = 0.0
         self._fused = False
@@ -95,15 +96,18 @@ class CpuRenderJob:
 class _Worker:
     """One thread's point population and private histogram."""
 
-    def __init__(self, compiled: CompiledFlame, points: int, seed: int, pixel_transform, width: int, height: int):
+    def __init__(self, compiled: CompiledFlame, points: int, seed: int, pixel_transform, width: int, height: int,
+                 camera: Camera | None = None):
         self.compiled = compiled
         self.rng = np.random.default_rng(seed)
         self.x = self.rng.uniform(-1.0, 1.0, points)
         self.y = self.rng.uniform(-1.0, 1.0, points)
+        self.z = np.zeros(points)
         self.c = self.rng.random(points)
         self.prev = np.zeros(points, dtype=np.intp)
         self.pixel_transform = pixel_transform
         self.width, self.height = width, height
+        self.camera = camera if camera is not None else Camera()
         self.opacities = np.array([x.opacity for x in compiled.xforms])
 
     def fuse(self, iterations: int) -> None:
@@ -147,21 +151,24 @@ class _Worker:
         for i, xform in enumerate(self.compiled.xforms):
             sel = np.nonzero(xi == i)[0]
             if sel.shape[0]:
-                self.x[sel], self.y[sel], self.c[sel] = apply_xform(xform, self.x[sel], self.y[sel], self.c[sel], self.rng)
-        bad = ~(np.abs(self.x) < RESET_LIMIT) | ~(np.abs(self.y) < RESET_LIMIT)
+                self.x[sel], self.y[sel], self.z[sel], self.c[sel] = apply_xform(
+                    xform, self.x[sel], self.y[sel], self.z[sel], self.c[sel], self.rng)
+        bad = ~(np.abs(self.x) < RESET_LIMIT) | ~(np.abs(self.y) < RESET_LIMIT) | ~(np.abs(self.z) < RESET_LIMIT)
         if bad.any():
             k = int(bad.sum())
             self.x[bad] = self.rng.uniform(-1.0, 1.0, k)
             self.y[bad] = self.rng.uniform(-1.0, 1.0, k)
+            self.z[bad] = 0.0
             self.c[bad] = self.rng.random(k)
         self.prev = xi
         return xi
 
     def _project(self, xi: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Pixel indices, plot weights and palette indices of the points that land in the image."""
-        x, y, c = self.x, self.y, self.c
+        x, y, z, c = self.x, self.y, self.z, self.c
         if self.compiled.final is not None:
-            x, y, c = apply_xform(self.compiled.final, x, y, c, self.rng)
+            x, y, z, c = apply_xform(self.compiled.final, x, y, z, c, self.rng)
+        x, y = project(self.camera, x, y, z, self.rng)
         a, b, cc, d, e, f = self.pixel_transform
         px = a * x + cc * y + e
         py = b * x + d * y + f
@@ -173,24 +180,35 @@ class _Worker:
         return idx, op[sel], ci
 
 
-def apply_xform(xform: CompiledXForm, x: np.ndarray, y: np.ndarray, c: np.ndarray, rng: np.random.Generator):
-    """Map arrays of points through one xform (affine → variations → post affine, colour blend)."""
+def apply_xform(xform: CompiledXForm, x: np.ndarray, y: np.ndarray, z: np.ndarray, c: np.ndarray,
+                rng: np.random.Generator):
+    """Map arrays of points through one xform, exactly in Apophysis's order.
+
+    Colour blend → pre-affine → `pre_` variations (rewrite the input point) → normal variations
+    (accumulate) → `post_` variations (rewrite the accumulator) → post affine → direct colour.
+    Returns the new (x, y, z, colour) arrays.
+    """
+    speed = xform.color_speed
+    c = c * (1.0 - speed) + xform.color * speed
+    col = c
     a, b, cc, d, e, f = xform.coefs
     tx = a * x + cc * y + e
     ty = b * x + d * y + f
+    tz = z
     if xform.pre_blur:
         ang = rng.random(x.shape[0]) * 2.0 * np.pi
         k = xform.pre_blur * (rng.random(x.shape[0]) + rng.random(x.shape[0]) + rng.random(x.shape[0]) + rng.random(x.shape[0]) - 2.0)
         tx = tx + k * np.cos(ang)
         ty = ty + k * np.sin(ang)
-    vx = np.zeros_like(tx)
-    vy = np.zeros_like(ty)
-    for cv in xform.variations:
-        dx, dy = cv.variation.numpy(Point(tx, ty, cv.weight, xform.coefs, cv.params, rng))
-        vx += dx
-        vy += dy
+    zero = np.zeros_like(tx)
+    vx, vy, vz = zero, zero.copy(), zero.copy()
+    with np.errstate(all="ignore"):
+        for cv in xform.variations:
+            point = Point(tx, ty, cv.weight, xform.coefs, cv.params, rng, tz, vx, vy, vz, col)
+            tx, ty, tz, vx, vy, vz, col = cv.variation.apply(point)
     if xform.has_post:
         a, b, cc, d, e, f = xform.post
         vx, vy = a * vx + cc * vy + e, b * vx + d * vy + f
-    speed = xform.color_speed
-    return vx, vy, c * (1.0 - speed) + xform.color * speed
+    if xform.direct_color:
+        c = c + xform.var_color * (col - c)
+    return vx, vy, vz, c

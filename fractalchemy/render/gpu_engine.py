@@ -20,8 +20,9 @@ from typing import Callable
 import numpy as np
 
 from ..fractal.scene import Flame
-from .codegen import GeneratedProgram, generate
+from .codegen import STATE_BYTES, GeneratedProgram, generate
 from .compiled import CompiledFlame
+from .projection import glsl_uniforms
 from .settings import RenderSettings, RenderStats
 from .tonemap import FULLSCREEN_VERTEX_GLSL, TONEMAP_GLSL, ToneParams
 
@@ -73,7 +74,7 @@ class GpuEngine:
         """Compiled (iterate, plot) programs, cached by source text."""
         key = generated.iterate_vertex + generated.plot_vertex
         if key not in self._programs:
-            iterate = self.ctx.program(vertex_shader=generated.iterate_vertex, varyings=["out_state", "out_seed"])
+            iterate = self.ctx.program(vertex_shader=generated.iterate_vertex, varyings=["out_state", "out_xi", "out_seed"])
             plot = self.ctx.program(vertex_shader=generated.plot_vertex, fragment_shader=_PLOT_FRAGMENT)
             self._programs[key] = (iterate, plot)
             if len(self._programs) > 32:
@@ -133,12 +134,14 @@ class GpuRenderJob:
     def _create_population(self) -> None:
         n = self.settings.points
         rng = np.random.default_rng(self.settings.seed)
-        state = np.zeros((n, 5), dtype=np.uint32)
-        state[:, :4] = np.column_stack([rng.uniform(-1, 1, n), rng.uniform(-1, 1, n), rng.random(n), np.zeros(n)]).astype(np.float32).view(np.uint32)
-        state[:, 4] = rng.integers(1, 2 ** 32 - 1, n, dtype=np.uint32)
+        state = np.zeros((n, STATE_BYTES // 4), dtype=np.uint32)
+        # (x, y, z, colour) as float32 bits, then the last xform index and the RNG seed
+        state[:, :4] = np.column_stack([rng.uniform(-1, 1, n), rng.uniform(-1, 1, n), np.zeros(n), rng.random(n)]).astype(np.float32).view(np.uint32)
+        state[:, 4] = 0
+        state[:, 5] = rng.integers(1, 2 ** 32 - 1, n, dtype=np.uint32)
         self.buffers = [self.ctx.buffer(state.tobytes()), self.ctx.buffer(reserve=state.nbytes)]
-        self.iterate_vaos = [self.ctx.vertex_array(self.iterate_prog, [(b, "4f 1u", "in_state", "in_seed")]) for b in self.buffers]
-        self.plot_vaos = [self.ctx.vertex_array(self.plot_prog, [(b, "4f 1x4", "in_state")]) for b in self.buffers]
+        self.iterate_vaos = [self.ctx.vertex_array(self.iterate_prog, [(b, "4f 1u 1u", "in_state", "in_xi", "in_seed")]) for b in self.buffers]
+        self.plot_vaos = [self.ctx.vertex_array(self.plot_prog, [(b, "4f 1u 1x4", "in_state", "in_xi")]) for b in self.buffers]
         self.current = 0
 
     def _create_targets(self) -> None:
@@ -156,6 +159,8 @@ class GpuRenderJob:
         # pixel -> clip: x_clip = px / w * 2 - 1 ; y_clip = py / h * 2 - 1 (row 0 of the texture = top of the image)
         _set(self.plot_prog, "u_cam_x", (a * 2.0 / w, c * 2.0 / w, e * 2.0 / w - 1.0))
         _set(self.plot_prog, "u_cam_y", (b * 2.0 / h, d * 2.0 / h, f * 2.0 / h - 1.0))
+        for name, value in glsl_uniforms(flame.camera).items():
+            _set(self.plot_prog, name, value)
 
     # --- rendering ----------------------------------------------------------
     def run_pass(self, cancelled: Callable[[], bool] = lambda: False) -> np.ndarray | None:

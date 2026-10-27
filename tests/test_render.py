@@ -6,7 +6,7 @@ import pytest
 from fractalchemy.fractal import Flame, XForm
 from fractalchemy.fractal.formats import load_flame
 from fractalchemy.fractal.scene import Coloring
-from fractalchemy.render.compiled import CompiledFlame, selection_table
+from fractalchemy.render.compiled import CompiledFlame, CompiledXForm, selection_table
 from fractalchemy.render.cpu_engine import CpuEngine
 from fractalchemy.render.gpu_engine import gpu_available
 from fractalchemy.render.service import PRIORITY_THUMBNAIL, RenderService, wait_for
@@ -203,3 +203,82 @@ def gl_context():
         ctx = moderngl.create_standalone_context(require=330, backend="egl")
     yield ctx
     ctx.release()
+
+
+# --- depth, direct colour, pre/post order and 3D camera ---------------------------
+def _render_both(flame: Flame, quality: float = 120) -> tuple[np.ndarray, np.ndarray]:
+    """(CPU image, GPU image) of a small render."""
+    from fractalchemy.render.gpu_engine import GpuEngine
+    settings = RenderSettings(96, 64, passes=1, quality=quality, points=8192, fuse=12)
+    cpu = _render_cpu(flame, settings)
+    engine = GpuEngine()
+    gpu_job = engine.start(flame, settings)
+    gpu = gpu_job.run_pass().astype(float)[..., :3]
+    gpu_job.close()
+    engine.close()
+    return cpu, gpu
+
+
+def _render_cpu(flame: Flame, settings: RenderSettings) -> np.ndarray:
+    job = CpuEngine(threads=2).start(flame, settings)
+    image = job.run_pass().astype(float)[..., :3]
+    job.close()
+    return image
+
+
+def _correlation(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.corrcoef(a.ravel(), b.ravel())[0, 1])
+
+
+def test_compiled_xform_orders_pre_normal_post_and_prepares_formulas():
+    xform = XForm(variations={"post_curl3D": 0.5, "spherical": 1.0, "pre_spherical": 0.3, "collideoscope": 0.2},
+                  params={"collideoscope_num": 3})
+    compiled = CompiledXForm.build(xform)
+    assert [cv.variation.name for cv in compiled.variations] == ["pre_spherical", "spherical", "collideoscope", "post_curl3D"]
+    collide = compiled.variations[2]
+    assert collide.params["collideoscope_num"] == 3 and "kn_pi" in collide.params   # prepared value travels along
+    assert CompiledXForm.build(XForm(variations={"dc_bubble": 1.0})).direct_color
+
+
+def test_depth_variations_change_the_projected_picture():
+    flat = sierpinski()
+    tilted = flat.copy()
+    tilted.xforms[0].variations = {"linear": 1.0, "ztranslate": 0.3}
+    tilted.camera.pitch = 1.0
+    tilted.camera.perspective = 0.5
+    a, _ = _render_both(flat, quality=40)
+    b, _ = _render_both(tilted, quality=40)
+    assert _correlation(a, b) < 0.95   # the depth and the tilted camera move the gasket
+
+
+@needs_gl
+def test_engines_agree_on_3d_direct_colour_and_pre_post_variations():
+    flame = sierpinski()
+    flame.xforms[0].variations = {"pre_blur": 0.3, "spherical": 1.0, "post_curl3D": 0.4}
+    flame.xforms[0].params = {"post_curl3D_cz": 0.3}
+    flame.xforms[1].variations = {"dc_bubble": 1.0}
+    flame.xforms[1].var_color = 0.7
+    flame.xforms[2].variations = {"julia3D": 1.0, "crop": 0.5}
+    flame.xforms[2].params = {"julia3D_power": 3, "crop_right": 0.8}
+    flame.camera.pitch, flame.camera.yaw, flame.camera.perspective, flame.camera.zpos = 0.6, 0.3, 0.4, 0.1
+    cpu, gpu = _render_both(flame, quality=200)
+    # the engines must agree as well as two CPU renders with different random seeds do
+    settings = RenderSettings(96, 64, passes=1, quality=200, points=8192, fuse=12, seed=99)
+    noise_floor = _correlation(cpu, _render_cpu(flame, settings))
+    assert _correlation(cpu, gpu) > noise_floor - 0.08 and abs(cpu.mean() - gpu.mean()) < 8
+
+
+def test_camera_matrix_and_projection_follow_apophysis():
+    from fractalchemy.fractal.scene import Camera
+    from fractalchemy.render.projection import project
+    cam = Camera(pitch=0.5, yaw=0.25, perspective=0.3, zpos=0.1)
+    x, y, z = np.array([0.4]), np.array([-0.2]), np.array([0.3])
+    px, py = project(cam, x, y, z, np.random.default_rng(0))
+    m = cam.matrix()
+    zz = z - cam.zpos
+    ex = m[0][0] * x + m[1][0] * y
+    ey = m[0][1] * x + m[1][1] * y + m[2][1] * zz
+    ez = m[0][2] * x + m[1][2] * y + m[2][2] * zz
+    zr = 1 - cam.perspective * ez
+    assert np.allclose(px, ex / zr) and np.allclose(py, ey / zr)
+    assert not Camera().is_3d() and project(Camera(), x, y, z, np.random.default_rng(0)) == (x, y)

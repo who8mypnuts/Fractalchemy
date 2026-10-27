@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
             self.fractalLibraryPanel.model, fractal_roots or LibraryRoots(parent=self, key=FRACTAL_CATALOG.roots_key), self)
         self.fractal_menu = LibraryContextMenu(self.fractal_library, self.open_item, self)
         self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
+        self._formula_browser = None
         self.gradient_library = GradientLibraryWindow(roots, self)
         self.gradient_link = GradientLink(self.document, self.gradient_library, self.viewport, self)
         self.splitter.first_label, self.splitter.last_label = "fractal library", "settings panel"
@@ -106,6 +107,7 @@ class MainWindow(QMainWindow):
         self.actionThumbnailView.toggled.connect(self.fractalLibraryPanel.set_thumbnail_view)
         self.actionExit.triggered.connect(self.close)
         self.actionAbout.triggered.connect(self.about)
+        self.actionFormulas.triggered.connect(self.show_formulas)
         self.actionAboutQt.triggered.connect(lambda: QMessageBox.aboutQt(self, f"About Qt — {config.APP_NAME}"))
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
@@ -213,6 +215,15 @@ class MainWindow(QMainWindow):
 
     def about(self) -> None:
         QMessageBox.about(self, f"About {config.APP_NAME}", ABOUT_TEXT)
+
+    def show_formulas(self) -> None:
+        """Open (or raise) the formula browser."""
+        if self._formula_browser is None:
+            from .formula_browser import FormulaBrowser
+            self._formula_browser = FormulaBrowser(self)
+        self._formula_browser.show()
+        self._formula_browser.raise_()
+        self._formula_browser.activateWindow()
 
     def _on_flame_replaced(self) -> None:
         flame = self.document.flame

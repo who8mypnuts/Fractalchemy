@@ -22,7 +22,7 @@ python -m pytest
 ### Main window
 * Menu bar: *File* (Open Fractal…, Exit), *Edit* (Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
   Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
-  *Windows* (Gradient Library `F6`), *Help*.
+  *Windows* (Gradient Library `F6`), *Help* (Formulas…, About).
 * Toolbar: **Open Fractal**, **Gradient Library** (hover for tooltips).
 * **Fractal Library** (left pane, collapsible via the divider arrow or `Ctrl+L`): folders of `.flame`
   (Apophysis / flam3, legacy files included), `.chaos` (Chaotica) and `.fa` (Fractalchemy) files, each file
@@ -68,10 +68,17 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
   generated GLSL; numbers live in a parameter texture so parameter edits won't recompile.
 * **CPU engine** — the same chaos game vectorised in numpy across all cores (float64). Used automatically
   when no OpenGL context can be created; it is also the seed of the precision/final renderer.
-* Both use Apophysis's log-density tone mapping (brightness, gamma, gamma threshold, vibrancy, background)
-  and the flam3 variation definitions. ~50 variations are implemented, each written once for numpy *and*
-  GLSL and tested to agree; unknown ones (plugins not ported yet) are listed in the status bar and ignored.
-  3D variations render as their 2D projection.
+* Both use Apophysis's log-density tone mapping (brightness, gamma, gamma threshold, vibrancy, background),
+  Apophysis's transform semantics (`pre_` / `post_` variation order, `var_color` direct colour, depth `z`)
+  and its 3D camera (`cam_pitch`, `cam_yaw`, `cam_perspective` / `cam_dist`, `cam_zpos`, `cam_dof`).
+* **Formulas** (variations / plugins) live in `fractalchemy/formulas/` — see
+  [docs/formulas.md](docs/formulas.md). Some 570 are bundled: the flam3 classics and Apophysis 7X built-ins,
+  every Apophysis plugin whose source was available, and plugins that only existed as (mostly 32-bit) DLLs,
+  reconstructed from their machine code. Each is defined once and compiled for *both* engines from the
+  Apophysis plugin C dialect (or written natively in Python + GLSL), and the test-suite checks that numpy
+  and GLSL agree on every one. Your own formulas go into the per-user formulas folder (*Help ▸ Formulas…*
+  shows it, together with everything loaded and why anything failed to load). Formulas a flame uses that
+  are not available are listed in the status bar and ignored.
 * Tunables in `config.py`: `PREVIEW_PASSES` / `PREVIEW_QUALITY` (defaults for the settings panel),
   `INTERACTIVE_SCALE`, thumbnail size / quality.
 
@@ -167,6 +174,9 @@ fractalchemy/
   settings.py           QSettings identity + one-time migration of HueClid settings
   fractal/              the shared scene: Flame / XForm / Camera / Coloring, the variation registry (numpy + GLSL),
                         formats/ (.flame XML, .chaos, .fa)
+  formulas/             the formulas: builtin/ (native Python), library/ (the plugin dialect, one file each:
+                        apophysis7x / plugins / ports / reconstructed), lang/ (the compiler), loader (user folders,
+                        cache), apophysis_depth (the built-ins' depth rule)
   render/               RenderSettings / RenderStats, CompiledFlame, tone map (numpy + GLSL), cpu_engine, codegen +
                         gpu_engine (moderngl), RenderService (worker thread, priorities, cancellation)
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
@@ -177,8 +187,9 @@ fractalchemy/
   widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons
   ui/                   .ui loader, background tasks, MainWindow, FractalDocument, FractalViewport (image framing,
                         view vs. camera pan/zoom), ViewerBar (zoom + image size), SettingsPanel, FractalLibraryPanel,
-                        ThumbnailProvider, RenderStatus (status bar), GradientLink, and the gradient side:
+                        ThumbnailProvider, RenderStatus (status bar), GradientLink, FormulaBrowser, and the gradient side:
                         GradientDocument, file actions, GradientLibraryWindow
+tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas)
 tests/                  pytest suite
 samples/                sample flames / gradients / images used by the tests, plus
 samples/aposource/      the Apophysis 7x source and plugin code, kept for reference (not scanned by the tests)

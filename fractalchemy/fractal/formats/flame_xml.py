@@ -13,7 +13,7 @@ from pathlib import Path
 
 from ... import config
 from ..scene import Affine, Camera, Coloring, Flame, XForm, identity_affine
-from ..variations import REGISTRY, canonical_name, normalize
+from ..variations import REGISTRY, canonical_name, normalize, parameter_owner
 
 # xform attributes that are not variations
 XFORM_ATTRS = {
@@ -62,9 +62,15 @@ def flame_from_element(el: ET.Element) -> Flame:
     rotate = _float(el.get("rotate"), None)
     if rotate is None:
         rotate = -_float(el.get("angle"), 0.0) * 180.0 / 3.141592653589793
+    perspective = _float(el.get("cam_perspective"), None)
+    if perspective is None:
+        dist = _float(el.get("cam_dist"), 0.0)
+        perspective = 1.0 / dist if dist else 0.0
     flame = Flame(
         name=el.get("name", "flame"),
-        camera=Camera((cx, cy), _float(el.get("scale"), 200.0), _float(el.get("zoom"), 0.0), rotate, width, height),
+        camera=Camera((cx, cy), _float(el.get("scale"), 200.0), _float(el.get("zoom"), 0.0), rotate, width, height,
+                      _float(el.get("cam_pitch"), 0.0), _float(el.get("cam_yaw"), 0.0), perspective,
+                      _float(el.get("cam_zpos"), 0.0), abs(_float(el.get("cam_dof"), 0.0))),
         coloring=Coloring(
             brightness=_float(el.get("brightness"), 4.0), gamma=_float(el.get("gamma"), 4.0),
             gamma_threshold=_float(el.get("gamma_threshold"), 0.01), vibrancy=_float(el.get("vibrancy"), 1.0),
@@ -91,6 +97,7 @@ def _xform_from_element(el: ET.Element, unsupported: set[str]) -> XForm:
         coefs=_affine(attrs.get("coefs")),
         post=_affine(attrs.get("post")),
         name=attrs.get("name", ""),
+        var_color=_float(attrs.get("var_color"), 1.0),
     )
     if "color_speed" in attrs:
         xform.color_speed = _float(attrs["color_speed"], 0.5)
@@ -109,10 +116,11 @@ def _split_variations(attrs: dict[str, str]) -> tuple[dict[str, float], dict[str
     candidates = {k: v for k, v in attrs.items() if k not in XFORM_ATTRS}
     variations: dict[str, float] = {}
     params: dict[str, float] = {}
-    # Variation names: known ones, or any attribute that is a prefix of an `x_y` attribute, or unknown non-param attrs.
+    # Variation names: known ones; parameters: declared by a known variation, or prefixed by another attribute.
     names = {k for k in candidates if canonical_name(k) in REGISTRY}
+    declared = {k for k in candidates if k not in names and parameter_owner(k)}
     for k in candidates:
-        if k in names:
+        if k in names or k in declared:
             continue
         if any(k.startswith(n + "_") for n in names | set(candidates) - {k}):
             continue  # looks like a parameter of another attribute
@@ -147,7 +155,7 @@ def flame_to_xml(flame: Flame, indent: str = "") -> str:
     head = (
         f'<flame name="{_attr(flame.name)}" version="{config.APP_NAME} {config.APP_VERSION}" '
         f'size="{cam.width} {cam.height}" center="{_g(cam.center[0])} {_g(cam.center[1])}" scale="{_g(cam.scale)}" '
-        f'zoom="{_g(cam.zoom)}" rotate="{_g(cam.rotate)}" oversample="1" filter="0.2" quality="5" '
+        f'zoom="{_g(cam.zoom)}" rotate="{_g(cam.rotate)}" {_camera_3d_attrs(cam)}oversample="1" filter="0.2" quality="5" '
         f'background="{_g(col.background[0] / 255)} {_g(col.background[1] / 255)} {_g(col.background[2] / 255)}" '
         f'brightness="{_g(col.brightness)}" gamma="{_g(col.gamma)}" gamma_threshold="{_g(col.gamma_threshold)}" '
         f'vibrancy="{_g(col.vibrancy)}" contrast="{_g(col.contrast)}">'
@@ -173,12 +181,22 @@ def flames_to_xml(flames: list[Flame], name: str = "Fractalchemy") -> str:
     return f'<Flames name="{_attr(name)}">\n{body}</Flames>\n'
 
 
+def _camera_3d_attrs(cam: Camera) -> str:
+    """`cam_*` attributes, only when the camera is not flat (keeps 2D files as Apophysis writes them)."""
+    if not cam.is_3d():
+        return ""
+    return (f'cam_pitch="{_g(cam.pitch)}" cam_yaw="{_g(cam.yaw)}" cam_perspective="{_g(cam.perspective)}" '
+            f'cam_zpos="{_g(cam.zpos)}" cam_dof="{_g(cam.dof)}" ')
+
+
 def _xform_attrs(x: XForm, final: bool) -> str:
     parts = [] if final else [f'weight="{_g(x.weight)}"']
     parts.append(f'color="{_g(x.color)}"')
     parts.append(f'symmetry="{_g(x.symmetry)}"')
     if x.opacity != 1.0:
         parts.append(f'opacity="{_g(x.opacity)}"')
+    if x.var_color != 1.0:
+        parts.append(f'var_color="{_g(x.var_color)}"')
     if x.name:
         parts.append(f'name="{_attr(x.name)}"')
     for name, weight in x.variations.items():
