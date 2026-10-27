@@ -20,7 +20,7 @@ from .items import Kind, LibraryItem
 from .model import LibraryModel
 from .payload import from_mime, to_mime
 from .roots import LibraryRoots
-from .scanner import ScannedDir, scan_directory
+from .scanner import ScannedDir, scan_directory, scan_file
 from .watcher import LibraryWatcher
 
 
@@ -58,6 +58,8 @@ class LibraryController(QObject):
         model.drop_requested.connect(self.drop)
         self.watcher.root_changed.connect(self.rescan_root)
         self.watcher.file_changed.connect(self.file_changed_externally)
+        self.watcher.loose_file_changed.connect(lambda _path: self.rescan_open_file())
+        self._open_generation = 0
 
     # --- scanning -----------------------------------------------------------
     def rescan_all(self) -> None:
@@ -77,9 +79,46 @@ class LibraryController(QObject):
         )
 
     def rescan_containing(self, *paths: Path) -> None:
-        """Rescan each root that contains any of `paths`."""
+        """Rescan each root that contains any of `paths` (and the opened file, if it is one of them)."""
         for root in {r for r in self.roots.paths() for p in paths if _is_within(p, r)}:
             self.rescan_root(root)
+        if self.open_file is not None and any(Path(p) == self.open_file for p in paths):
+            self.rescan_open_file()
+
+    # --- the opened file (temporary area above the library) -------------------------------------------------
+    @property
+    def open_file(self) -> Path | None:
+        return self.model.open_file
+
+    def show_file(self, path: Path | None) -> None:
+        """Show `path` in the temporary area at the top of the tree (replacing whatever was there); None clears it."""
+        self._open_generation += 1
+        if path is None:
+            self.model.set_open_file(None)
+            self.watcher.watch_file(None)
+            return
+        generation = self._open_generation
+        self._set_pending(+1)
+        run_in_background(scan_file, Path(path), self.catalog,
+                          on_done=lambda scanned: self._apply_open_scan(Path(path), scanned, generation),
+                          on_error=lambda exc: self._scan_failed(Path(path), exc))
+
+    def rescan_open_file(self) -> None:
+        if self.open_file is not None:
+            self.show_file(self.open_file)
+
+    def _apply_open_scan(self, path: Path, scanned, generation: int) -> None:
+        self._set_pending(-1)
+        if generation != self._open_generation:
+            return
+        if scanned is None:
+            self.failed.emit(f"{path.name} holds nothing the library can show")
+            self.model.set_open_file(None)
+            self.watcher.watch_file(None)
+            return
+        self.model.set_open_file(scanned)
+        self.watcher.watch_file(path)
+        self.root_scanned.emit(path)
 
     def root_of(self, path: Path) -> Path | None:
         """The library root containing `path`, or None."""

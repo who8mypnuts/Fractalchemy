@@ -281,3 +281,48 @@ def test_help_menu_opens_the_formula_browser(window):
     window.actionFormulas.trigger()   # re-opening just raises the same window
     assert window._formula_browser is browser
     browser.close()
+
+
+# --- the opened file's temporary area ----------------------------------------------
+def test_open_button_shows_the_file_in_a_temporary_area_above_the_library(fractal_window, tmp_path, monkeypatch):
+    import shutil
+    from PySide6.QtWidgets import QFileDialog, QInputDialog
+    from fractalchemy.fractal.formats import load_flames
+    from fractalchemy.library.items import Kind
+    from fractalchemy.library.model import ITEM_ROLE
+
+    win = fractal_window
+    model = win.fractalLibraryPanel.model
+    loose = tmp_path / "loose.flame"
+    shutil.copy(win.fractal_library.roots.paths()[0] / "candy.flame", loose)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(loose), "")))
+    win.actionOpenFractal.trigger()
+    wait_until(lambda: model.open_file == loose and win.document.flame is not None and win.document.source_path == loose)
+    rows = [model.item(r).data(ITEM_ROLE) for r in range(model.rowCount())]
+    assert [r.kind for r in rows] == [Kind.FILE, Kind.SEPARATOR, Kind.ROOT] and rows[0].temporary and rows[0].path == loose
+    first = model.item(0)
+    assert [first.child(i).text() for i in range(first.rowCount())] == ["original", "outlined", "rotated", "pearl", "obsession"]
+    assert all(first.child(i).data(ITEM_ROLE).temporary for i in range(first.rowCount()))
+    assert win.fractalLibraryPanel.tree.item_at(win.fractalLibraryPanel.tree._proxy.index(1, 0)) is None   # the line is no item
+    assert model.root_paths() == [win.fractal_library.roots.paths()[0]] and list(model.file_counts()) == model.root_paths()
+    # the entries are browsable like the rest of the library
+    win.open_item(first.child(3).data(ITEM_ROLE))
+    wait_until(lambda: win.document.flame is not None and win.document.flame.name == "pearl")
+    assert win.document.source_index == 3
+    # saving a new entry into the opened file updates its area
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("sixth", True)))
+    win.actionSaveAsNewEntry.trigger()
+    wait_until(lambda: win.document.source_index == 5)
+    wait_until(lambda: model.item(0).rowCount() == 6 and not win.fractal_library._pending)
+    assert model.item(0).child(5).text() == "sixth" and len(load_flames(loose)) == 6
+    # opening another file replaces the slot
+    other = tmp_path / "other.flame"
+    shutil.copy(win.fractal_library.roots.paths()[0] / "bel2.flame", other)
+    win.open_file_path(other)
+    wait_until(lambda: model.open_file == other and not win.fractal_library._pending)
+    assert [model.item(r).data(ITEM_ROLE).kind for r in range(model.rowCount())] == [Kind.FILE, Kind.SEPARATOR, Kind.ROOT]
+    # a file changed by another program is rescanned
+    shutil.copy(loose, other)
+    wait_until(lambda: model.item(0).rowCount() == 6 and not win.fractal_library._pending, timeout_ms=8000)
+    win.fractal_library.show_file(None)
+    assert model.open_file is None and model.rowCount() == 1

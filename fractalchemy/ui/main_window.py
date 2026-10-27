@@ -24,7 +24,7 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import gradient_icon
+from ..widgets.icons import action_icon, gradient_icon
 from .background import run_in_background
 from .fractal_document import FractalDocument
 from .fractal_file_actions import FractalFileActions
@@ -102,10 +102,9 @@ class MainWindow(QMainWindow):
     def _connect_actions(self) -> None:
         self.actionOpenFractal.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_DialogOpenButton))
         self.actionOpenFractal.triggered.connect(self.open_file)
-        style = self.style().StandardPixmap
-        self.actionSaveFractal.setIcon(self.style().standardIcon(style.SP_DialogSaveButton))
+        self.actionSaveFractal.setIcon(action_icon("save"))
         self.actionSaveFractal.triggered.connect(self.files.save)
-        self.actionSaveAs.setIcon(self.style().standardIcon(style.SP_DriveFDIcon))
+        self.actionSaveAs.setIcon(action_icon("save"))
         self.actionSaveAs.setMenu(self.menuSaveAs)
         self.actionSaveAs.triggered.connect(self.files.save_as_new_file)
         save_as_button = self.toolBar.widgetForAction(self.actionSaveAs)
@@ -114,12 +113,12 @@ class MainWindow(QMainWindow):
         self.actionSaveAsNewEntry.triggered.connect(self.files.save_as_new_entry)
         self.actionSaveAsNewFile.triggered.connect(self.files.save_as_new_file)
         self.actionSaveAsIntoFile.triggered.connect(self.files.save_as_into_file)
-        self.actionUndo.setIcon(self.style().standardIcon(style.SP_ArrowBack))
-        self.actionRedo.setIcon(self.style().standardIcon(style.SP_ArrowForward))
+        self.actionUndo.setIcon(action_icon("undo"))
+        self.actionRedo.setIcon(action_icon("redo"))
         self.actionUndo.triggered.connect(self.document.undo)
         self.actionRedo.triggered.connect(self.document.redo)
-        self.actionCopyParameters.setIcon(self.style().standardIcon(style.SP_FileDialogDetailedView))
-        self.actionPasteParameters.setIcon(self.style().standardIcon(style.SP_FileDialogContentsView))
+        self.actionCopyParameters.setIcon(action_icon("copy"))
+        self.actionPasteParameters.setIcon(action_icon("paste"))
         self.actionCopyParameters.triggered.connect(self.copy_parameters)
         self.actionPasteParameters.triggered.connect(self.paste_parameters)
         self.files.status.connect(self._message)
@@ -199,7 +198,12 @@ class MainWindow(QMainWindow):
         start = str(self.document.source_path.parent) if self.document.source_path else ""
         path, _ = QFileDialog.getOpenFileName(self, "Open fractal", start, open_dialog_filter())
         if path:
-            self.open_path(Path(path), 0)
+            self.open_file_path(Path(path))
+
+    def open_file_path(self, path: Path) -> None:
+        """Show `path` in the library's temporary area (browsable like any file) and load its first flame."""
+        self.fractal_library.show_file(path)
+        self.open_path(path, 0)
 
     def open_item(self, item: LibraryItem) -> None:
         """Show the flame a library row refers to."""
@@ -241,7 +245,11 @@ class MainWindow(QMainWindow):
         self._message(f"Pasted '{flame.name}'" + (f" — ignored: {', '.join(flame.unsupported)}" if flame.unsupported else ""))
 
     def _on_fractal_written(self, path: Path, _index: int) -> None:
-        self.fractal_library.rescan_containing(path)
+        library = self.fractal_library
+        if library.root_of(path) is None and library.open_file != path:
+            library.show_file(path)       # a new file outside the library: browse it from the temporary area
+        else:
+            library.rescan_containing(path)
         self._on_flame_replaced()   # the source (file, entry) changed: status bar, Info tab, title
 
     def _on_modified_changed(self, modified: bool) -> None:

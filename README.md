@@ -32,7 +32,9 @@ python -m pytest
   let you keep as many versions as you like.
 * **Fractal Library** (left pane, collapsible via the divider arrow or `Ctrl+L`): folders of `.flame`
   (Apophysis / flam3, legacy files included), `.chaos` (Chaotica) and `.fa` (Fractalchemy) files, each file
-  expanding into its flames. Search box, collapse-all, and two view buttons: **list** or **thumbnails**
+  expanding into its flames. A file opened with **Open Fractal** sits in a temporary area at the top, above a
+  separator line, browsable like the rest; opening another file replaces it, and saving into it (or into a new
+  file outside the library) updates the area just like the library folders update. Search box, collapse-all, and two view buttons: **list** or **thumbnails**
   (rendered on demand by the preview engine, at low priority so the viewport always comes first).
   Folders are watched, and the right-click menu / drag-and-drop file operations are the same as in the
   Gradient Library. It has its own folder list (*Edit ▸ Edit Fractal Library…*, or **+** / ✎ in the pane).

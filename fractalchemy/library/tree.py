@@ -5,11 +5,28 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QModelIndex, QPoint, Qt, QTimer, Signal
-from PySide6.QtWidgets import QAbstractItemView, QTreeView
+from PySide6.QtGui import QPen
+from PySide6.QtWidgets import QAbstractItemView, QStyledItemDelegate, QTreeView
 
 from .filter import LibraryFilter
-from .items import LibraryItem
-from .model import LibraryModel
+from .items import Kind, LibraryItem
+from .model import ITEM_ROLE, LibraryModel
+
+
+class _RowDelegate(QStyledItemDelegate):
+    """Paints the separator under the opened-file area as a line; everything else as usual."""
+
+    def paint(self, painter, option, index) -> None:
+        item = index.data(ITEM_ROLE)
+        if item is not None and item.kind == Kind.SEPARATOR:
+            rect = option.rect
+            y = rect.center().y()
+            painter.save()
+            painter.setPen(QPen(option.palette.mid().color(), 1))
+            painter.drawLine(rect.left() + 4, y, rect.right() - 4, y)
+            painter.restore()
+            return
+        super().paint(painter, option, index)
 
 
 class LibraryTree(QTreeView):
@@ -31,6 +48,7 @@ class LibraryTree(QTreeView):
         self._expanded: set[Path] = set()
         self._seen_roots: set[Path] = set()
         self.setModel(self._proxy)
+        self.setItemDelegate(_RowDelegate(self))
         self._configure()
         self.selectionModel().currentChanged.connect(self._on_current_changed)
         self.customContextMenuRequested.connect(self._on_menu)
@@ -61,8 +79,9 @@ class LibraryTree(QTreeView):
 
     # --- helpers for the controller ----------------------------------------
     def item_at(self, index: QModelIndex) -> LibraryItem | None:
-        """The LibraryItem behind a proxy index, or None."""
-        return self._model.library_item(self._proxy.mapToSource(index))
+        """The LibraryItem behind a proxy index, or None (the separator line is nobody's item)."""
+        item = self._model.library_item(self._proxy.mapToSource(index))
+        return None if item is not None and item.kind == Kind.SEPARATOR else item
 
     def selected_items(self) -> list[LibraryItem]:
         """Items of all selected rows."""
@@ -95,10 +114,10 @@ class LibraryTree(QTreeView):
         self.menu_requested.emit(self.item_at(self.indexAt(pos)), self.viewport().mapToGlobal(pos))
 
     def _on_rows_inserted(self, parent: QModelIndex, first: int, last: int) -> None:
-        if not parent.isValid():  # a (re)scanned root: open it the first time, then restore memory
+        if not parent.isValid():  # a (re)scanned root or the opened file: open it the first time, then restore memory
             for row in range(first, last + 1):
                 item = self._model.library_item(self._model.index(row, 0))
-                if item is not None and item.path not in self._seen_roots:
+                if item is not None and item.kind != Kind.SEPARATOR and item.path not in self._seen_roots:
                     self._seen_roots.add(item.path)
                     self._expanded.add(item.path)
         QTimer.singleShot(0, self.restore_expansion)

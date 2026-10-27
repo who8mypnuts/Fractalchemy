@@ -436,6 +436,7 @@ def test_main_window_toolbar_undo_copy_paste_and_save_flows(qapp, tmp_path, samp
         win.actionSaveAsNewFile.trigger()
         wait_until(lambda: win.document.source_path == target)
         assert load_flames(target)[0].name == "rotated copy" and win.document.source_index == 0
+        wait_until(lambda: win.fractalLibraryPanel.model.open_file == target)   # a file outside the library: browsable on top
         win.actionSaveAsNewFile.trigger()           # an existing file is appended to, never wiped
         wait_until(lambda: win.document.source_index == 1)
         assert len(load_flames(target)) == 2

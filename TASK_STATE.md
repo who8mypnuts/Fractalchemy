@@ -59,8 +59,8 @@ formulas of Fractalchemy. Design and reference: **docs/formulas.md** (read it fi
    cache, errors), `test_variations.py` now runs every registered formula through both engines (one of twelve
    points may differ: float32 discontinuities), engine 3D/DC/pre-post tests, flame 3D attribute round trip,
    formula browser test, `test_info_panel.py` (6), `test_image_panel.py` (8: document setters, pan geometry,
-   FloatRow, panel ↔ document, save round trip, preview options, undo/paste, curves, file flows). **1369 passed** at the
-   last full run.
+   FloatRow, panel ↔ document, save round trip, preview options, undo/paste, curves, file flows, opened-file area). **1370 passed** at
+   the last full run.
 
 Also fixed: the `.flame` reader treated `modulus` / `modulus_x` / `modulus_y` as transform attributes (a
 baseline assumption); they are the `modulus` plugin, which is now in the library — flames using it rendered
@@ -86,6 +86,12 @@ black before.
    (`formats.flame_to_text/flame_from_text`: .fa JSON, `<flame>` XML, Chaotica world); viewer-bar **Detail**
    (`FractalViewport.render_scale`); progress bar in permille (int32 overflow at zoom); GPU shader build
    failures dump sources + log to `cache_dir()/glsl-failures` (`ShaderBuildError`).
+
+10. **Toolbar icons** (`widgets/icons.py: action_icon`: theme icons when the platform has them, painted
+    look-alikes otherwise; Save As shares the save icon + menu arrow) and the **opened-file area**: `Kind.SEPARATOR`,
+    `LibraryItem.temporary` (part of the model key), `LibraryModel.set_open_file/open_file`, tree delegate paints
+    the line, `LibraryWatcher.watch_file` + `loose_file_changed`, `LibraryController.show_file/rescan_open_file`
+    (`rescan_containing` covers it), `MainWindow.open_file_path`; Save As into a file outside the library shows it there.
 
 ## Known gaps / next steps
 * Not available (see `tools/apo_decompile.py --batch` report): DLL-only plugins with loops (tile, tile_hyp,

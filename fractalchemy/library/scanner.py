@@ -66,6 +66,11 @@ def scan_directory(root: Path, catalog: Catalog) -> ScannedDir:
     return node
 
 
+def scan_file(path: Path, catalog: Catalog) -> ScannedFile | None:
+    """Describe one file (None if the catalog does not support it or it holds no entries)."""
+    return _scan_file(path, catalog)
+
+
 def _scan_file(path: Path, catalog: Catalog) -> ScannedFile | None:
     if not catalog.matches(path):
         return None

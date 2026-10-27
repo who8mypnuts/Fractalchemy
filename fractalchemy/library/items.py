@@ -13,6 +13,7 @@ class Kind(str, Enum):
     DIR = "dir"            # a sub-directory
     FILE = "file"          # a supported file (image / flame / ugr / fa ...)
     ENTRY = "entry"        # one named entry inside a multi-entry file (a gradient, a flame)
+    SEPARATOR = "separator"   # the line under the temporary "opened file" area (not an item you can act on)
 
 
 @dataclass(frozen=True)
@@ -24,11 +25,13 @@ class LibraryItem:
         path: The folder or file on disk.
         index: Entry index inside the file for ENTRY rows; 0 otherwise.
         name: Display text.
+        temporary: True for the rows of the opened file shown above the library (not one of its folders).
     """
     kind: Kind
     path: Path
     index: int = 0          # entry index for ENTRY, else 0
     name: str = ""
+    temporary: bool = False
 
     @property
     def is_directory(self) -> bool:

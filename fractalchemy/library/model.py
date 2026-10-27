@@ -78,7 +78,34 @@ class LibraryModel(QStandardItemModel):
     # --- population ---------------------------------------------------------
     def root_paths(self) -> list[Path]:
         """Paths of the roots currently in the tree, top to bottom."""
-        return [self.item(row).data(ITEM_ROLE).path for row in range(self.rowCount())]
+        return [self.item(row).data(ITEM_ROLE).path for row in range(self.rowCount())
+                if self.item(row).data(ITEM_ROLE).kind == Kind.ROOT]
+
+    # --- the opened file (temporary area above the roots) ---------------------------------------------------
+    @property
+    def open_file(self) -> Path | None:
+        """The file shown in the temporary area, if any."""
+        first = self.item(0).data(ITEM_ROLE) if self.rowCount() else None
+        return first.path if first is not None and first.temporary else None
+
+    def set_open_file(self, scanned: ScannedFile | None) -> None:
+        """Show `scanned` (or nothing) in the temporary area at the top, above a separator line."""
+        while self.rowCount():
+            data = self.item(0).data(ITEM_ROLE)
+            if data.kind != Kind.SEPARATOR and not data.temporary:
+                break
+            self.removeRow(0)
+        if scanned is not None:
+            separator = QStandardItem("")
+            separator.setData(LibraryItem(Kind.SEPARATOR, scanned.path, name=""), ITEM_ROLE)
+            separator.setData("", SEARCH_ROLE)
+            separator.setFlags(Qt.ItemFlag.NoItemFlags)
+            separator.setSelectable(False)
+            self.insertRow(0, separator)
+            item = self._build_file(scanned, temporary=True)
+            item.setToolTip(f"Opened file (not in a library folder)\n{scanned.path}")
+            self.insertRow(0, item)
+        self._reindex()
 
     def set_root(self, scanned: ScannedDir) -> QStandardItem:
         """Insert or replace the subtree for one library root."""
@@ -103,7 +130,8 @@ class LibraryModel(QStandardItemModel):
 
     def file_counts(self) -> dict[Path, int]:
         """Supported-file count per root path."""
-        return {self.item(r).data(ITEM_ROLE).path: self.item(r).data(COUNT_ROLE) for r in range(self.rowCount())}
+        return {self.item(r).data(ITEM_ROLE).path: self.item(r).data(COUNT_ROLE) for r in range(self.rowCount())
+                if self.item(r).data(ITEM_ROLE).kind == Kind.ROOT}
 
     def library_item(self, index: QModelIndex) -> LibraryItem | None:
         """The LibraryItem stored on `index`, or None for an invalid index."""
@@ -149,8 +177,8 @@ class LibraryModel(QStandardItemModel):
             item.appendRow(self._build_file(file))
         return item
 
-    def _build_file(self, scanned: ScannedFile) -> QStandardItem:
-        item = self._make_item(LibraryItem(Kind.FILE, scanned.path, name=scanned.path.name), self._icons.file)
+    def _build_file(self, scanned: ScannedFile, temporary: bool = False) -> QStandardItem:
+        item = self._make_item(LibraryItem(Kind.FILE, scanned.path, name=scanned.path.name, temporary=temporary), self._icons.file)
         item.setData(" ".join([scanned.path.name, *scanned.names]), SEARCH_ROLE)
         item.setToolTip(str(scanned.path))
         flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled
@@ -159,11 +187,11 @@ class LibraryModel(QStandardItemModel):
         item.setFlags(flags)
         if scanned.multi:
             for i, name in enumerate(scanned.names):
-                item.appendRow(self._build_entry(scanned.path, i, name))
+                item.appendRow(self._build_entry(scanned.path, i, name, temporary))
         return item
 
-    def _build_entry(self, path: Path, index: int, name: str) -> QStandardItem:
-        item = self._make_item(LibraryItem(Kind.ENTRY, path, index, name), self._icons.entry)
+    def _build_entry(self, path: Path, index: int, name: str, temporary: bool = False) -> QStandardItem:
+        item = self._make_item(LibraryItem(Kind.ENTRY, path, index, name, temporary), self._icons.entry)
         item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled)
         return item
 
@@ -185,7 +213,8 @@ class LibraryModel(QStandardItemModel):
 
     def _row_of_root(self, path: Path) -> int | None:
         for row in range(self.rowCount()):
-            if self.item(row).data(ITEM_ROLE).path == path:
+            data = self.item(row).data(ITEM_ROLE)
+            if data.kind == Kind.ROOT and data.path == path:
                 return row
         return None
 
@@ -197,7 +226,7 @@ class LibraryModel(QStandardItemModel):
 
 
 def _key(item: LibraryItem) -> tuple:
-    return (item.kind, item.path, item.index)
+    return (item.kind, item.path, item.index, item.temporary)
 
 
 def _is_multi_file(model: QStandardItemModel, index: QModelIndex) -> bool:
