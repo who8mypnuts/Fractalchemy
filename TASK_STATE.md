@@ -102,6 +102,26 @@ black before.
     show_batch_entry` (heading "Randomly Generated" in the temporary area; context menu = Open only; no drag).
     Icons: `action_icon("save-as")` (diskette + pencil), `action_icon("random")` (die).
 
+12. **Transform Editor** (Apophysis's editor; *Windows ▸ Transform Editor*, `F4`, toolbar). Model: `XForm.pre`
+    (the third affine, applied before `coefs`; `has_pre`, `combined_coefs`, `compose_affine`; `.flame` attribute
+    `pre_affine`, `.fa` key `pre`; Chaotica export folds it), both engines apply it (`CompiledXForm.pre_affine`,
+    `cpu_engine.apply_xform`, `codegen._xform_function`, identical output to the composed affine — tested CPU and
+    GPU). `fractal/triangles.py` (affine ⇄ X/O/Y triangle in editor space = y up; move / rotate / scale / flip /
+    snap / reset ops; hit tests), `fractal/xform_ops.py` (add / duplicate / link / delete with xaos rows kept
+    consistent, final on/off, area weights). `FractalDocument`: `xform()`, `edit_xform` (undoable, coalescing,
+    `sticky` for drags), `set_affine / set_xform_fields / set_variation / clear_variations / set_param / set_chaos /
+    set_all_chaos / add_xform / duplicate_xform / add_linked_xform / delete_xform / set_final_enabled /
+    area_weights / replace_flame_parameters`, signals `xform_changed(index | None, what)` and `transforms_changed`.
+    UI: `widgets/triangle_view.py` (the canvas: modes, pivot, edges, helpers, keys, context menu),
+    `widgets/value_table.py` (name / value table with Apophysis's drag-the-name editing), `ui/editor_context.py`
+    (selection + affine mode `pre` / `coefs` / `post`), `ui/editor_panels.py` (Variations / Variables / Xaos /
+    Triangle / Transform / Colors tabs), `ui/editor_preview.py` (throttled mini preview at `PRIORITY_EDITOR`),
+    `ui/editor_window.py` (toolbar, the three mode buttons styled with `config.HIGHLIGHT_COLOR`, menus, settings).
+    The viewport debounces transform edits (`EDIT_RENDER_DELAY_MS`, cancels the running render) and now also
+    re-renders on `flame_restored` (undo / redo / paste did not re-render before). `config`: `HIGHLIGHT_COLOR`,
+    `EDIT_RENDER_DELAY_MS`, `EDITOR_PREVIEW_*`. Icons: `editor_icon(name)`. Tests: `tests/test_editor.py` (19).
+    `tests/conftest.py` skips `samples/apophysis-7x/` (the Apophysis source tree) like `aposource`.
+
 ## Known gaps / next steps
 * Not available (see `tools/apo_decompile.py --batch` report): DLL-only plugins with loops (tile, tile_hyp,
   tile_plane, hy2, disc2square, fibonacci_blur, bubbleT3D, pre/post_hexcrop, jac_cn/dn/sn/elk, swirl3sin,
@@ -113,9 +133,11 @@ black before.
 * CPU speed of a few compiled formulas is low (crackle ~20 µs/point, eMod ~3 µs/point): both branches of every
   divergent `if` are evaluated; the GPU path is fine.
 * Random Batch has no symmetry options yet (Apophysis: bilateral / rotational); parameters stay at defaults.
-* The editor that lets users pick formulas and edit parameters (incl. the z / 3D variations such as
-  `ztranslate`, `zscale`, `zcone`, `julia3D_power`, `curl3D_cz`) is the next feature; `Variation.param_info`
-  (type, default, min/max, cyclic, non-zero) is ready for it, and `FormulaBrowser` shows the catalogue.
+* Transform Editor: no variation-preview grid (Apophysis's *Toggle variation preview*) and no rotate / scale
+  widget grips around the selected triangle (edges and modifier keys cover it); `ParamInfo.min/max` are shown
+  in tooltips but not enforced; the pre affine is an editing convenience (it composes with the normal affine),
+  so it adds no new shapes — placing it after the `pre_` variations instead would (one-line change in
+  `apply_xform` / `_xform_function`).
 * *Save* rewrites the `<flame>` element from the model, so attributes we do not model (`plotmode`, `animate`,
   motion, `estimator_*`) are dropped from that entry; coloring / curve edits re-render instead of
   re-tonemapping the kept histogram (a possible speed-up, now that jobs can be kept alive).

@@ -11,6 +11,8 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPen, QPixmap
 
+from .. import config
+
 ICON_SIZES = (16, 24, 32, 48, 64)
 RAINBOW = ((0.0, "#e53935"), (0.2, "#ffb300"), (0.4, "#43a047"), (0.6, "#1e88e5"), (0.8, "#8e24aa"), (1.0, "#e53935"))
 NODE_POSITIONS = (0.15, 0.5, 0.85)
@@ -50,7 +52,7 @@ def _gradient_pixmap(size: int) -> QPixmap:
 THEME_NAMES = {"undo": "edit-undo", "redo": "edit-redo", "copy": "edit-copy", "paste": "edit-paste", "save": "document-save",
                "save-as": "document-save-as", "random": "roll"}
 GLYPH_COLOR = QColor("#3b3b3b")
-GLYPH_ACCENT = QColor("#1e88e5")
+GLYPH_ACCENT = QColor(config.HIGHLIGHT_COLOR)
 
 
 def render_icon() -> QIcon:
@@ -218,3 +220,146 @@ def _curved_arrow(painter: QPainter, u: float, mirrored: bool) -> None:
     head = [QPointF(end.x(), end.y() + 2.6 * u), QPointF(end.x() - 2.4 * u, end.y() - 1.2 * u), QPointF(end.x() + 2.6 * u, end.y() - 1.2 * u)]
     painter.setPen(Qt.PenStyle.NoPen)
     painter.drawPolygon(head)
+
+
+# --- the Transform Editor's glyphs -------------------------------------------------------------------------
+EDITOR_THEME_NAMES = {
+    "add-transform": "list-add", "delete-transform": "edit-delete", "duplicate-transform": "edit-copy",
+    "select": "edit-select", "move": "transform-move", "rotate": "transform-rotate", "scale": "transform-scale",
+    "rotate-ccw": "object-rotate-left", "rotate-cw": "object-rotate-right", "flip-h": "object-flip-horizontal",
+    "flip-v": "object-flip-vertical", "fit": "zoom-fit-best", "reload": "view-refresh",
+}
+
+
+def editor_icon(name: str, use_theme: bool = False) -> QIcon:
+    """A glyph for one of the Transform Editor's actions (painted; the platform theme's icon if `use_theme`)."""
+    if use_theme:
+        themed = QIcon.fromTheme(EDITOR_THEME_NAMES.get(name, ""))
+        if not themed.isNull():
+            return themed
+    icon = QIcon()
+    for size in ICON_SIZES:
+        icon.addPixmap(_editor_pixmap(name, size))
+    return icon
+
+
+def _triangle(painter: QPainter, u: float, x: float, y: float, s: float, flip: bool = False) -> None:
+    """A right triangle (X, O, Y corners like the editor's) with its origin corner at (x, y)."""
+    sx = -1 if flip else 1
+    painter.drawPolygon([QPointF(x + sx * s * u, y), QPointF(x, y), QPointF(x, y - s * u)])
+
+
+def _editor_pixmap(name: str, size: int) -> QPixmap:
+    import math
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    u = size / 16.0
+    pen = QPen(GLYPH_COLOR, max(1.0, 1.5 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    accent = QPen(GLYPH_ACCENT, max(1.0, 1.8 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    if name == "editor":
+        painter.setPen(QPen(GLYPH_ACCENT, max(1.0, 1.5 * u)))
+        painter.setBrush(QColor(30, 136, 229, 60))
+        _triangle(painter, u, 3.5, 13, 9.5)
+        painter.setBrush(QColor("#fafafa"))
+        painter.setPen(QPen(GLYPH_COLOR, max(1.0, u)))
+        for cx, cy in ((3.5, 13), (13, 13), (3.5, 3.5)):
+            painter.drawEllipse(QPointF(cx * u, cy * u), 1.6 * u, 1.6 * u)
+    elif name == "add-transform":
+        _triangle(painter, u, 3, 13, 8)
+        painter.setPen(QPen(QColor("#2e7d32"), max(1.0, 2.0 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(11 * u, 3 * u), QPointF(11 * u, 9 * u))
+        painter.drawLine(QPointF(8 * u, 6 * u), QPointF(14 * u, 6 * u))
+    elif name == "duplicate-transform":
+        _triangle(painter, u, 2.5, 10.5, 7)
+        painter.setPen(accent)
+        _triangle(painter, u, 6.5, 14, 7)
+    elif name == "delete-transform":
+        _triangle(painter, u, 3, 13, 8)
+        painter.setPen(QPen(QColor("#c62828"), max(1.0, 2.0 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(9 * u, 3 * u), QPointF(14 * u, 8 * u))
+        painter.drawLine(QPointF(14 * u, 3 * u), QPointF(9 * u, 8 * u))
+    elif name == "linked-transform":
+        _triangle(painter, u, 2.5, 13, 6)
+        painter.setPen(accent)
+        _triangle(painter, u, 9.5, 13, 5)
+        painter.drawLine(QPointF(5 * u, 6 * u), QPointF(10.5 * u, 6 * u))
+        painter.drawPolyline([QPointF(8.5 * u, 4 * u), QPointF(10.5 * u, 6 * u), QPointF(8.5 * u, 8 * u)])
+    elif name == "final-transform":
+        painter.setPen(QPen(GLYPH_COLOR, max(1.0, 1.5 * u)))
+        _triangle(painter, u, 2.5, 13.5, 10)
+        painter.setPen(QPen(GLYPH_ACCENT, max(1.0, 2.2 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(8 * u, 5 * u), QPointF(8 * u, 13 * u))
+        painter.drawLine(QPointF(8 * u, 5 * u), QPointF(13 * u, 5 * u))
+        painter.drawLine(QPointF(8 * u, 9 * u), QPointF(12 * u, 9 * u))
+    elif name == "select":
+        painter.setBrush(QColor("#fafafa"))
+        painter.drawPolygon([QPointF(4 * u, 2 * u), QPointF(4 * u, 13 * u), QPointF(7 * u, 10.5 * u), QPointF(9 * u, 14.5 * u),
+                             QPointF(11 * u, 13.5 * u), QPointF(9 * u, 9.5 * u), QPointF(12.5 * u, 9.5 * u)])
+    elif name == "move":
+        c = 8 * u
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            tip = QPointF(c + dx * 6 * u, c + dy * 6 * u)
+            painter.drawLine(QPointF(c, c), tip)
+            painter.drawLine(tip, QPointF(tip.x() - dx * 2.5 * u + dy * 2.0 * u, tip.y() - dy * 2.5 * u + dx * 2.0 * u))
+            painter.drawLine(tip, QPointF(tip.x() - dx * 2.5 * u - dy * 2.0 * u, tip.y() - dy * 2.5 * u - dx * 2.0 * u))
+    elif name == "rotate":
+        rect = QRectF(3 * u, 3 * u, 10 * u, 10 * u)
+        painter.drawArc(rect, 30 * 16, 270 * 16)
+        angle = math.radians(30)
+        end = QPointF(rect.center().x() + rect.width() / 2 * math.cos(angle), rect.center().y() - rect.height() / 2 * math.sin(angle))
+        painter.setBrush(GLYPH_COLOR)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPolygon([QPointF(end.x() + 2.4 * u, end.y() - 1.0 * u), QPointF(end.x() - 1.4 * u, end.y() - 2.6 * u),
+                             QPointF(end.x() - 0.4 * u, end.y() + 2.2 * u)])
+    elif name == "scale":
+        painter.drawRect(QRectF(2.5 * u, 6.5 * u, 7 * u, 7 * u))
+        painter.setPen(accent)
+        painter.drawLine(QPointF(7 * u, 9 * u), QPointF(13.5 * u, 2.5 * u))
+        painter.drawPolyline([QPointF(9.5 * u, 2.5 * u), QPointF(13.5 * u, 2.5 * u), QPointF(13.5 * u, 6.5 * u)])
+    elif name == "pivot":
+        painter.drawEllipse(QPointF(8 * u, 8 * u), 5 * u, 5 * u)
+        painter.drawLine(QPointF(8 * u, 1.5 * u), QPointF(8 * u, 14.5 * u))
+        painter.drawLine(QPointF(1.5 * u, 8 * u), QPointF(14.5 * u, 8 * u))
+        painter.setBrush(GLYPH_ACCENT)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(QPointF(8 * u, 8 * u), 1.8 * u, 1.8 * u)
+    elif name in ("rotate-ccw", "rotate-cw"):
+        _curved_arrow(painter, u, mirrored=name == "rotate-cw")
+    elif name == "flip-h":
+        painter.setBrush(QColor(30, 136, 229, 60))
+        painter.setPen(accent)
+        _triangle(painter, u, 7, 13, 5.5, flip=True)
+        painter.setPen(QPen(GLYPH_COLOR, max(1.0, 1.2 * u), Qt.PenStyle.DashLine))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        _triangle(painter, u, 9, 13, 5.5)
+        painter.drawLine(QPointF(8 * u, 2 * u), QPointF(8 * u, 14.5 * u))
+    elif name == "flip-v":
+        painter.setBrush(QColor(30, 136, 229, 60))
+        painter.setPen(accent)
+        painter.drawPolygon([QPointF(3 * u, 7 * u), QPointF(8.5 * u, 7 * u), QPointF(3 * u, 1.5 * u)])
+        painter.setPen(QPen(GLYPH_COLOR, max(1.0, 1.2 * u), Qt.PenStyle.DashLine))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPolygon([QPointF(3 * u, 9 * u), QPointF(8.5 * u, 9 * u), QPointF(3 * u, 14.5 * u)])
+        painter.drawLine(QPointF(1.5 * u, 8 * u), QPointF(14.5 * u, 8 * u))
+    elif name == "fit":
+        for (x, y, dx, dy) in ((2, 2, 1, 1), (14, 2, -1, 1), (2, 14, 1, -1), (14, 14, -1, -1)):
+            painter.drawLine(QPointF(x * u, y * u), QPointF((x + dx * 4) * u, y * u))
+            painter.drawLine(QPointF(x * u, y * u), QPointF(x * u, (y + dy * 4) * u))
+        painter.setPen(accent)
+        _triangle(painter, u, 5.5, 11, 5.5)
+    elif name == "reload":
+        rect = QRectF(3 * u, 3 * u, 10 * u, 10 * u)
+        painter.drawArc(rect, 20 * 16, 300 * 16)
+        painter.setBrush(GLYPH_COLOR)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPolygon([QPointF(13.5 * u, 2.5 * u), QPointF(13.5 * u, 7 * u), QPointF(9 * u, 7 * u)])
+    elif name == "erase":
+        painter.drawRect(QRectF(2.5 * u, 2.5 * u, 11 * u, 11 * u))
+        painter.setPen(QPen(GLYPH_COLOR, max(1.0, 1.2 * u), Qt.PenStyle.DotLine))
+        _triangle(painter, u, 5, 11, 6)
+    painter.end()
+    return pixmap

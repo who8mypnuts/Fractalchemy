@@ -38,7 +38,7 @@ def test_application_is_named_fractalchemy(window):
 
 def test_menu_bar_has_windows_and_help_menus(window):
     assert menu_titles(window) == ["File", "Edit", "View", "Windows", "Help"]
-    assert [a.text() for a in window.menuWindows.actions()] == ["Gradient Library", "Random Batch…", "Render Image…"]
+    assert [a.text() for a in window.menuWindows.actions()] == ["Transform Editor", "Gradient Library", "Random Batch…", "Render Image…"]
     assert [a.text() for a in window.menuHelp.actions()] == ["Formulas…", "", "About Fractalchemy…", "About Qt…"]
     assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
     assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save Fractal", "Save Fractal As", "Exit"]
@@ -75,8 +75,17 @@ def test_gradient_library_is_a_hidden_child_window_until_requested(window):
 
 
 def test_windows_menu_opens_the_gradient_library(window):
-    window.menuWindows.actions()[0].trigger()
+    window.menuWindows.actions()[1].trigger()
     assert window.gradient_library.isVisible()
+
+
+def test_windows_menu_and_toolbar_open_the_transform_editor(window):
+    window.menuWindows.actions()[0].trigger()
+    assert window.editor.isVisible() and window.editor.windowTitle() == "Transform Editor"
+    window.editor.close()
+    assert not window.editor.isVisible()
+    window.toolBar.widgetForAction(window.actionEditor).click()
+    assert window.editor.isVisible()
 
 
 def test_toolbar_button_opens_the_gradient_library_and_closing_only_hides_it(window):

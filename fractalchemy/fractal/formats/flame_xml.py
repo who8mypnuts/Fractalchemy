@@ -16,10 +16,11 @@ from ..curves import Curves
 from ..scene import Affine, Camera, Coloring, Flame, XForm, identity_affine
 from ..variations import REGISTRY, canonical_name, normalize, parameter_owner
 
+PRE_AFFINE_ATTR = "pre_affine"   # Fractalchemy's pre affine (Apophysis ignores it; see XForm.pre)
 # xform attributes that are not variations
 XFORM_ATTRS = {
     "weight", "color", "symmetry", "color_speed", "opacity", "coefs", "post", "chaos", "name", "animate",
-    "plotmode", "var_color", "enabled", "var", "var1", "vars",
+    "plotmode", "var_color", "enabled", "var", "var1", "vars", PRE_AFFINE_ATTR,
     "motion_frequency", "motion_function", "motion_offset",
 }
 _HEX_TRIPLET = re.compile(r"[0-9A-Fa-f]{6}")
@@ -102,6 +103,7 @@ def _xform_from_element(el: ET.Element, unsupported: set[str]) -> XForm:
         post=_affine(attrs.get("post")),
         name=attrs.get("name", ""),
         var_color=_float(attrs.get("var_color"), 1.0),
+        pre=_affine(attrs.get(PRE_AFFINE_ATTR)),
     )
     if "color_speed" in attrs:
         xform.color_speed = _float(attrs["color_speed"], 0.5)
@@ -216,6 +218,8 @@ def _xform_attrs(x: XForm, final: bool) -> str:
         parts.append(f'name="{_attr(x.name)}"')
     for name, weight in x.variations.items():
         parts.append(f'{name}="{_g(weight)}"')
+    if x.has_pre():
+        parts.append(f'{PRE_AFFINE_ATTR}="' + " ".join(_g(v) for v in x.pre) + '"')
     parts.append('coefs="' + " ".join(_g(v) for v in x.coefs) + '"')
     if x.has_post():
         parts.append('post="' + " ".join(_g(v) for v in x.post) + '"')

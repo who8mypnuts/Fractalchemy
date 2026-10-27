@@ -24,11 +24,12 @@ python -m pytest
   Into Existing File, Exit), *Edit* (Undo `Ctrl+Z`, Redo `Ctrl+Shift+Z`, Copy Parameters `Ctrl+Shift+C`, Paste
   Parameters `Ctrl+Shift+V`, Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
   Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
-  *Windows* (Gradient Library `F6`, Random Batch `F7`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
+  *Windows* (Transform Editor `F4`, Gradient Library `F6`, Random Batch `F7`, Render Image… `Ctrl+R`), *Help*
+  (Formulas…, About).
 * Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
   **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
-  (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Gradient Library**,
-  **Random Batch** (`F7`), **Render Image** (`Ctrl+R`).
+  (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Transform Editor** (`F4`),
+  **Gradient Library**, **Random Batch** (`F7`), **Render Image** (`Ctrl+R`).
   Nothing is ever written unless you save: edits only change the preview, the title shows `*`, and Save / Save As
   let you keep as many versions as you like.
 * **Open Fractal…** shows the file's first flame and lists *all* of the file's flames in a temporary section at the
@@ -131,6 +132,55 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
 | `.flame` (Apophysis / flam3) | ✓ | many | ✓ | ✓ (in-place text edits; unknown data survives) |
 | `.fa` (Fractalchemy, JSON) | ✓ | many | ✓ | ✓ |
 | `.chaos` (Chaotica) | ✓ | many | ✓ | – |
+
+### Transform Editor window
+*Windows ▸ Transform Editor* (`F4`, the triangle on the toolbar) is Apophysis's editor, rebuilt: it edits the fractal
+shown in the main window, every change is undoable from either window (`Ctrl+Z`), and closing it only hides it.
+
+* **Three affines per transform.** The buttons at the top — **Pre-Affine**, **Normal** (default, shown in the
+  highlight colour) and **Post-Affine** — choose which triangle of each transform the canvas shows and edits.
+  *Normal* is Apophysis's triangle (the affine before the variations); *Post-Affine* is Apophysis's post-transform
+  (applied after the variations); *Pre-Affine* is new: a third affine applied to the incoming point *before* the
+  normal triangle, so it acts in the transform's own frame (moving it slides the input along the triangle's axes,
+  rotating it turns the input about O in local units). The order is *pre affine → normal → variations → post affine*.
+  While editing a pre or post affine the normal triangles stay visible, dotted. The three are saved with the
+  fractal (`pre_affine="…"` / `post="…"` in `.flame`, `pre` / `post` in `.fa`; Apophysis ignores the pre affine,
+  Chaotica files get it folded into the affine they have), and all three work on the **final transform** too.
+* **The canvas** works like Apophysis's: each transform is a coloured triangle with corners **X**, **O**, **Y**
+  (the final transform white; *View ▸ Use transform colors* takes the palette colour instead). Drag a corner to
+  move it (**O** drags the whole triangle while the axes are locked); drag inside a triangle to move it, or — in
+  the **Rotate** / **Scale** modes, or holding **Alt** / **Ctrl** — to turn or scale it about the pivot; drag an
+  axis edge to rotate and the hypotenuse to scale; **Shift** snaps to the angle / step in the Triangle tab.
+  The pivot is the triangle's O (*local*) or the world origin (*world*, the target button / `Space`), or any
+  point typed into the Triangle tab. Right-drag pans, the wheel zooms, double-click on empty space fits
+  everything (`Ctrl+0`), double-click a corner or a triangle resets its position / rotation / scale, `Esc`
+  cancels a drag. Arrow keys nudge by the move step (Shift ×10, Ctrl ÷10), `Alt+←/→` and `PgUp/PgDn` rotate,
+  `Alt+↑/↓` and `Home/End` scale, `Insert` duplicates, `Delete` deletes, `M` / `R` / `S` pick the move / rotate /
+  scale mode, `A` toggles select mode, `T` steps through pre / normal / post. Hovering a triangle lists its
+  variations in the corner; the status bar shows the cursor position, the zoom and what a drag did.
+* **Toolbar**: new flame (one linear transform, camera reset; palette and colouring kept), add / duplicate /
+  delete / link transforms (a *linked* transform takes over the selected transform's xaos links, as in
+  Apophysis), undo / redo, copy / paste triangle coordinates, the select / move / rotate / scale modes, world
+  pivot, rotate 90°, flip, the final transform on / off, fit. The context menu (right-click) has the same, and
+  *View ▸ Reload formulas* re-reads the formula folders.
+* **Transform header**: the transform list (coloured), a **name** — a label to keep track of what each
+  transform does, saved in the file and shown in the list, on the canvas and in the Info tab — and the weight.
+* **Tabs** (Apophysis's): **Variations** — every loaded formula (the flam3 classics, the Apophysis 7X built-ins,
+  the bundled plugins and your own formulas; *View ▸ Reload formulas* picks up files added since start-up) with
+  its weight; used ones in bold, a search box, *Hide unused*, *Clear*; a third column tags `pre` / `post`
+  formulas, **3D** ones (they set the depth — `julia3D`, `ztranslate`, `zscale`, `curl3D`, `blur3D`, …), direct
+  colour and random ones. Type a weight, drag a name sideways (Shift coarse, Ctrl / Alt fine) or double-click it
+  for 0 ↔ 1. **Variables** — the parameters of the active variations (the z / 3D ones included), typed or
+  dragged, double-click resets the default, *Show all variables* lists every parameter of every formula.
+  **Xaos** — the outgoing (*to*) or incoming (*from*) weights, *Clear all* / *Set all*. **Triangle** — corner
+  coordinates, rotate / move / scale buttons with their amounts, the pivot, axis lock, extended edit and *auto
+  weights from triangle area*. **Transform** — the X / Y / O vectors of all three affines, rectangular or polar,
+  with reset buttons, and *Auto-calculate pre_zscale* (keeps `pre_zscale = √|det|`, Apophysis's 3D helper).
+  **Colors** — the transform colour on the palette strip, colour speed (flam3's, with Apophysis's `symmetry`
+  shown beside it), opacity, direct colour (`var_color`) and *solo*.
+* **Previews**: the editor's own small preview (right-click for low / medium / high quality) follows every drag;
+  the **main viewport** waits until the edits pause — a second after the last change (`EDIT_RENDER_DELAY_MS`)
+  it re-renders at full quality, so dragging never keeps the GPU / CPU churning.
 
 ### Random Batch window
 *Windows ▸ Random Batch…* (`F7`, the die on the toolbar) generates random fractals the way Apophysis's random
@@ -268,7 +318,8 @@ fractalchemy/
   config.py             tunables: app name/version, node counts, simplify tolerance, sizes, preview quality
   settings.py           QSettings identity + one-time migration of HueClid settings
   fractal/              the shared scene: Flame / XForm / Camera / Coloring, the variation registry (numpy + GLSL),
-                        formats/ (.flame XML, .chaos, .fa)
+                        formats/ (.flame XML, .chaos, .fa), triangles (affine ⇄ editor triangle geometry),
+                        xform_ops (add / duplicate / link / delete transforms with consistent xaos)
   formulas/             the formulas: builtin/ (native Python), library/ (the plugin dialect, one file each:
                         apophysis7x / plugins / ports / reconstructed), lang/ (the compiler), loader (user folders,
                         cache), apophysis_depth (the built-ins' depth rule)
@@ -285,11 +336,13 @@ fractalchemy/
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,
                         model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
-  widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons
+  widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons,
+                        TriangleView (the editor canvas), ValueTable (name / value lists with drag editing)
   ui/                   .ui loader, background tasks, MainWindow, FractalDocument (undo history), FractalViewport +
                         ViewGeometry (image framing, view vs. camera pan/zoom), ViewerBar (zoom + image size),
                         SettingsPanel, FractalLibraryPanel, ThumbnailProvider, RenderStatus (status bar),
                         GradientLink, FormulaBrowser, LibraryHost (shared library-pane wiring),
+                        EditorWindow (+ editor_context, editor_panels: the tabs, editor_preview: its mini preview),
                         FileActionsBase + the fractal / gradient file actions, GradientDocument,
                         GradientLibraryWindow, RenderWindow (+ render_size_panel, render_quality_panel,
                         render_output_panel, render_progress)

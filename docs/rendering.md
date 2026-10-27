@@ -36,8 +36,8 @@ faithful preview of the final render.
 
 ## The scene (`fractalchemy/fractal`)
 
-* `Flame` holds `xforms` (each: weight, colour, colour speed, opacity, pre/post affine, variation
-  weights, parameters, xaos row), an optional `final` transform, `Camera`, `Coloring` and a
+* `Flame` holds `xforms` (each: weight, colour, colour speed, opacity, the normal affine plus a pre and a
+  post affine, variation weights, parameters, xaos row, a name), an optional `final` transform, `Camera`, `Coloring` and a
   256-entry palette. Conventions follow flam3/Apophysis exactly (coefficient order, y pointing down,
   `color_speed = (1 − symmetry) / 2`, `scale · 2^zoom` pixels per unit) so files round-trip.
 * `variations.py` is the registry; the formulas themselves live in `fractalchemy/formulas/` (see
@@ -46,9 +46,12 @@ faithful preview of the final render.
   compiled from the Apophysis plugin C dialect (`library/`). `tests/test_variations.py` runs every one on
   the same points in both engines and asserts they agree, so a variation cannot silently mean different
   things in the two engines.
-* Points carry `(x, y, z, colour)`. A transform runs, in Apophysis's order: colour blend → pre-affine →
-  `pre_` variations (rewrite the input point) → normal variations (accumulate) → `post_` variations
-  (rewrite the accumulator) → post affine → direct colour blend (`var_color`). After the final transform
+* Points carry `(x, y, z, colour)`. A transform runs, in Apophysis's order: colour blend → **pre affine**
+  (`XForm.pre`, Fractalchemy's third triangle; identity unless the editor set it) → the normal affine
+  (`coefs`, Apophysis's triangle) → `pre_` variations (rewrite the input point) → normal variations
+  (accumulate) → `post_` variations (rewrite the accumulator) → post affine (`post`, Apophysis's
+  post-transform) → direct colour blend (`var_color`). The pre affine composes with the normal one
+  (`XForm.combined_coefs()`), so formats without it (Chaotica) get the product. After the final transform
   the 3D camera (pitch, yaw, perspective, zpos, depth of field; `render/projection.py`) projects onto the
   flat camera.
 * `formats/` turn files into `Flame`s. Unknown variations are recorded in `Flame.unsupported` and shown
@@ -60,8 +63,8 @@ faithful preview of the final render.
 One pass:
 
 1. **Iterate** — a vertex shader advances every point of the population (`PREVIEW_POINTS`) by one
-   chaos-game step: choose the next xform from the xaos table for the previous xform, apply pre-affine,
-   `pre_blur`, the variation sum, post-affine, blend the colour. Transform feedback writes the new state
+   chaos-game step: choose the next xform from the xaos table for the previous xform, apply the pre affine
+   (when set) and the normal affine, `pre_blur`, the variation sum, the post affine, blend the colour. Transform feedback writes the new state
    (x, y, colour, last xform, RNG seed) into the other buffer. Non-finite points are re-seeded.
    The first draw of a job runs `PREVIEW_FUSE` iterations inside the shader (`u_iters`) without plotting.
 2. **Plot** — the population is drawn as `GL_POINTS`: the final xform is applied, the camera maps the

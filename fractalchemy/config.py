@@ -19,7 +19,10 @@ FLAME_PALETTE_SIZE = 256        # Apophysis/flam3 palettes are always 256 entrie
 FLAME_COLORS_PER_LINE = 8
 UGR_MAX_INDEX = 399             # Ultra Fractal gradients span index 0..399
 
-# --- Editor appearance ------------------------------------------------------
+# --- Appearance ---------------------------------------------------------------
+HIGHLIGHT_COLOR = "#1e88e5"     # the accent used for active states (toolbar glyphs, the editor's mode buttons)
+
+# --- Gradient editor appearance ------------------------------------------------
 EDITOR_MARGIN = 12              # px either side so edge nodes are fully visible
 STRIP_MIN_HEIGHT = 80
 NODE_BAR_HEIGHT = 26
@@ -41,6 +44,15 @@ MAX_REFINE_QUALITY = 20000.0
 ZOOM_DENSITY_MAX = 64.0         # Apophysis renders quality · 4^zoom samples per pixel; capped here (zoom 3) for interactivity
 INTERACTIVE_SCALE = 0.5         # viewport resolution factor while dragging / zooming
 INTERACTION_SETTLE_MS = 250     # after the last interaction, re-render at full resolution
+EDIT_RENDER_DELAY_MS = 1000     # the main viewport re-renders this long after the last Transform Editor change
+
+# --- Transform Editor ---------------------------------------------------------
+EDITOR_PREVIEW_QUALITY = 2.0    # samples per pixel of the editor's own small preview (fast, follows every drag)
+EDITOR_PREVIEW_PASSES = 1
+EDITOR_PREVIEW_POINTS = 1 << 14  # a small population: the warm-up (fuse) is most of a tiny render's cost
+EDITOR_PREVIEW_FUSE = 12
+EDITOR_PREVIEW_THROTTLE_MS = 80    # at most one preview render per this interval (and one in flight) while dragging
+EDITOR_PREVIEW_SIZE = (300, 200)   # the editor's preview box (the image is letterboxed into it)
 THUMBNAIL_SIZE = (120, 75)      # fractal library thumbnails
 THUMBNAIL_QUALITY = 3.0
 THUMBNAIL_PASSES = 1

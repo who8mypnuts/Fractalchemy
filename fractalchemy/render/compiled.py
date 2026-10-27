@@ -1,8 +1,8 @@
 """A Flame pre-digested for rendering: resolved variations, selection table, palette array.
 
 Both engines start from this so they agree on which variations run with which
-parameters, in which order (Apophysis's rule: `pre_` variations first, then the rest,
-then `post_` ones), how xaos weights turn into selection probabilities, and how the
+parameters, in which order (pre affine → normal affine, then Apophysis's rule: `pre_`
+variations first, then the rest, then `post_` ones, then the post affine), how xaos weights turn into selection probabilities, and how the
 palette is indexed. Prepared (per-transform constant) values of formula-style
 variations are computed here, once, and travel with the parameters.
 """
@@ -32,6 +32,7 @@ class CompiledXForm:
     """An xform with variations resolved against the registry and ordered pre → normal → post."""
     coefs: Affine
     post: Affine
+    pre_affine: Affine
     color: float
     color_speed: float
     opacity: float
@@ -39,6 +40,7 @@ class CompiledXForm:
     pre_blur: float
     variations: tuple[CompiledVariation, ...]
     has_post: bool
+    has_pre: bool
 
     @property
     def pre(self) -> tuple[CompiledVariation, ...]:
@@ -75,8 +77,8 @@ class CompiledXForm:
             active.append(CompiledVariation(var, weight, params))
         order = {PRE: 0, NORMAL: 1, POST: 2}
         active.sort(key=lambda cv: order.get(cv.variation.kind, 1))
-        return cls(tuple(xform.coefs), tuple(xform.post), xform.color, min(1.0, max(0.0, xform.color_speed)),
-                   min(1.0, max(0.0, xform.opacity)), xform.var_color, pre_blur, tuple(active), xform.has_post())
+        return cls(tuple(xform.coefs), tuple(xform.post), tuple(xform.pre), xform.color, min(1.0, max(0.0, xform.color_speed)),
+                   min(1.0, max(0.0, xform.opacity)), xform.var_color, pre_blur, tuple(active), xform.has_post(), xform.has_pre())
 
 
 @dataclass(frozen=True)
@@ -108,7 +110,7 @@ class CompiledFlame:
 def _is_identity(xform: CompiledXForm) -> bool:
     """True for `linear=1` with identity affines and no colour blending — what Apophysis writes for an unused final."""
     only_linear = len(xform.variations) == 1 and xform.variations[0].variation.name == "linear" and xform.variations[0].weight == 1.0
-    return (only_linear and not xform.pre_blur and not xform.has_post and xform.color_speed == 0.0
+    return (only_linear and not xform.pre_blur and not xform.has_post and not xform.has_pre and xform.color_speed == 0.0
             and tuple(xform.coefs) == (1.0, 0.0, 0.0, 1.0, 0.0, 0.0))
 
 

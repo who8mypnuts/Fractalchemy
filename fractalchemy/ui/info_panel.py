@@ -250,6 +250,8 @@ class InfoPanel(QWidget):
                 child.setText(1, f"{fmt(weight)}  ·  {NOT_AVAILABLE}")
                 child.setForeground(1, QColor(200, 60, 60))
         variations.setExpanded(True)
+        if xform.has_pre():
+            _row(item, "Pre affine", affine_text(xform.pre), tooltip="Applied to the point before the affine (Fractalchemy's pre affine)")
         _row(item, "Affine", affine_text(xform.coefs), tooltip="a b c d e f  —  (x, y) → (a·x + c·y + e, b·x + d·y + f)")
         if tuple(xform.post) != identity_affine():
             _row(item, "Post affine", affine_text(xform.post))

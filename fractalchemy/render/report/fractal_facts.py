@@ -88,6 +88,7 @@ def fractal_section(facts: FlameFacts, source: str) -> Section:
             f"{len(facts.terms) / max(1, len(all_xforms)):.2f}")
     sec.add("pre_blur_transforms", "Transforms with pre_blur", sum(1 for x in all_xforms if x.variations.get("pre_blur")))
     sec.add("post_affine_transforms", "Transforms with a post affine", sum(1 for x in all_xforms if x.has_post()))
+    sec.add("pre_affine_transforms", "Transforms with a pre affine", sum(1 for x in all_xforms if x.has_pre()))
     sec.add("xaos", "Xaos in use", facts.xaos_in_use)
     sec.add("invisible_transforms", "Invisible transforms (opacity 0)", sum(1 for x in xforms if x.opacity <= 0))
     sec.add("unsupported_variations", "Unsupported variations (ignored)", list(flame.unsupported), ", ".join(flame.unsupported) or "none")
@@ -179,7 +180,7 @@ def transforms_section(facts: FlameFacts) -> Section:
     table = Table("", "Transforms", [
         ("index", "#"), ("name", "name"), ("weight", "weight"), ("probability", "probability"), ("color", "colour"),
         ("color_speed", "colour speed"), ("opacity", "opacity"), ("variations", "variations"), ("params", "parameters"),
-        ("coefs", "pre affine [a b c d e f]"), ("post", "post affine"), ("determinant", "det"), ("scale_factor", "scale"),
+        ("pre", "pre affine"), ("coefs", "affine [a b c d e f]"), ("post", "post affine"), ("determinant", "det"), ("scale_factor", "scale"),
         ("xaos", "xaos row")], id_key="index")
     for label, x in facts.labelled:
         row = _xform_row(label, x, x.weight / total)
@@ -202,6 +203,7 @@ def _xform_row(label: str, x: XForm, probability: float) -> dict:
         "color_speed": (x.color_speed, f"{x.color_speed:g}"), "opacity": (x.opacity, f"{x.opacity:g}"),
         "variations": (" ".join(f"{n}={w:g}" for n, w in variations), ", ".join(f"{n} {w:g}" for n, w in variations) or "none"),
         "params": (" ".join(f"{k}={v:g}" for k, v in params), ", ".join(f"{k} {v:g}" for k, v in params) or "—"),
+        "pre": (_affine_machine(x.pre) if x.has_pre() else "", _affine_text(x.pre) if x.has_pre() else "identity"),
         "coefs": (_affine_machine(x.coefs), _affine_text(x.coefs)),
         "post": (_affine_machine(x.post) if x.has_post() else "", _affine_text(x.post) if x.has_post() else "identity"),
         "determinant": (round(det, 6), f"{det:.4g}"), "scale_factor": (round(math.sqrt(abs(det)), 6), f"{math.sqrt(abs(det)):.4g}"),

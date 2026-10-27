@@ -392,7 +392,7 @@ def test_main_window_toolbar_undo_copy_paste_and_save_flows(qapp, tmp_path, samp
     try:
         names = [a.text() for a in win.toolBar.actions() if a.text()]
         assert names == ["Open Fractal…", "Save Fractal", "Save Fractal As", "Undo", "Redo", "Copy Parameters", "Paste Parameters",
-                         "Gradient Library", "Random Batch…", "Render Image…"]
+                         "Transform Editor", "Gradient Library", "Random Batch…", "Render Image…"]
         assert [a.text() for a in win.menuSaveAs.actions()] == ["As New Entry in This File…", "As New File…", "Into Existing File…"]
         assert [a.text() for a in win.menuEdit.actions() if a.text()] == ["Undo", "Redo", "Copy Parameters", "Paste Parameters", "Edit Fractal Library…"]
         assert not win.actionUndo.isEnabled() and not win.actionCopyParameters.isEnabled() and not win.actionSaveFractal.isEnabled()

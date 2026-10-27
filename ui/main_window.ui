@@ -99,6 +99,7 @@
     <property name="title">
      <string>Windows</string>
     </property>
+    <addaction name="actionEditor"/>
     <addaction name="actionGradientLibrary"/>
     <addaction name="actionRandomBatch"/>
     <addaction name="actionRenderImage"/>
@@ -150,6 +151,7 @@
    <addaction name="actionCopyParameters"/>
    <addaction name="actionPasteParameters"/>
    <addaction name="separator"/>
+   <addaction name="actionEditor"/>
    <addaction name="actionGradientLibrary"/>
    <addaction name="actionRandomBatch"/>
    <addaction name="actionRenderImage"/>
@@ -266,6 +268,12 @@
    <property name="checkable"><bool>true</bool></property>
    <property name="checked"><bool>true</bool></property>
    <property name="text"><string>Status Bar</string></property>
+  </action>
+  <action name="actionEditor">
+   <property name="text"><string>Transform Editor</string></property>
+   <property name="toolTip"><string>Transform Editor: edit the transforms' triangles, variations, parameters, xaos and colours (F4)</string></property>
+   <property name="statusTip"><string>Open the Transform Editor window</string></property>
+   <property name="shortcut"><string>F4</string></property>
   </action>
   <action name="actionGradientLibrary">
    <property name="text"><string>Gradient Library</string></property>
