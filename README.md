@@ -80,11 +80,10 @@ python -m pytest
     supersampling and Gaussian filter radius, 2 / 0.5 = plain 2×2 anti-aliasing; all persist between runs);
     **Camera** (zoom slider + box, Apophysis log2 zoom around the image centre; pan arrows moving the view
     by 0.1 fractal units along the screen axes — **Shift** 1.0, **Ctrl** 0.01 — rotation respected; centre x / y
-    and rotation boxes); **3D camera** (**X pitch** tilts about the horizontal axis, **Y pitch** about the vertical
-    one, **yaw** spins the plane, plus perspective, z position, depth blur — Apophysis's `cam_*` attributes, so a
+    and rotation boxes); **3D camera** (**pitch** tilts about the horizontal axis, **yaw** spins the plane, plus
+    perspective, z position, depth blur — Apophysis's `cam_*` attributes, so a
     2D flame becomes a tilted plane and variations with depth — `julia3D`, `curl3D`, `ztranslate`, `zcone`,
-    `blur3D`, `zblur`, `zscale`, `pre_`/`post_rotate_x/y`, `linear3D`, … — show real 3D; Y pitch is saved as
-    `cam_pitch_y`, which Apophysis ignores); **Coloring** (brightness, gamma, gamma threshold, vibrancy,
+    `blur3D`, `zblur`, `zscale`, `pre_`/`post_rotate_x/y`, `linear3D`, … — show real 3D); **Coloring** (brightness, gamma, gamma threshold, vibrancy,
     contrast, background colour via the live picker); **Curves** (Chaotica-style tone curves — overall, R, G, B
     and alpha/coverage — click to add points, drag, right-click to remove, *Reset* per channel and *Reset all*;
     Apophysis 7X `curves` are read, ours are saved as `fa_curves`).

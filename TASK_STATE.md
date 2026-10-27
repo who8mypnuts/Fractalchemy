@@ -132,6 +132,9 @@ black before.
     line). *View ▸ Show Guides* (`actionShowGuides`, `Ctrl+G`) mirrors the button; QSettings `viewer/guides`,
     `viewer/guide_kinds`.
 
+14. The Image tab's **Y pitch** row is gone (it was Fractalchemy's own `cam_pitch_y`, of little visible use); the
+    `Camera.pitch_y` field, its file round-trip and the scripting API's `camera.pitch_y` stay.
+
 ## Known gaps / next steps
 * Not available (see `tools/apo_decompile.py --batch` report): DLL-only plugins with loops (tile, tile_hyp,
   tile_plane, hy2, disc2square, fibonacci_blur, bubbleT3D, pre/post_hexcrop, jac_cn/dn/sn/elk, swirl3sin,

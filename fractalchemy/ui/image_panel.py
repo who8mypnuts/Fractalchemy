@@ -119,8 +119,7 @@ class ImagePanel(QWidget):
         self.pan_right = QToolButton(self)
         self.revert_view = QToolButton(self)
         # 3D camera
-        self.pitch = FloatRow("X pitch", *PITCH_RANGE, decimals=1, step=1.0, suffix="°", spin_range=(-3600.0, 3600.0), parent=self)
-        self.pitch_y = FloatRow("Y pitch", *PITCH_RANGE, decimals=1, step=1.0, suffix="°", spin_range=(-3600.0, 3600.0), parent=self)
+        self.pitch = FloatRow("Pitch", *PITCH_RANGE, decimals=1, step=1.0, suffix="°", spin_range=(-3600.0, 3600.0), parent=self)
         self.yaw = FloatRow("Yaw", *YAW_RANGE, decimals=1, step=1.0, suffix="°", spin_range=(-3600.0, 3600.0), parent=self)
         self.perspective = FloatRow("Perspective", *PERSPECTIVE_RANGE, decimals=3, step=0.01, spin_range=(-10.0, 10.0), parent=self)
         self.zpos = FloatRow("Z position", *ZPOS_RANGE, decimals=2, step=0.1, spin_range=(-1000.0, 1000.0), parent=self)
@@ -242,12 +241,11 @@ class ImagePanel(QWidget):
         group = QGroupBox("3D camera", self)
         layout = QVBoxLayout(group)
         self.pitch.set_tooltip("Tilt of the plane about the screen's horizontal axis (Apophysis cam_pitch)")
-        self.pitch_y.set_tooltip("Tilt of the plane about the screen's vertical axis (Fractalchemy cam_pitch_y)")
         self.yaw.set_tooltip("Spin of the plane about its own normal (Apophysis cam_yaw)")
         self.perspective.set_tooltip("Strength of the perspective: points further away shrink (cam_perspective)")
         self.zpos.set_tooltip("Depth of the plane the camera looks at (cam_zpos); points in front / behind it get perspective")
         self.dof.set_tooltip("Depth of field: blur growing with the distance from the z position (cam_dof)")
-        for row in (self.pitch, self.pitch_y, self.yaw, self.perspective, self.zpos, self.dof):
+        for row in (self.pitch, self.yaw, self.perspective, self.zpos, self.dof):
             layout.addWidget(row)
         self.flat_note.setWordWrap(True)
         self.flat_note.setEnabled(False)
@@ -305,7 +303,6 @@ class ImagePanel(QWidget):
         self.pan_right.clicked.connect(lambda: self._pan(1, 0))
         self.revert_view.clicked.connect(lambda: self._edit(lambda d: d.revert_view()))
         self.pitch.value_changed.connect(lambda v: self._edit(lambda d: d.set_camera_3d(pitch=math.radians(v))))
-        self.pitch_y.value_changed.connect(lambda v: self._edit(lambda d: d.set_camera_3d(pitch_y=math.radians(v))))
         self.yaw.value_changed.connect(lambda v: self._edit(lambda d: d.set_camera_3d(yaw=math.radians(v))))
         self.perspective.value_changed.connect(lambda v: self._edit(lambda d: d.set_camera_3d(perspective=v)))
         self.zpos.value_changed.connect(lambda v: self._edit(lambda d: d.set_camera_3d(zpos=v)))
@@ -371,12 +368,11 @@ class ImagePanel(QWidget):
             set_value_silently(self.center_y, cam.center[1])
             set_value_silently(self.rotate, cam.rotate)
             self.pitch.set_value(math.degrees(cam.pitch))
-            self.pitch_y.set_value(math.degrees(cam.pitch_y))
             self.yaw.set_value(math.degrees(cam.yaw))
             self.perspective.set_value(cam.perspective)
             self.zpos.set_value(cam.zpos)
             self.dof.set_value(cam.dof)
-            self.flat_note.setText("Flat: all zero — tilt the plane with the pitches, spin it with yaw, add depth with perspective."
+            self.flat_note.setText("Flat: all zero — tilt the plane with pitch, spin it with yaw, add depth with perspective."
                                    if not cam.is_3d() else "3D camera active.")
         finally:
             self._updating = False
@@ -401,7 +397,7 @@ class ImagePanel(QWidget):
 
     def set_enabled_for_flame(self, enabled: bool) -> None:
         for w in (self.zoom, self.center_x, self.center_y, self.rotate, self.pan_up, self.pan_down, self.pan_left, self.pan_right,
-                  self.revert_view, self.pitch, self.pitch_y, self.yaw, self.perspective, self.zpos, self.dof, self.revert_3d,
+                  self.revert_view, self.pitch, self.yaw, self.perspective, self.zpos, self.dof, self.revert_3d,
                   self.brightness, self.gamma, self.threshold, self.vibrancy, self.contrast, self.background,
                   self.revert_coloring, self.curves):
             w.setEnabled(enabled)

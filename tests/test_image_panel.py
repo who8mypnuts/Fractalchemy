@@ -305,15 +305,16 @@ def test_pan_units_and_modifier_steps(qapp):
     assert ImagePanel.pan_step(Qt.KeyboardModifier.ControlModifier) == PAN_STEP_FINE == 0.01
 
 
-def test_panel_contrast_y_pitch_and_curves_edit_the_document(bound):
+def test_panel_contrast_pitch_and_curves_edit_the_document(bound):
     from fractalchemy.fractal.curves import DEFAULT_POINTS
     doc, panel = bound
     doc.replace(sierpinski())
     panel.contrast.spin.setValue(1.5)
     assert doc.flame.coloring.contrast == 1.5
-    panel.pitch_y.spin.setValue(-25.0)
-    assert doc.flame.camera.pitch_y == pytest.approx(math.radians(-25)) and panel.flat_note.text() == "3D camera active."
-    assert panel.pitch.label.text() == "X pitch" and panel.pitch_y.label.text() == "Y pitch" and panel.yaw.label.text() == "Yaw"
+    panel.pitch.spin.setValue(-25.0)
+    assert doc.flame.camera.pitch == pytest.approx(math.radians(-25)) and panel.flat_note.text() == "3D camera active."
+    assert not hasattr(panel, "pitch_y")                   # Fractalchemy's extra Y pitch is not offered in the panel
+    assert panel.pitch.label.text() == "Pitch" and panel.yaw.label.text() == "Yaw"
     editor = panel.curves
     editor.select("green")
     editor.canvas._commit([(0, 0), (0.5, 0.9), (1, 1)])
