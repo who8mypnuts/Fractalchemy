@@ -87,10 +87,10 @@ def _lanczos(a: int):
 
 
 FILTERS: tuple[FilterKind, ...] = (
-    FilterKind("gaussian", "Gaussian (Apophysis)", GAUSSIAN_CUTOFF, _gaussian, 0.5, "Soft and smooth; Apophysis's filter"),
+    FilterKind("gaussian", "Gaussian", GAUSSIAN_CUTOFF, _gaussian, 0.5, "Soft and smooth; the classic flame filter"),
     FilterKind("box", "Box", 0.5, _box, 1.0, "Plain average of the oversampled buckets; sharpest, may alias"),
     FilterKind("triangle", "Triangle (tent)", 1.0, _triangle, 1.0, "Bilinear blend; sharp with mild smoothing"),
-    FilterKind("mitchell", "Mitchell-Netravali", 2.0, _cubic(1 / 3, 1 / 3), 1.0, "Balanced cubic; Chaotica's default style"),
+    FilterKind("mitchell", "Mitchell-Netravali", 2.0, _cubic(1 / 3, 1 / 3), 1.0, "Balanced cubic; sharp without ringing"),
     FilterKind("catmull_rom", "Catmull-Rom", 2.0, _cubic(0.0, 0.5), 1.0, "Crisp cubic with slight sharpening"),
     FilterKind("bspline", "B-spline (cubic)", 2.0, _cubic(1.0, 0.0), 1.0, "Softest cubic; never rings"),
     FilterKind("lanczos2", "Lanczos 2", 2.0, _lanczos(2), 1.0, "Windowed sinc; sharp, may ring at hard edges"),

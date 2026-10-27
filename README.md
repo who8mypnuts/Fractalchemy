@@ -100,7 +100,7 @@ window hides it — the render carries on; quitting asks first.
   on, typing one dimension updates the other; off, they are independent. **⇄** swaps them.
 * **Quality** — the Apophysis render options: **Density** (samples per pixel; 100 … 16 000 presets or any value),
   **Oversample** (1–8 buckets per pixel per axis), **Filter** + **Radius**. The filter is the anti-aliasing
-  choice: Gaussian (Apophysis), Box, Triangle, Mitchell-Netravali, Catmull-Rom, B-spline, Lanczos 2 / 3,
+  choice: Gaussian, Box, Triangle, Mitchell-Netravali, Catmull-Rom, B-spline, Lanczos 2 / 3,
   Blackman-Harris. **Denoiser**: *Density estimation* (flam3's adaptive blur, with max / min radius and curve),
   or an image-space pass after rendering — *Guided filter* and *Bilateral* (built in), *Non-local means*
   (with `opencv-python-headless`), *Intel Open Image Denoise* (with the `oidn` package) — each with a strength.

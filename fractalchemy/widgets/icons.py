@@ -90,7 +90,11 @@ def _render_pixmap(size: int) -> QPixmap:
 
 
 def link_icon(linked: bool) -> QIcon:
-    """Two chain links, joined (aspect ratio locked) or broken apart (free)."""
+    """Two chain links: joined and bold blue when the aspect ratio is locked, broken and faint when free.
+
+    The colours carry the state on their own, because a checked tool button's highlight differs
+    between platform styles (and can swallow a plain dark glyph).
+    """
     icon = QIcon()
     for size in ICON_SIZES:
         icon.addPixmap(_link_pixmap(size, linked))
@@ -103,7 +107,7 @@ def _link_pixmap(size: int, linked: bool) -> QPixmap:
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     u = size / 16.0
-    pen = QPen(QColor(60, 60, 60) if linked else QColor(140, 140, 140), max(1.0, 1.5 * u))
+    pen = QPen(QColor("#1e6fd9") if linked else QColor(165, 165, 165), max(1.0, (2.0 if linked else 1.4) * u))
     painter.setPen(pen)
     painter.setBrush(Qt.BrushStyle.NoBrush)
     gap = 0.0 if linked else 1.6 * u
@@ -111,6 +115,9 @@ def _link_pixmap(size: int, linked: bool) -> QPixmap:
     painter.drawRoundedRect(QRectF(8 * u, 7 * u + gap, 5 * u, 7 * u), 2.5 * u, 2.5 * u)
     if linked:
         painter.drawLine(QPointF(6.5 * u, 5 * u), QPointF(9.5 * u, 11 * u))
+    else:
+        painter.setPen(QPen(QColor(200, 70, 70), max(1.0, 1.4 * u)))
+        painter.drawLine(QPointF(6.5 * u, 6.5 * u), QPointF(9.5 * u, 9.5 * u))   # the cut
     painter.end()
     return pixmap
 

@@ -63,8 +63,7 @@ class SizePanel(QGroupBox):
         self.link.setCheckable(True)
         self.link.setChecked(True)
         self.link.setIcon(link_icon(True))
-        self.link.setToolTip("Keep the aspect ratio: typing a width updates the height and vice versa")
-        self.link.setAutoRaise(True)
+        self.link.setToolTip("Aspect ratio linked: typing a width updates the height and vice versa (click to unlink)")
         self.swap.setText("⇄")
         self.swap.setToolTip("Swap width and height (portrait / landscape)")
         self.swap.setAutoRaise(True)
@@ -143,6 +142,8 @@ class SizePanel(QGroupBox):
 
     def _on_link(self, linked: bool) -> None:
         self.link.setIcon(link_icon(linked))
+        self.link.setToolTip("Aspect ratio linked: typing a width updates the height and vice versa (click to unlink)"
+                             if linked else "Width and height are independent (click to link the aspect ratio)")
         if linked:
             self._capture_ratio()
 

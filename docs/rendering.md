@@ -133,7 +133,7 @@ the Render window. The stages, in order, and why they are in that order:
    (scipy's C Gaussian when available, three box blurs otherwise), and the results are summed. Energy is
    conserved, sparse regions smooth out, dense detail stays sharp.
 5. **Reconstruction filter** (`filters.downsample`). The oversampled buckets become pixels through a
-   separable kernel built from a 1-D profile: Gaussian (Apophysis's `exp(-2u²)` cut at 1.8 radii), box,
+   separable kernel built from a 1-D profile: Gaussian (the flam3 / Apophysis `exp(-2u²)` cut at 1.8 radii), box,
    triangle, the Mitchell-Netravali family, Lanczos 2 / 3, Blackman-Harris. Taps are strided slices of the
    padded tile, so a kernel of *t* taps costs `t × pixels` per axis.
 6. **Finish** (`tonemap.finish`): gamma, gamma threshold, vibrancy and background, or — for transparent
