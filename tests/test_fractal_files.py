@@ -321,3 +321,16 @@ def test_paste_copes_with_every_kind_of_bad_clipboard_text(window):
         QGuiApplication.clipboard().setText(text)
         assert not window.files.paste(), text
     assert len(warnings) == 6 and window.document.flame is None     # the empty-list document is simply nothing to paste
+
+
+def test_destroying_an_edited_document_is_silent(qapp, samples, capfd):
+    """Regression: a lambda on QUndoStack.cleanChanged outlived the document and raised at shutdown."""
+    import gc
+
+    document = FractalDocument()
+    document.replace(load_flame(samples / "sample flames" / "candy.flame", 0))
+    document.set_view(zoom=1.0)                     # non-clean: destruction clears the stack and emits cleanChanged
+    del document
+    gc.collect()
+    spin(50)
+    assert "Signal source has been deleted" not in capfd.readouterr().err

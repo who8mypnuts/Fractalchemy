@@ -242,3 +242,10 @@ Cycle 4 result: 311 passed ×2 (76 s), pyflakes clean, compileall ok. Regression
 
 Commands: `python -m pytest -q -p no:cacheprovider` (≈ 80 s; GL tests use Mesa/llvmpipe here and skip without OpenGL);
 `python -m pyflakes fractalchemy tests main.py`; `python -m compileall -q fractalchemy main.py tests`. Nothing committed.
+
+## Fix: "Signal source has been deleted" at shutdown
+- `FractalDocument` connected a lambda to `QUndoStack.cleanChanged`; the stack emits it while being destroyed, after the
+  document's C++ object is gone. Replaced by the bound method `_on_clean_changed` (auto-disconnected on destruction).
+  Regression test `test_destroying_an_edited_document_is_silent` (captures stderr; verified to fail against the lambda).
+- Rule of thumb recorded for the codebase: never connect a lambda to a signal that can fire during teardown
+  (QUndoStack, QAction text/enabled signals); use bound methods. Suite: 312 passed.

@@ -50,7 +50,9 @@ class FractalDocument(QObject):
         self._source_index = 0
         self._image_size: tuple[int, int] | None = None   # None = the flame's own size
         self.undo_stack = QUndoStack(self)
-        self.undo_stack.cleanChanged.connect(lambda clean: self.modified_changed.emit(not clean))
+        # a bound method, not a lambda: the stack emits cleanChanged while being destroyed, and only bound
+        # methods are disconnected automatically once their receiver is gone
+        self.undo_stack.cleanChanged.connect(self._on_clean_changed)
 
     # --- state ---------------------------------------------------------------
     @property
@@ -155,6 +157,9 @@ class FractalDocument(QObject):
             self.image_size_changed.emit()
 
     # --- undo plumbing -----------------------------------------------------------
+    def _on_clean_changed(self, clean: bool) -> None:
+        self.modified_changed.emit(not clean)
+
     def _restore(self, flame: Flame, text: str) -> None:
         """Called by undo/redo: swap in a snapshot and tell everyone."""
         old = self._flame
