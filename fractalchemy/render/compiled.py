@@ -37,6 +37,7 @@ class CompiledXForm:
 
     @classmethod
     def build(cls, xform: XForm) -> "CompiledXForm":
+        """Resolve the xform's variations against the registry (unknown and depth-only ones are dropped)."""
         active = []
         pre_blur = 0.0
         for name, weight in xform.variations.items():
@@ -65,6 +66,7 @@ class CompiledFlame:
 
     @property
     def count(self) -> int:
+        """Number of iterated xforms."""
         return len(self.xforms)
 
     @classmethod
@@ -104,6 +106,7 @@ def selection_table(xforms: list[XForm]) -> np.ndarray:
 
 
 def palette_array(flame: Flame) -> np.ndarray:
+    """The palette as a (256, 3) float32 array in 0..1 (resampled if the flame has another count)."""
     colors = np.array(flame.palette if len(flame.palette) >= 2 else [(0, 0, 0), (255, 255, 255)], dtype=np.float32) / 255.0
     if len(colors) != 256:  # resample to 256 entries so index lookups are uniform
         idx = np.linspace(0, len(colors) - 1, 256)

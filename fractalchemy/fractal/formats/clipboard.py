@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import json
 
+from ...formats.fa_document import is_document
 from ..scene import Flame
-from . import chaos_world, fa, flame_xml
+from . import chaos_world, chaos_writer, fa, flame_xml
 
 CLIPBOARD_FORMATS = {
     "fa": "Fractalchemy parameters",
@@ -29,7 +30,7 @@ def flame_to_text(flame: Flame, fmt: str = "fa") -> str:
     if fmt == "flame":
         return flame_xml.flame_to_xml(flame)
     if fmt == "chaos":
-        return chaos_world.flames_to_world([flame], flame.name)
+        return chaos_writer.flames_to_world([flame], flame.name)
     raise ValueError(f"unknown clipboard format '{fmt}'")
 
 
@@ -55,13 +56,13 @@ def text_to_flames(text: str) -> list[Flame]:
     try:
         if fmt == "fa":
             doc = json.loads(text)
-            if not isinstance(doc.get("flames"), list):
-                raise ClipboardError("Fractalchemy text without a flames list")
+            if not is_document(doc):
+                raise ClipboardError("Fractalchemy text without a valid flames list")
             return [Flame.from_dict(d) for d in doc["flames"]]
         if fmt == "flame":
             return flame_xml.parse_text(text)
         if fmt == "chaos":
             return chaos_world.parse_text(text)
-    except (ValueError, KeyError, TypeError) as exc:   # ParseErrors are ValueErrors
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:   # includes JSON / XML parse errors
         raise ClipboardError(f"The clipboard does not hold readable fractal parameters: {exc}") from exc
     raise ClipboardError("The clipboard does not hold fractal parameters (Fractalchemy, Apophysis or Chaotica)")

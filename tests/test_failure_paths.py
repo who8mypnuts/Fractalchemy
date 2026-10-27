@@ -10,7 +10,7 @@ from fractalchemy.library.catalog import GRADIENT_CATALOG
 from fractalchemy.library.items import Kind, LibraryItem
 from fractalchemy.library.roots import LibraryRoots
 from fractalchemy.model import Gradient
-from fractalchemy.ui import file_actions
+from fractalchemy.ui import file_actions, file_actions_base
 from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
 from tests.conftest import wait_until
 
@@ -21,7 +21,7 @@ RGB3 = [(0, 0, 0), (255, 0, 0), (255, 255, 255)]
 def window(qapp, tmp_path, monkeypatch):
     from PySide6.QtCore import QSettings
 
-    monkeypatch.setattr(file_actions.QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(file_actions_base.QMessageBox, "warning", lambda *a, **k: QMessageBox.StandardButton.Ok)
     win = GradientLibraryWindow(LibraryRoots(QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)))
     win.show()
     yield win
@@ -45,17 +45,17 @@ def test_opening_an_unsupported_file_reports_the_reason(window, tmp_path):
 def test_cancelling_the_unsaved_prompt_aborts_the_open(window, tmp_path, samples, monkeypatch):
     window.document.replace(Gradient.from_colors("edited", RGB3))
     window.document.set_color(0, (1, 1, 1))
-    monkeypatch.setattr(file_actions.QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Cancel)
+    monkeypatch.setattr(file_actions_base.QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Cancel)
     window.open_item(LibraryItem(Kind.FILE, samples / "sample gradients" / "saturated rainbox.gradient"))
     assert window.document.gradient.name == "edited" and window.document.modified
-    monkeypatch.setattr(file_actions.QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Discard)
+    monkeypatch.setattr(file_actions_base.QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Discard)
     window.open_item(LibraryItem(Kind.FILE, samples / "sample gradients" / "saturated rainbox.gradient"))
     wait_until(lambda: window.document.gradient.name == "rainbow")
     assert not window.document.modified
 
 
 def test_library_operation_failure_is_reported_not_raised(window, tmp_path, monkeypatch):
-    monkeypatch.setattr("fractalchemy.ui.gradient_library_window.QMessageBox.warning", lambda *a, **k: None)
+    monkeypatch.setattr("fractalchemy.ui.library_host.QMessageBox.warning", lambda *a, **k: None)
     (tmp_path / "a.ugr").write_text("a {\ngradient:\n index=0 color=0\n}\n")
     (tmp_path / "b.ugr").write_text("b {\ngradient:\n index=0 color=0\n}\n")
     errors = []
@@ -106,7 +106,7 @@ def test_drop_of_unsupported_combination_is_a_clean_error(tmp_path):
 def test_cancelling_the_save_dialog_during_discard_prompt_aborts(window, samples, monkeypatch):
     window.document.replace(Gradient.from_colors("from-nowhere", RGB3))  # no source → Save needs a dialog
     window.document.set_color(0, (1, 1, 1))
-    monkeypatch.setattr(file_actions.QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Save)
+    monkeypatch.setattr(file_actions_base.QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Save)
     monkeypatch.setattr(file_actions.QFileDialog, "getSaveFileName", lambda *a, **k: ("", ""))
     assert window.files.confirm_discard() is False
     assert window.document.modified and window.document.gradient.name == "from-nowhere"

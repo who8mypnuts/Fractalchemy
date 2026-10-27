@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import count
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -95,6 +95,7 @@ class RenderService(QThread):
         self.wait(timeout_ms)
 
     def pending(self) -> int:
+        """Number of queued (not yet started) requests."""
         with self._cond:
             return len(self._queue)
 
@@ -143,35 +144,40 @@ class RenderService(QThread):
             return any(r.priority < priority for r in self._queue)
 
     def _render(self, request: _Request) -> None:
-        def cancelled() -> bool:
-            return self._superseded or self._stop or self._urgent_pending(request.priority)
-
+        """Run one request to completion, pre-emption or cancellation, reporting through the signals."""
         try:
             job = self.engine.start(request.flame, request.settings)
-        except Exception as exc:  # noqa: BLE001 - report and move on
+        except Exception as exc:  # noqa: BLE001 - a flame the engine cannot set up: report and move on
             self._finish(request.key)
             self.job_failed.emit(request.key, str(exc))
             return
         try:
-            while not job.stats.finished:
-                image = job.run_pass(cancelled)
-                if image is None:
-                    break
-                self.pass_done.emit(request.key, image, _snapshot(job.stats))
-            else:
+            completed = self._run_passes(request, job)
+            if completed:
                 self.job_finished.emit(request.key, _snapshot(job.stats))
-                self._finish(request.key)
-                return
-            # pre-empted by more urgent work (not superseded): put it back to resume later from scratch
-            with self._cond:
-                if not self._superseded and not self._stop:
-                    self._queue.append(_Request(request.priority, next(self._seq), request.key, request.flame, request.settings))
-            self._finish(request.key)
-        except Exception as exc:  # noqa: BLE001
-            self._finish(request.key)
+            elif not self._superseded and not self._stop:
+                self._requeue(request)   # pre-empted by more urgent work: start again later
+        except Exception as exc:  # noqa: BLE001 - a pass failed mid-way
             self.job_failed.emit(request.key, str(exc))
         finally:
+            self._finish(request.key)
             job.close()
+
+    def _run_passes(self, request: _Request, job) -> bool:
+        """Deliver passes until the job finishes; False if it was cancelled or pre-empted first."""
+        def cancelled() -> bool:
+            return self._superseded or self._stop or self._urgent_pending(request.priority)
+
+        while not job.stats.finished:
+            image = job.run_pass(cancelled)
+            if image is None:
+                return False
+            self.pass_done.emit(request.key, image, _snapshot(job.stats))
+        return True
+
+    def _requeue(self, request: _Request) -> None:
+        with self._cond:
+            self._queue.append(_Request(request.priority, next(self._seq), request.key, request.flame, request.settings))
 
     def _finish(self, key: object) -> None:
         with self._cond:
@@ -180,8 +186,8 @@ class RenderService(QThread):
 
 
 def _snapshot(stats: RenderStats) -> RenderStats:
-    return RenderStats(stats.engine, stats.passes_done, stats.passes_total, stats.samples, stats.hits, stats.seconds,
-                       stats.width, stats.height, list(stats.notes))
+    """A copy to hand to the GUI thread (the job keeps mutating its own)."""
+    return replace(stats, notes=list(stats.notes))
 
 
 def wait_for(predicate, timeout: float = 10.0, interval: float = 0.02) -> bool:

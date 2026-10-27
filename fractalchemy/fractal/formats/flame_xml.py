@@ -14,6 +14,7 @@ from pathlib import Path
 from ... import config
 from ..scene import Affine, Camera, Coloring, Flame, XForm, identity_affine
 from ..variations import REGISTRY, canonical_name, normalize
+from .xml_text import attr_text, number_text
 
 # xform attributes that are not variations
 XFORM_ATTRS = {
@@ -49,8 +50,15 @@ def flame_elements(path: Path) -> list[ET.Element]:
 
 
 def parse_text(text: str) -> list[Flame]:
-    """Flames from XML text (clipboard / tests)."""
-    root = ET.fromstring(text)
+    """Flames from XML text (clipboard / tests).
+
+    Raises:
+        FlameParseError: If the text is not well-formed XML.
+    """
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise FlameParseError(f"not valid flame XML: {exc}") from exc
     elements = [root] if root.tag == "flame" else root.findall("flame")
     return [f for f in (flame_from_element(e) for e in elements) if f.xforms]
 
@@ -145,12 +153,12 @@ def flame_to_xml(flame: Flame, indent: str = "") -> str:
     """A <flame> element (Apophysis 7x style) for `flame`."""
     cam, col = flame.camera, flame.coloring
     head = (
-        f'<flame name="{_attr(flame.name)}" version="{config.APP_NAME} {config.APP_VERSION}" '
-        f'size="{cam.width} {cam.height}" center="{_g(cam.center[0])} {_g(cam.center[1])}" scale="{_g(cam.scale)}" '
-        f'zoom="{_g(cam.zoom)}" rotate="{_g(cam.rotate)}" oversample="1" filter="0.2" quality="5" '
-        f'background="{_g(col.background[0] / 255)} {_g(col.background[1] / 255)} {_g(col.background[2] / 255)}" '
-        f'brightness="{_g(col.brightness)}" gamma="{_g(col.gamma)}" gamma_threshold="{_g(col.gamma_threshold)}" '
-        f'vibrancy="{_g(col.vibrancy)}" contrast="{_g(col.contrast)}">'
+        f'<flame name="{attr_text(flame.name)}" version="{config.APP_NAME} {config.APP_VERSION}" '
+        f'size="{cam.width} {cam.height}" center="{number_text(cam.center[0])} {number_text(cam.center[1])}" scale="{number_text(cam.scale)}" '
+        f'zoom="{number_text(cam.zoom)}" rotate="{number_text(cam.rotate)}" oversample="1" filter="0.2" quality="5" '
+        f'background="{number_text(col.background[0] / 255)} {number_text(col.background[1] / 255)} {number_text(col.background[2] / 255)}" '
+        f'brightness="{number_text(col.brightness)}" gamma="{number_text(col.gamma)}" gamma_threshold="{number_text(col.gamma_threshold)}" '
+        f'vibrancy="{number_text(col.vibrancy)}" contrast="{number_text(col.contrast)}">'
     )
     lines = [indent + head]
     for x in flame.xforms:
@@ -170,26 +178,26 @@ def flame_to_xml(flame: Flame, indent: str = "") -> str:
 def flames_to_xml(flames: list[Flame], name: str = "Fractalchemy") -> str:
     """A whole <Flames> document."""
     body = "".join(flame_to_xml(f, "") for f in flames)
-    return f'<Flames name="{_attr(name)}">\n{body}</Flames>\n'
+    return f'<Flames name="{attr_text(name)}">\n{body}</Flames>\n'
 
 
 def _xform_attrs(x: XForm, final: bool) -> str:
-    parts = [] if final else [f'weight="{_g(x.weight)}"']
-    parts.append(f'color="{_g(x.color)}"')
-    parts.append(f'symmetry="{_g(x.symmetry)}"')
+    parts = [] if final else [f'weight="{number_text(x.weight)}"']
+    parts.append(f'color="{number_text(x.color)}"')
+    parts.append(f'symmetry="{number_text(x.symmetry)}"')
     if x.opacity != 1.0:
-        parts.append(f'opacity="{_g(x.opacity)}"')
+        parts.append(f'opacity="{number_text(x.opacity)}"')
     if x.name:
-        parts.append(f'name="{_attr(x.name)}"')
+        parts.append(f'name="{attr_text(x.name)}"')
     for name, weight in x.variations.items():
-        parts.append(f'{name}="{_g(weight)}"')
-    parts.append('coefs="' + " ".join(_g(v) for v in x.coefs) + '"')
+        parts.append(f'{name}="{number_text(weight)}"')
+    parts.append('coefs="' + " ".join(number_text(v) for v in x.coefs) + '"')
     if x.has_post():
-        parts.append('post="' + " ".join(_g(v) for v in x.post) + '"')
+        parts.append('post="' + " ".join(number_text(v) for v in x.post) + '"')
     for key, value in x.params.items():
-        parts.append(f'{key}="{_g(value)}"')
+        parts.append(f'{key}="{number_text(value)}"')
     if x.chaos is not None and not final:
-        parts.append('chaos="' + " ".join(_g(v) for v in x.chaos) + '"')
+        parts.append('chaos="' + " ".join(number_text(v) for v in x.chaos) + '"')
     return " ".join(parts)
 
 
@@ -226,11 +234,3 @@ def _background(text: str) -> tuple[int, int, int]:
     return tuple(max(0, min(255, round(v * 255))) for v in (r, g, b))
 
 
-def _g(value: float) -> str:
-    """Shortest text that reads back to the same float (`1.0` → `1`)."""
-    text = repr(float(value))
-    return text[:-2] if text.endswith(".0") else text
-
-
-def _attr(text: str) -> str:
-    return text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")

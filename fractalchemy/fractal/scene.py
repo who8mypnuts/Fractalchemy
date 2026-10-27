@@ -18,6 +18,7 @@ from ..model import RGB, Gradient
 
 Affine = tuple[float, float, float, float, float, float]
 PALETTE_SIZE = 256
+MIN_PIXELS_PER_UNIT = 1e-9   # a flame with scale 0 is malformed; render it as "very zoomed out" rather than crash
 
 
 def identity_affine() -> Affine:
@@ -108,13 +109,13 @@ class Camera:
         The result has `zoom` folded into `scale`, so for it `pixels_per_unit(width, height)`
         is exactly that scale.
         """
-        ppu = self.scale * (2.0 ** self.zoom) * width / max(1, self.width)
+        ppu = max(MIN_PIXELS_PER_UNIT, abs(self.scale) * (2.0 ** self.zoom) * width / max(1, self.width))
         return Camera(self.center, ppu, 0.0, self.rotate, max(1, int(width)), max(1, int(height)))
 
     def pixels_per_unit(self, view_width: int, view_height: int) -> float:
         """Scale for a viewport of another size: the flame's framed area always fits inside it."""
         fit = min(view_width / max(1, self.width), view_height / max(1, self.height))
-        return self.scale * (2.0 ** self.zoom) * fit
+        return max(MIN_PIXELS_PER_UNIT, abs(self.scale) * (2.0 ** self.zoom) * fit)
 
     def pixel_transform(self, view_width: int, view_height: int) -> Affine:
         """Affine taking fractal coordinates to pixel coordinates (origin top-left, y down)."""
@@ -137,6 +138,7 @@ class Camera:
         return (d * x - c * y) / det, (a * y - b * x) / det
 
     def copy(self) -> "Camera":
+        """An independent copy."""
         return replace(self)
 
 
@@ -160,6 +162,7 @@ class Coloring:
     background: RGB = (0, 0, 0)
 
     def copy(self) -> "Coloring":
+        """An independent copy."""
         return replace(self)
 
 
@@ -223,9 +226,18 @@ class Flame:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Flame":
-        """Inverse of `to_dict`; missing keys take defaults."""
+        """Inverse of `to_dict`; missing keys take defaults.
+
+        Raises:
+            ValueError: If the data is not a mapping or holds non-numeric fields / malformed colours.
+        """
+        if not isinstance(data, dict):
+            raise ValueError(f"flame must be a mapping, got {type(data).__name__}")
         cam, col = data.get("camera", {}), data.get("coloring", {})
-        palette = [tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in data.get("palette", [])]
+        try:
+            palette = [tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in data.get("palette", [])]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("palette entries must be six-digit hex colours") from exc
         return cls(
             name=data.get("name", "flame"),
             xforms=[_xform_from_dict(x) for x in data.get("xforms", [])],
@@ -246,6 +258,32 @@ def _xform_to_dict(x: XForm) -> dict:
 
 
 def _xform_from_dict(d: dict) -> XForm:
-    return XForm(d.get("weight", 0.5), d.get("color", 0.0), d.get("color_speed", 0.5), d.get("opacity", 1.0),
-                 tuple(d.get("coefs", identity_affine())), tuple(d.get("post", identity_affine())),
-                 dict(d.get("variations", {"linear": 1.0})), dict(d.get("params", {})), d.get("chaos"), d.get("name", ""))
+    """Build an XForm from plain data, validating the numeric fields.
+
+    Raises:
+        ValueError: If an affine, weight or parameter is not numeric or has the wrong length.
+    """
+    if not isinstance(d, dict):
+        raise ValueError(f"xform must be a mapping, got {type(d).__name__}")
+    chaos = d.get("chaos")
+    return XForm(
+        _number(d.get("weight", 0.5), "weight"), _number(d.get("color", 0.0), "color"),
+        _number(d.get("color_speed", 0.5), "color_speed"), _number(d.get("opacity", 1.0), "opacity"),
+        _affine(d.get("coefs", identity_affine()), "coefs"), _affine(d.get("post", identity_affine()), "post"),
+        {str(k): _number(v, k) for k, v in dict(d.get("variations", {"linear": 1.0})).items()},
+        {str(k): _number(v, k) for k, v in dict(d.get("params", {})).items()},
+        None if chaos is None else [_number(v, "chaos") for v in chaos], str(d.get("name", "")))
+
+
+def _number(value, name: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"'{name}' must be a number, got {value!r}") from exc
+
+
+def _affine(values, name: str) -> Affine:
+    numbers = tuple(_number(v, name) for v in values) if isinstance(values, (list, tuple)) else ()
+    if len(numbers) != 6:
+        raise ValueError(f"'{name}' must hold six numbers, got {values!r}")
+    return numbers

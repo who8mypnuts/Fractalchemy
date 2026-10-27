@@ -124,14 +124,3 @@ def test_pre_blur_jitter_is_centred():
     dx, dy = var.numpy(point)
     assert abs(dx.mean()) < 0.01 and abs(dy.mean()) < 0.01
     assert 0.1 < math.hypot(dx.std(), dy.std()) < 0.6
-
-
-@pytest.fixture(scope="module")
-def gl_context():
-    import moderngl
-    try:
-        ctx = moderngl.create_standalone_context(require=330)
-    except Exception:  # noqa: BLE001
-        ctx = moderngl.create_standalone_context(require=330, backend="egl")
-    yield ctx
-    ctx.release()

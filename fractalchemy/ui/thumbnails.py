@@ -11,7 +11,7 @@ from collections import OrderedDict
 
 import numpy as np
 from PySide6.QtCore import QObject, QSize, Signal
-from PySide6.QtGui import QColor, QIcon, QImage, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPixmap
 
 from .. import config
 from ..fractal.formats import load_flame
@@ -19,6 +19,7 @@ from ..library.items import LibraryItem
 from ..library.model import LibraryModel
 from ..render.service import PRIORITY_THUMBNAIL, RenderService
 from ..render.settings import RenderSettings
+from ..widgets.images import rgba_to_qimage
 from .background import run_in_background
 
 CACHE_LIMIT = 2000
@@ -47,10 +48,12 @@ class ThumbnailProvider(QObject):
 
     @property
     def size(self) -> QSize:
+        """Thumbnail size in pixels."""
         return self._size
 
     @property
     def enabled(self) -> bool:
+        """True while thumbnails are being supplied to the model."""
         return self._enabled
 
     def set_enabled(self, enabled: bool) -> None:
@@ -103,9 +106,7 @@ class ThumbnailProvider(QObject):
         item = self._pending.pop(key[1], None)
         if item is None:
             return
-        h, w = image.shape[:2]
-        qimage = QImage(np.ascontiguousarray(image).data, w, h, w * 4, QImage.Format.Format_RGBA8888).copy()
-        icon = QIcon(QPixmap.fromImage(qimage))
+        icon = QIcon(QPixmap.fromImage(rgba_to_qimage(image)))
         self._cache[key[1]] = icon
         while len(self._cache) > CACHE_LIMIT:
             self._cache.popitem(last=False)

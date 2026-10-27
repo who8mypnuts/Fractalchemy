@@ -46,6 +46,7 @@ class GeneratedProgram:
 
     @property
     def params_texture_size(self) -> tuple[int, int]:
+        """(width, height) of the float texture holding `params`."""
         return PARAMS_WIDTH, len(self.params) // PARAMS_WIDTH
 
 
@@ -55,15 +56,18 @@ class _Params:
         self.values: list[float] = []
 
     def add(self, value: float) -> int:
+        """Append one value; returns its index."""
         self.values.append(float(value))
         return len(self.values) - 1
 
     def block(self, values) -> int:
+        """Append several values; returns the index of the first."""
         start = len(self.values)
         self.values.extend(float(v) for v in values)
         return start
 
     def array(self) -> np.ndarray:
+        """The values as float32, zero-padded to whole texture rows."""
         padded = len(self.values) + (-len(self.values) % PARAMS_WIDTH) or PARAMS_WIDTH
         out = np.zeros(padded, dtype=np.float32)
         out[:len(self.values)] = self.values

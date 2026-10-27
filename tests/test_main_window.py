@@ -124,7 +124,7 @@ def test_edit_fractal_library_from_main_menu_opens_the_fractal_library_dialog(wi
         def exec(self):
             return 0
 
-    monkeypatch.setattr("fractalchemy.ui.main_window.EditLibraryDialog", FakeDialog)
+    monkeypatch.setattr("fractalchemy.ui.library_host.EditLibraryDialog", FakeDialog)
     window.actionEditFractalLibrary.trigger()
     assert opened == [window.fractal_library] and window.fractal_library is not window.gradient_library.library
     assert window.fractal_library.catalog.title == "Fractal Library"
@@ -266,3 +266,40 @@ def test_thumbnail_view_renders_icons_for_entries(fractal_window):
     assert not icon.isNull() and icon.pixmap(120, 75).width() == 120
     win.actionThumbnailView.setChecked(False)
     assert not win.thumbnails.enabled and panel.list_button.isChecked()
+
+
+def test_thumbnail_of_a_vanished_file_is_dropped_quietly(fractal_window, monkeypatch):
+    from fractalchemy.library.items import Kind, LibraryItem
+
+    win = fractal_window
+    win.actionThumbnailView.setChecked(True)
+    missing = LibraryItem(Kind.ENTRY, win.fractal_library.roots.paths()[0] / "gone.flame", 0, "gone")
+    assert win.thumbnails.icon_for(missing) is None                # no file, nothing to schedule
+
+    def vanished(path, index):                                     # the file disappears between scan and load
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr("fractalchemy.ui.thumbnails.load_flame", vanished)
+    real = next(i for i in win.fractalLibraryPanel.model.entries() if i.kind == Kind.ENTRY)
+    placeholder = win.thumbnails.icon_for(real)
+    assert placeholder is not None and win.thumbnails.cached(real) is None
+    wait_until(lambda: all(item != real for item in win.thumbnails._pending.values()))   # forgotten, not stuck
+    assert win.thumbnails.cached(real) is None
+
+
+def test_library_watcher_tracks_one_extra_file(tmp_path, qapp):
+    from fractalchemy.library.watcher import LibraryWatcher
+
+    watcher = LibraryWatcher()
+    changed = []
+    watcher.file_changed.connect(changed.append)
+    target = tmp_path / "opened.fa"
+    target.write_text("a")
+    watcher.watch_file(target)
+    assert str(target) in watcher._watcher.files()
+    other = tmp_path / "other.fa"
+    other.write_text("b")
+    watcher.watch_file(other)
+    assert str(target) not in watcher._watcher.files() and str(other) in watcher._watcher.files()
+    watcher.watch_file(None)
+    assert watcher._watcher.files() == []

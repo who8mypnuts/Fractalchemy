@@ -192,14 +192,3 @@ def test_service_runs_viewport_before_thumbnails(service):
     service.submit("view", sierpinski(), SMALL)
     assert wait_for(lambda: (spin(20), len(order) == 4)[1], timeout=30)
     assert order[0] == "view" or order[1] == "view"   # the viewport pre-empts queued thumbnails
-
-
-@pytest.fixture(scope="module")
-def gl_context():
-    import moderngl
-    try:
-        ctx = moderngl.create_standalone_context(require=330)
-    except Exception:  # noqa: BLE001
-        ctx = moderngl.create_standalone_context(require=330, backend="egl")
-    yield ctx
-    ctx.release()

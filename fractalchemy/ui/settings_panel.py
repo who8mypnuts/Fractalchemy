@@ -71,10 +71,12 @@ class SettingsPanel(QWidget):
     # --- values --------------------------------------------------------------
     @property
     def passes(self) -> int:
+        """Progressive passes per preview render."""
         return self.passes_box.value()
 
     @property
     def quality(self) -> float:
+        """Samples per pixel over the whole preview."""
         return self.quality_box.value()
 
     def set_values(self, passes: int, quality: float) -> None:

@@ -83,7 +83,7 @@ class LibraryController(QObject):
             return
         run_in_background(self.catalog.entry_names, path,
                           on_done=lambda names: self._apply_opened(path, names),
-                          on_error=lambda exc: self._apply_opened(path, []))
+                          on_error=lambda exc: self._opened_unreadable(path, exc))
 
     def _apply_opened(self, path: Path, names: list[str]) -> None:
         if path != self._opened:
@@ -92,7 +92,12 @@ class LibraryController(QObject):
             self.model.set_opened_file(path, names)
         else:
             self.model.clear_opened_file()
-            self.failed.emit(f"{path.name} holds no {self.catalog.entry_label}s")
+            self.status.emit(f"{path.name} holds no {self.catalog.entry_label}s")
+
+    def _opened_unreadable(self, path: Path, exc: Exception) -> None:
+        """A refresh failed — often a file caught mid-write by the watcher: keep the section as it is, just say so."""
+        if path == self._opened:
+            self.status.emit(f"Could not re-read {path.name}: {exc}")
 
     def _on_file_changed(self, path: Path) -> None:
         if self._opened is not None and Path(path).resolve() == self._opened:

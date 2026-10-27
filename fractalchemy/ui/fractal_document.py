@@ -55,14 +55,17 @@ class FractalDocument(QObject):
     # --- state ---------------------------------------------------------------
     @property
     def flame(self) -> Flame | None:
+        """The flame being shown, or None."""
         return self._flame
 
     @property
     def source_path(self) -> Path | None:
+        """File the flame came from (or was saved to), or None."""
         return self._source_path
 
     @property
     def source_index(self) -> int:
+        """Which entry of the source file this is."""
         return self._source_index
 
     @property
@@ -85,6 +88,7 @@ class FractalDocument(QObject):
         return self._image_size
 
     def is_showing(self, path: Path, index: int) -> bool:
+        """True if the document's source is exactly `path` / `index`."""
         return self._source_path == path and self._source_index == index
 
     # --- loading / saving -----------------------------------------------------

@@ -7,33 +7,27 @@ and the entry is replaced only when a save succeeds.
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QFileDialog, QWidget
 
 from .. import config
 from ..formats import DEFAULT_SAVE_FORMAT, append_dialog_filter, format_for, open_dialog_filter, save_dialog_filter, save_gradient
 from ..model import Gradient
 from .background import run_in_background
 from .document import GradientDocument
+from .file_actions_base import FileActionsBase
 from .file_workers import append_entry, load_entries, write_file
 
-RECENT_WRITE_SECONDS = 3.0
 
+class FileActions(FileActionsBase):
+    """Open / Save / Save As flows for the gradient document; all disk work runs on the thread pool.
 
-class FileActions(QObject):
-    """Open / Save / Save As flows for the document; all disk work runs on the thread pool.
-
-    Signals:
-        status(str): Outcome text for the status bar.
-        file_written(Path): A file on disk changed because of us.
+    Signals (besides the base class's `status` / `file_written`):
         entries_loaded(Path | None, list[Gradient]): All gradients of the newly opened file.
         entry_saved(int, Gradient): One entry was written in place.
     """
-    status = Signal(str)
-    file_written = Signal(Path)
     entries_loaded = Signal(object, list)
     entry_saved = Signal(int, object)
 
@@ -44,11 +38,13 @@ class FileActions(QObject):
         """
         super().__init__(parent)
         self._document = document
-        self._parent = parent
-        self._last_dir = str(Path.cwd())
-        self._load_ticket = 0
         self._entries: list[Gradient] = []
-        self._written: dict[Path, float] = {}
+
+    def _document_name(self) -> str:
+        return self._document.gradient.name
+
+    def _document_modified(self) -> bool:
+        return self._document.modified
 
     # --- opening ------------------------------------------------------------
     def open(self) -> None:
@@ -59,21 +55,26 @@ class FileActions(QObject):
         if path:
             self.open_path(Path(path))
 
-    def open_path(self, path: Path, index: int = 0, note: str | None = None) -> None:
+    def open_path(self, path: Path, index: int = 0, note: str | None = None, quiet: bool = False) -> None:
         """Load every gradient in `path` on a worker thread, then show entry `index`.
-        `note` replaces the usual 'Loaded…' status message."""
-        self._load_ticket += 1
-        ticket = self._load_ticket
+
+        Args:
+            path: The file.
+            index: Entry to show.
+            note: Replaces the usual "Loaded…" status message.
+            quiet: Report failure on the status bar only (for reloads triggered by the file watcher).
+        """
+        ticket = self._next_load_ticket()
         self.status.emit(f"Loading {path.name}…")
         run_in_background(
             load_entries, path,
             on_done=lambda gradients: self._loaded(gradients, path, index, ticket, note),
-            on_error=lambda exc: self._fail("Could not open file", exc),
+            on_error=lambda exc: self._fail("Could not open file", exc, quiet),
         )
 
     def show_gradient(self, gradient: Gradient) -> None:
         """Show a gradient that did not come from a file (the strip lists just it)."""
-        self._load_ticket += 1   # a load still in flight must not replace this
+        self._next_load_ticket()   # a load still in flight must not replace this
         self._entries = [gradient.copy()]
         self.entries_loaded.emit(None, self._entries)
         self._document.replace(gradient.copy())
@@ -113,7 +114,7 @@ class FileActions(QObject):
         path = self._document.source_path
         if path is None or not format_for(path).can_append:
             return self.save_as_into_file()
-        name = self._ask_name()
+        name = self._ask_name("gradient", self._document.gradient.name)
         if not name:
             return False
         self._append_to(path, name)
@@ -143,39 +144,15 @@ class FileActions(QObject):
             True if a write was started.
         """
         path, _ = QFileDialog.getOpenFileName(self._parent, "Add gradient to an existing file", self._last_dir, append_dialog_filter())
-        name = self._ask_name() if path else None
+        name = self._ask_name("gradient", self._document.gradient.name) if path else None
         if not name:
             return False
         self._append_to(Path(path), name)
         return True
 
-    def confirm_discard(self) -> bool:
-        """Ask about unsaved edits before replacing the document.
-
-        Choosing Save starts the write (it completes in the background) and then
-        proceeds; cancelling that save's dialog counts as Cancel here too.
-
-        Returns:
-            False if the caller should abort.
-        """
-        if not self._document.modified:
-            return True
-        buttons = QMessageBox.StandardButton
-        answer = QMessageBox.question(
-            self._parent, "Unsaved changes", f"'{self._document.gradient.name}' has unsaved changes.",
-            buttons.Save | buttons.Discard | buttons.Cancel, buttons.Save,
-        )
-        if answer == buttons.Save:
-            return self.save()
-        return answer == buttons.Discard
-
-    def wrote_recently(self, path: Path) -> bool:
-        """True if we wrote `path` within the last few seconds (to ignore our own watcher events)."""
-        return time.monotonic() - self._written.get(path, -1e9) < RECENT_WRITE_SECONDS
-
     # --- helpers ------------------------------------------------------------
     def _loaded(self, gradients: list[Gradient], path: Path, index: int, ticket: int, note: str | None = None) -> None:
-        if ticket != self._load_ticket:
+        if not self._is_current_ticket(ticket):
             return  # a newer load superseded this one
         index = min(index, len(gradients) - 1)
         self._remember(path)
@@ -195,18 +172,6 @@ class FileActions(QObject):
         path = self._document.source_path
         return (path, self._document.source_index) if path is not None else None
 
-    def _run_write(self, path: Path, fn, *args, on_done) -> None:
-        """Run a writer on the thread pool; on success note the write and announce the file."""
-        def done(result) -> None:
-            self._written[path] = time.monotonic()
-            self._remember(path)
-            on_done(result)
-            self.file_written.emit(path)
-
-        # recorded *before* the write too: the file watcher's event can reach the GUI thread before `done` runs
-        self._written[path] = time.monotonic()
-        run_in_background(fn, *args, on_done=done, on_error=lambda exc: self._fail("Could not save file", exc))
-
     def _saved_in_place(self, gradient: Gradient, path: Path, index: int) -> None:
         if self._document.gradient is gradient:  # user may have moved on meanwhile
             self._document.mark_saved(path, index)
@@ -214,10 +179,6 @@ class FileActions(QObject):
             self._entries[index] = gradient.copy()
         self.entry_saved.emit(index, gradient)
         self.status.emit(f"Saved '{gradient.name}' to {path.name}")
-
-    def _ask_name(self) -> str | None:
-        name, ok = QInputDialog.getText(self._parent, "Gradient name", "Save gradient as:", text=self._document.gradient.name)
-        return name.strip() if ok and name.strip() else None
 
     def _writable_source_path(self) -> Path | None:
         fmt = self._document.source_format
@@ -229,9 +190,3 @@ class FileActions(QObject):
         stem = self._document.gradient.name or (source.stem if source else config.APP_NAME.lower())
         return Path(self._last_dir) / f"{stem}{ext}"
 
-    def _remember(self, path: Path) -> None:
-        self._last_dir = str(path.parent)
-
-    def _fail(self, title: str, exc: Exception) -> None:
-        QMessageBox.warning(self._parent, title, str(exc))
-        self.status.emit(f"{title}: {exc}")

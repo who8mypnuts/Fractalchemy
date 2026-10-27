@@ -175,3 +175,70 @@ fixed before polish (docstrings, comment pruning, layout-method splits). No code
 - `GradientLink.apply_gradient` guards `set_gradient` with `_syncing`: `flame_edited` fired mid-edit and `_on_flame_edited`
   re-synced (resampled) the editor from the flame, moving every node. Regression test
   `test_dragging_a_node_leaves_the_other_nodes_alone`. Suite: 300 passed.
+
+# Review & hardening pass 2 (this session's branch)
+Scope: everything above under "Rename & window split" … "Fixes" (uncommitted). Baseline before cycle 1:
+`python -m pytest -q -p no:cacheprovider` → 300 passed; pyflakes clean.
+
+## Cycle 1 — findings (systemic first)
+| # | Critic | Severity | Subsystem | Criticism | Root cause | Correction |
+|---|---|---|---|---|---|---|
+| 1 | Architect | High | ui/fractal_viewport | 378-line widget mixes view geometry maths (zoom/offset/clamping/regions) with rendering + Qt events; the maths is untestable without a window | grew feature by feature | extract `ui/view_geometry.py: ViewGeometry` (pure, QtCore types only), viewport delegates; unit tests on geometry |
+| 2 | DRY | High | ui/main_window + ui/gradient_library_window | add-folder prompt, Edit-Library dialog, scanning message, error box, panel wiring duplicated in both windows | second library copied from the first | `ui/library_host.py: LibraryHost` used by both |
+| 3 | DRY | Med | fractal/formats/flame_xml + chaos_world | `_g` / `_attr` number & attribute text helpers duplicated | written separately | `fractal/formats/xml_text.py` |
+| 4 | DRY | Med | fractal/formats/fa + formats/fa_palette | JSON document open/validate/write/require helpers duplicated (schema knowledge in two places) | avoided a package import cycle | `formats/fa_document.py` (dependency-free) used by both |
+| 5 | DRY | Med | ui/fractal_viewport + ui/thumbnails | numpy RGBA → QImage conversion duplicated | — | `widgets/images.py: rgba_to_qimage` |
+| 6 | Architect | Med | fractal/formats/__init__ | imports *private* helpers (`_open`, `_append_text`) from the gradient flame module | expedient | public `flame_spans()` / `append_flame_text()` in `formats/flame.py` |
+| 7 | Architect | Med | fractal/formats/chaos_world | `flame_to_ifs` is an 80-line string builder | — | split into `_camera_lines` / `_imaging_lines` / `_iterator_lines` |
+| 8 | DRY | Low | tests | `gl_context` fixture + context creation duplicated in two test modules and in gpu_engine | — | conftest fixture using `gpu_engine.create_context()` |
+| 9 | Defensive | **Critical** | library/controller + ui/*file_actions | a file-watcher event during our own save re-read a half-written file and raised a *modal* warning box from a background path (intermittent suite hang; in the app, a surprise dialog) | failures from unrequested reloads used the same modal reporting as user actions | `_opened_unreadable` keeps the section + status text; `open_path(quiet=True)` for watcher-triggered reloads in both windows; test `test_opened_file_refresh_never_raises_a_dialog` |
+| 10 | Defensive | Med | ui/view_geometry | fit zoom exceeded the 300 % cap for images smaller than the widget | cap applied to explicit zoom only | `fit_zoom()` capped at MAX_ZOOM; `min_zoom` removed (identical); geometry tests |
+
+Cycle 1 result: 303 passed (was 300; +3 tests), pyflakes clean. Regression check vs baseline: **improved**
+(all prior tests still pass; behaviour unchanged except #9/#10 fixes). main_window.py 304 → 262 lines,
+fractal_viewport.py 378 → 300 lines (+ view_geometry.py 130, library_host.py 75).
+Score after cycle 1: Architecture 33/40 · DRY 26/30 · Docs 16/20 · Tests 8/10 → **83** (gates: arch, docs, tests not yet met).
+
+## Cycle 2 — findings (Architect / Comments, on the cycle-1 code)
+| # | Critic | Severity | Subsystem | Criticism | Root cause | Correction |
+|---|---|---|---|---|---|---|
+| 11 | Comments | Med | all new modules | 50 public methods/properties without docstrings (IDE help blank) | one-liners skipped | docstrings added (AST sweep now reports only nested closures) |
+| 12 | Architect | Med | ui/main_window | `_connect_actions` 45 lines mixing icons, file, edit, view wiring and a toolbar hack | accretion | `_connect_file_actions` / `_place_save_as_on_toolbar` / `_connect_edit_actions` / `_connect_view_actions` |
+| 13 | Architect | Med | ui/viewer_bar | `_build` 45 lines | — | `_build_zoom_controls` / `_build_resolution_controls` |
+| 14 | Architect | Med | ui/fractal_file_actions | `_saved` used a `renamed` flag with an inline dict comparison expression | two flows squeezed into one | `_is_still(snapshot, ignore_name)` extracted, docstring explains the re-pointing rule |
+| 15 | Architect | Med | render/service | `_render` 30 lines: setup, loop, requeue, error paths interleaved | — | `_run_passes` + `_requeue` extracted; single `finally` closes the job |
+| 16 | Architect | Med | fractal/formats/__init__ | package `__init__` held all format classes (217 lines) | grew from a registry stub | classes + functions in `registry.py`; `__init__` is a façade with `__all__` |
+Cycle 2 result: 303 passed, pyflakes clean. Regression vs cycle 1: **improved** (pure refactors + docstrings; no behaviour change).
+Score after cycle 2: Architecture 35/40 · DRY 26.5/30 · Docs 18/20 · Tests 8/10 → **87.5** (tests gate 8.5 not met).
+
+## Cycle 3 — findings (Defensive Tester, on the cycle-2 code)
+| # | Critic | Severity | Subsystem | Criticism | Root cause | Correction |
+|---|---|---|---|---|---|---|
+| 17 | Defensive | High | fractal/scene | `Camera.unproject` divides by zero for `scale=0` (malformed file → viewport crash on first mouse move) | no floor on pixels-per-unit | `MIN_PIXELS_PER_UNIT` floor in `pixels_per_unit` / `at_size`; test |
+| 18 | Defensive | High | fractal/scene | `Flame.from_dict` accepted garbage (`"coefs": "abc"`, chaos strings) and deferred the crash to the render engine | no validation | `_number` / `_affine` validators with clear `ValueError`s; test |
+| 19 | Defensive | High | fractal/formats/clipboard + flame_xml | Paste of malformed `<flame>` XML raised `ET.ParseError` (not a ValueError) and `.fa` text with non-dict flames raised `AttributeError` — both escaped to the user as tracebacks | exception families not covered | `parse_text` wraps in `FlameParseError`; clipboard validates the envelope with `is_document` and catches `AttributeError`; test covers 6 bad inputs |
+| 20 | Defensive | Med | ui/viewer_bar | garbage typed in the zoom box re-parsed its own text and fell back to *fit* instead of keeping the current zoom | `_current_zoom()` derived from the text being edited | bar remembers the last shown zoom; `_current_zoom` removed; test |
+| 21 | Defensive | Low | tests | untested: thumbnail load failure, watcher extra file, `.fa` envelope validation | — | tests added (deterministic: load failure injected) |
+Cycle 3 result: 311 passed ×2 (+8 tests), pyflakes clean. Regression vs cycle 2: **improved** (fixes only tighten failure behaviour).
+Score after cycle 3: Architecture 35/40 · DRY 26.5/30 · Docs 18/20 · Tests 9/10 → **88.5** (total gate not yet met).
+
+## Cycle 4 — findings (final Architect / DRY sweep, on the cycle-3 code)
+| # | Critic | Severity | Subsystem | Criticism | Root cause | Correction |
+|---|---|---|---|---|---|---|
+| 22 | DRY | High | ui/file_actions + ui/fractal_file_actions | ~70 identical lines: background write bookkeeping, "wrote recently", failure box, unsaved-changes prompt, name prompt, load tickets | second class copied from the first | `ui/file_actions_base.py: FileActionsBase` (template-method contract `save` / `_document_name` / `_document_modified`); both subclasses shrink (237→192, 307→287) |
+| 23 | Architect | Med | fractal/formats/chaos_world | reader and writer (330 lines) in one module | writer appended later | `chaos_writer.py` split out; registry/clipboard import it |
+| 24 | DRY | Low | render/service | `_snapshot` re-listed every RenderStats field | — | `dataclasses.replace` |
+| 25 | DRY | Low | tests | three UI modules built MainWindows and open/wait helpers the same way | — | conftest `main_window_factory`, `open_flame_and_wait`, `wait_for_render` |
+Cycle 4 result: 311 passed ×2 (76 s), pyflakes clean, compileall ok. Regression vs cycle 3: **improved** (pure refactors; tests unchanged in intent).
+
+## Final score & evidence
+| Dimension | Points | Gate | Score | Evidence |
+|---|---|---|---|---|
+| Clean architecture | 40 | 34 | 36 | ViewGeometry / LibraryHost / FileActionsBase / chaos_writer / registry extractions; no module > 330 lines except the variation catalogue; wiring methods ≤ 20 lines |
+| DRY | 30 | 25.5 | 27 | #2, #3, #4, #5, #8, #22–#25 removed every duplicate found; remaining: thin viewport façade over ViewGeometry (deliberate API) |
+| Comments & docs | 20 | 17 | 18 | module docstrings explain *why*; public API docstrings complete (AST sweep: only closures left); no obvious-statement comments |
+| Defensive testing | 10 | 8.5 | 9 | 311 tests; failure paths for clipboard, envelope, XML, camera, zoom box, thumbnails, watcher, mid-write refresh; 2 critical dialog-from-background defects found and fixed |
+| **Total** | 100 | ≥ 90 | **90** | all gates met; zero critical failures open |
+
+Commands: `python -m pytest -q -p no:cacheprovider` (≈ 80 s; GL tests use Mesa/llvmpipe here and skip without OpenGL);
+`python -m pyflakes fractalchemy tests main.py`; `python -m compileall -q fractalchemy main.py tests`. Nothing committed.

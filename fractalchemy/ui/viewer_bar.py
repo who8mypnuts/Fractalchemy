@@ -56,10 +56,26 @@ class ViewerBar(QWidget):
         self.width_box = QSpinBox(self)
         self.height_box = QSpinBox(self)
         self._fit_zoom = 1.0
+        self._zoom = 1.0
         self._build()
         self._connect()
 
     def _build(self) -> None:
+        self._build_zoom_controls()
+        self._build_resolution_controls()
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 2, 6, 2)
+        layout.addWidget(QLabel("Zoom", self))
+        layout.addWidget(self.zoom_box)
+        layout.addWidget(self.fit_button)
+        layout.addStretch(1)
+        layout.addWidget(QLabel("Image size", self))
+        layout.addWidget(self.resolution_box)
+        layout.addWidget(self.width_box)
+        layout.addWidget(self.times)
+        layout.addWidget(self.height_box)
+
+    def _build_zoom_controls(self) -> None:
         self.zoom_box.setEditable(True)
         self.zoom_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.zoom_box.addItem("Fit", None)
@@ -71,6 +87,7 @@ class ViewerBar(QWidget):
         self.fit_button.setToolTip("Show the whole image")
         self.fit_button.setAutoRaise(True)
 
+    def _build_resolution_controls(self) -> None:
         self.resolution_box.addItem("Flame size", FLAME_SIZE)
         for label, w, h in RESOLUTIONS:
             self.resolution_box.addItem(label, (w, h))
@@ -86,18 +103,6 @@ class ViewerBar(QWidget):
         self.times = QLabel("×", self)
         self.times.setVisible(False)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 6, 2)
-        layout.addWidget(QLabel("Zoom", self))
-        layout.addWidget(self.zoom_box)
-        layout.addWidget(self.fit_button)
-        layout.addStretch(1)
-        layout.addWidget(QLabel("Image size", self))
-        layout.addWidget(self.resolution_box)
-        layout.addWidget(self.width_box)
-        layout.addWidget(self.times)
-        layout.addWidget(self.height_box)
-
     def _connect(self) -> None:
         self.zoom_box.activated.connect(self._on_zoom_activated)
         self.zoom_box.lineEdit().editingFinished.connect(self._on_zoom_typed)
@@ -110,6 +115,7 @@ class ViewerBar(QWidget):
     def show_zoom(self, zoom: float, fit_zoom: float) -> None:
         """Reflect the viewport's state (called on every view change)."""
         self._fit_zoom = fit_zoom
+        self._zoom = zoom
         self.zoom_box.blockSignals(True)
         self.zoom_box.setEditText(f"{zoom * 100:.0f} %")
         self.zoom_box.blockSignals(False)
@@ -124,13 +130,9 @@ class ViewerBar(QWidget):
             return
         match = re.search(r"-?\d+(?:[.,]\d+)?", text)
         if match is None:
-            self.show_zoom(self._current_zoom(), self._fit_zoom)
+            self.show_zoom(self._zoom, self._fit_zoom)   # nothing usable typed: restore what is shown
             return
         self.zoom_requested.emit(float(match.group().replace(",", ".")) / 100.0)
-
-    def _current_zoom(self) -> float:
-        match = re.search(r"\d+(?:[.,]\d+)?", self.zoom_box.currentText())
-        return float(match.group().replace(",", ".")) / 100.0 if match else self._fit_zoom
 
     # --- resolution -----------------------------------------------------------------
     def show_flame(self, flame: Flame | None) -> None:
@@ -139,6 +141,7 @@ class ViewerBar(QWidget):
         self.resolution_box.setItemText(0, label)
 
     def current_resolution(self) -> tuple[int, int] | None:
+        """The chosen (width, height), or None for the flame's own size."""
         data = self.resolution_box.currentData()
         if data == FLAME_SIZE:
             return None

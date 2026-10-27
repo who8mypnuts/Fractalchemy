@@ -181,7 +181,7 @@ fractalchemy/
   config.py             tunables: app name/version, node counts, simplify tolerance, sizes, preview quality
   settings.py           QSettings identity + one-time migration of HueClid settings
   fractal/              the shared scene: Flame / XForm / Camera / Coloring, the variation registry (numpy + GLSL),
-                        formats/ (.flame XML, .chaos, .fa)
+                        formats/ (registry + .flame XML, .chaos reader/writer, .fa, clipboard text)
   render/               RenderSettings / RenderStats, CompiledFlame, tone map (numpy + GLSL), cpu_engine, codegen +
                         gpu_engine (moderngl), RenderService (worker thread, priorities, cancellation)
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
@@ -190,10 +190,11 @@ fractalchemy/
                         model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
   widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons
-  ui/                   .ui loader, background tasks, MainWindow, FractalDocument, FractalViewport (image framing,
-                        view vs. camera pan/zoom), ViewerBar (zoom + image size), SettingsPanel, FractalLibraryPanel,
-                        ThumbnailProvider, RenderStatus (status bar), GradientLink, and the gradient side:
-                        GradientDocument, file actions, GradientLibraryWindow
+  ui/                   .ui loader, background tasks, MainWindow, FractalDocument (undo history), FractalViewport +
+                        ViewGeometry (image framing, view vs. camera pan/zoom), ViewerBar, SettingsPanel,
+                        FractalLibraryPanel, ThumbnailProvider, RenderStatus, GradientLink, LibraryHost (shared
+                        library-pane wiring), FileActionsBase + the fractal / gradient file actions,
+                        GradientDocument, GradientLibraryWindow
 tests/                  pytest suite
 samples/                sample flames / gradients / images used by the tests, plus
 samples/aposource/      the Apophysis 7x source and plugin code, kept for reference (not scanned by the tests)

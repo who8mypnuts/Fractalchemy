@@ -1,34 +1,25 @@
 """Viewer controls: view zoom/pan, composition (Ctrl) pan/zoom, output resolution, render settings, status bar."""
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, QSettings, Qt
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSettings, Qt
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
 
 from fractalchemy.fractal import Camera
 from fractalchemy.fractal.formats import load_flame
-from fractalchemy.library.roots import LibraryRoots
 from fractalchemy.ui.fractal_viewport import MAX_ZOOM
-from fractalchemy.ui.main_window import MainWindow
 from fractalchemy.ui.settings_panel import PASSES_KEY, QUALITY_KEY
 from fractalchemy.ui.viewer_bar import RESOLUTIONS
 from tests.conftest import spin
 
 
 @pytest.fixture
-def window(qapp, tmp_path, samples):
-    settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
-    win = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key="fractal_library/roots"), prefer_gpu=False,
-                     settings=settings)
-    win.resize(1000, 640)
-    win.show()
+def window(main_window_factory, samples):
+    win = main_window_factory(size=(1000, 640))
     spin(50)
     win.show_flame(load_flame(samples / "sample flames" / "candy.flame", 0))   # 3840×2160
     spin(50)
-    yield win
-    win.gradient_library.document.modified = False
-    win.document.undo_stack.setClean()   # never prompt on teardown
-    win.close()
+    return win
 
 
 def wheel(widget, pos: QPointF, notches: float, modifiers=Qt.KeyboardModifier.NoModifier) -> None:
@@ -194,3 +185,55 @@ def test_status_bar_widgets_never_overlap(window):
     assert status.render.text().startswith("GPU  ·  1920×1080") and "Pass 3 of 6" in status.passes.text()
     assert status.render.width() >= status.render.fontMetrics().horizontalAdvance(status.render.text())
     assert status.progress.geometry().right() <= window.statusBar().width()
+
+
+# --- ViewGeometry (no window needed) ---------------------------------------------------------------
+def test_view_geometry_fits_centres_and_clamps():
+    from fractalchemy.ui.view_geometry import ViewGeometry
+
+    view = ViewGeometry(image_size=(400, 300), widget_size=(200, 200))
+    assert view.is_fit and view.fit_zoom() == 0.5 and view.image_rect.width() == 200 and view.image_rect.y() == 25  # 150 tall, centred
+    view.set_zoom(1.0, QPointF(0, 0))                    # image pixel (0, 0) was at the top-left corner of the rect
+    assert view.zoom() == 1.0 and view.image_rect.width() == 200 and not view.is_fit
+    view.pan(QPointF(10_000, 10_000))                    # cannot drag the image away from the widget
+    assert view.offset == QPointF(0, 0)
+    view.pan(QPointF(-10_000, -10_000))
+    assert view.offset == QPointF(-200, -100)            # right/bottom edges of the image stay at the widget's edges
+    view.set_zoom(0.01)
+    assert view.zoom() == view.fit_zoom()
+    view.set_zoom(99)
+    assert view.zoom() == MAX_ZOOM
+    view.set_image_size((50, 50))
+    assert view.is_fit and view.fit_zoom() == MAX_ZOOM and view.image_rect.width() == 150   # tiny images: never past 300 %
+    view.set_widget_size(0, 0)
+    assert view.widget_size == (1, 1) and view.fit_zoom() > 0
+
+
+def test_view_geometry_maps_screen_image_and_regions_consistently():
+    from fractalchemy.ui.view_geometry import ViewGeometry
+
+    view = ViewGeometry(image_size=(1000, 500), widget_size=(300, 200))
+    view.set_zoom(2.0, QPointF(150, 100))
+    for pos in (QPointF(0, 0), QPointF(150, 100), QPointF(299, 199)):
+        image = view.screen_to_image(pos)
+        back = view.image_to_screen(QRectF(image.x(), image.y(), 1, 1))
+        assert back.x() == pytest.approx(pos.x()) and back.y() == pytest.approx(pos.y())
+    region = view.visible_region()
+    assert region.width() == pytest.approx(150) and region.height() == pytest.approx(100)
+    assert view.image_to_screen(region).toAlignedRect() == view.image_rect
+
+
+def test_zoom_box_ignores_garbage_and_keeps_the_current_value(window):
+    bar, view = window.viewerBar, window.viewport
+    view.set_zoom(1.5)
+    for text in ("abc", "", "%", "fit "):
+        bar.zoom_box.setEditText(text)
+        bar.zoom_box.lineEdit().editingFinished.emit()
+        if text.strip() == "fit":
+            assert view.is_fit
+        else:
+            assert view.zoom() == pytest.approx(1.5) and bar.zoom_box.currentText() == "150 %"
+        view.set_zoom(1.5)
+    bar.zoom_box.setEditText("-50")
+    bar.zoom_box.lineEdit().editingFinished.emit()
+    assert view.zoom() == pytest.approx(view.fit_zoom())            # negative → clamped to the minimum

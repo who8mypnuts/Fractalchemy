@@ -34,6 +34,7 @@ class RenderSettings:
 
     @property
     def samples_per_pass(self) -> int:
+        """Samples per progressive pass."""
         return max(1, self.samples_total // max(1, self.passes))
 
     def scaled(self, factor: float) -> "RenderSettings":
@@ -41,9 +42,11 @@ class RenderSettings:
         return replace(self, width=max(1, int(self.width * factor)), height=max(1, int(self.height * factor)))
 
     def with_size(self, width: int, height: int) -> "RenderSettings":
+        """Same render at another output size."""
         return replace(self, width=max(1, width), height=max(1, height))
 
     def with_effort(self, passes: int, quality: float) -> "RenderSettings":
+        """Same render with another pass count / quality (clamped to sane minimums)."""
         return replace(self, passes=max(1, int(passes)), quality=max(0.01, float(quality)))
 
 
@@ -72,8 +75,10 @@ class RenderStats:
 
     @property
     def samples_per_second(self) -> float:
+        """Throughput so far (0 before any time was spent)."""
         return self.samples / self.seconds if self.seconds > 0 else 0.0
 
     @property
     def finished(self) -> bool:
+        """True once every pass has been delivered."""
         return self.passes_total > 0 and self.passes_done >= self.passes_total

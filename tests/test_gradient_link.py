@@ -3,19 +3,16 @@
 import shutil
 
 import pytest
-from PySide6.QtCore import QSettings, QSize
+from PySide6.QtCore import QSize
 from PySide6.QtGui import QImage, QColor
 from PySide6.QtWidgets import QMessageBox
 
 from fractalchemy.formats import entry_names, format_for, load_gradients, save_gradient
 from fractalchemy.fractal.formats import fa, load_flame, load_flames
-from fractalchemy.library.catalog import FRACTAL_CATALOG
-from fractalchemy.library.roots import LibraryRoots
 from fractalchemy.model import Gradient
 from fractalchemy.model.adjust import Adjustments
-from fractalchemy.ui.main_window import MainWindow
 from fractalchemy.widgets.fractal_preview import FractalPreview
-from tests.conftest import spin, wait_until
+from tests.conftest import open_flame_and_wait, spin, wait_for_render, wait_until
 
 
 @pytest.fixture
@@ -26,27 +23,12 @@ def workdir(samples, tmp_path):
 
 
 @pytest.fixture
-def window(qapp, workdir):
-    settings = QSettings(str(workdir / "s.ini"), QSettings.Format.IniFormat)
-    roots = LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key)
-    roots.add(workdir)
-    win = MainWindow(LibraryRoots(settings), roots, prefer_gpu=False, settings=settings)
-    win.resize(520, 400)
-    win.show()
-    yield win
-    win.gradient_library.document.modified = False
-    win.document.undo_stack.setClean()   # never prompt on teardown
-    win.close()
+def window(main_window_factory, workdir):
+    return main_window_factory(workdir, size=(520, 400))
 
 
 def open_and_wait(win, path, index):
-    win.open_path(path, index)
-    wait_until(lambda: win.document.is_showing(path, index) and win.gradient_library.document.is_showing(path, index))
-
-
-def wait_for_render(win, timeout_ms=60000):
-    wait_until(lambda: win.viewport.stats is not None and win.viewport.stats.finished
-               and win.viewport.stats.width == win.viewport.image_rect.width(), timeout_ms=timeout_ms)
+    open_flame_and_wait(win, path, index, gradient_too=True)
 
 
 # --- fractal → gradient ----------------------------------------------------------

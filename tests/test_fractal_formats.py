@@ -146,3 +146,54 @@ def test_fractal_catalog_scans_only_fractal_files(samples):
     gradients = scan_directory(samples / "sample gradients", FRACTAL_CATALOG)
     assert gradients.files == []
     assert FRACTAL_CATALOG.roots_key == "fractal_library/roots" != FRACTAL_CATALOG.key + "x"
+
+
+# --- failure paths ----------------------------------------------------------------------------
+def test_from_dict_rejects_malformed_data_instead_of_deferring_the_crash():
+    with pytest.raises(ValueError, match="six numbers"):
+        Flame.from_dict({"xforms": [{"coefs": "abc"}]})
+    with pytest.raises(ValueError, match="chaos"):
+        Flame.from_dict({"xforms": [{"chaos": ["a"]}]})
+    with pytest.raises(ValueError, match="hex"):
+        Flame.from_dict({"palette": ["zzzzzz"]})
+    with pytest.raises(ValueError, match="mapping"):
+        Flame.from_dict(["not", "a", "dict"])
+    with pytest.raises(ValueError, match="mapping"):
+        Flame.from_dict({"xforms": [3]})
+    ok = Flame.from_dict({"xforms": [{"coefs": [1, 0, 0, 1, 0, 0], "weight": "2"}]})   # numeric strings are fine
+    assert ok.xforms[0].weight == 2.0
+
+
+def test_malformed_xml_text_is_a_parse_error_not_a_crash():
+    from fractalchemy.fractal.formats.chaos_world import ChaosParseError, parse_text as parse_chaos
+    from fractalchemy.fractal.formats.flame_xml import FlameParseError
+
+    with pytest.raises(FlameParseError):
+        parse_text('<flame name="x"><xform weight="1"/>')
+    with pytest.raises(ChaosParseError):
+        parse_chaos("<world><IFS")
+    assert parse_text("<Flames></Flames>") == [] and parse_chaos("<world/>") == []
+
+
+def test_degenerate_cameras_do_not_divide_by_zero():
+    camera = Camera(scale=0, width=0, height=0)
+    assert camera.pixels_per_unit(100, 100) > 0
+    x, y = camera.unproject(10, 10, 100, 100)
+    assert math.isfinite(x) and math.isfinite(y)
+    assert camera.at_size(0, 0).width == 1 and camera.at_size(0, 0).pixels_per_unit(1, 1) > 0
+
+
+def test_fa_document_envelope_validation(tmp_path):
+    from fractalchemy.formats.fa_document import FaDocumentError, is_document, read_document, require_entry
+
+    assert is_document({"format": "fractalchemy", "flames": [{}]})
+    assert not is_document({"format": "fractalchemy", "flames": [1]})
+    assert not is_document({"format": "other", "flames": []}) and not is_document([])
+    bad = tmp_path / "bad.fa"
+    bad.write_text('{"format": "fractalchemy", "flames": [1]}')
+    with pytest.raises(FaDocumentError):
+        read_document(bad)
+    with pytest.raises(FaDocumentError):
+        read_document(tmp_path / "missing.fa")
+    with pytest.raises(IndexError):
+        require_entry({"flames": []}, 0, bad)

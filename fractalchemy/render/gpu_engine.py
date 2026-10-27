@@ -36,7 +36,7 @@ def gpu_available() -> tuple[bool, str]:
     global _probe_result
     if _probe_result is None:
         try:
-            ctx = _create_context()
+            ctx = create_context()
             _probe_result = (True, ctx.info.get("GL_RENDERER", "OpenGL"))
             ctx.release()
         except Exception as exc:  # noqa: BLE001 - any failure means "no GPU path"
@@ -44,7 +44,12 @@ def gpu_available() -> tuple[bool, str]:
     return _probe_result
 
 
-def _create_context():
+def create_context():
+    """A standalone OpenGL 3.3 context: the platform default, else headless EGL.
+
+    Raises:
+        Exception: Whatever moderngl raises when neither backend works.
+    """
     import moderngl
     try:
         return moderngl.create_standalone_context(require=330)
@@ -59,7 +64,7 @@ class GpuEngine:
     def __init__(self):
         import moderngl
         self.gl = moderngl
-        self.ctx = _create_context()
+        self.ctx = create_context()
         self.renderer = self.ctx.info.get("GL_RENDERER", "OpenGL")
         self.ctx.enable(moderngl.PROGRAM_POINT_SIZE)
         self._tonemap = self.ctx.program(vertex_shader=FULLSCREEN_VERTEX_GLSL, fragment_shader=TONEMAP_GLSL)

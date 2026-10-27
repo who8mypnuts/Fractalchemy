@@ -3,21 +3,20 @@
 import shutil
 
 import pytest
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QMessageBox
 
 from fractalchemy.fractal.formats import fa, flame_names, load_flame, load_flames
-from fractalchemy.fractal.formats.chaos_world import flames_to_world, parse_text as parse_chaos
+from fractalchemy.fractal.formats.chaos_world import parse_text as parse_chaos
+from fractalchemy.fractal.formats.chaos_writer import flames_to_world
 from fractalchemy.fractal.formats.clipboard import ClipboardError, detect_format, flame_to_text, text_to_flames
 from fractalchemy.library.items import Kind
 from fractalchemy.library.model import ITEM_ROLE
-from fractalchemy.library.roots import LibraryRoots
 from fractalchemy.model import Gradient
-from fractalchemy.ui import fractal_file_actions
+from fractalchemy.ui import file_actions_base, fractal_file_actions
 from fractalchemy.ui.fractal_document import FractalDocument
-from fractalchemy.ui.main_window import MainWindow
-from tests.conftest import spin, wait_until
+from tests.conftest import open_flame_and_wait, spin, wait_until
 
 
 @pytest.fixture
@@ -31,24 +30,12 @@ def workdir(samples, tmp_path):
 
 
 @pytest.fixture
-def window(qapp, workdir):
-    settings = QSettings(str(workdir / "s.ini"), QSettings.Format.IniFormat)
-    roots = LibraryRoots(settings, key="fractal_library/roots")
-    roots.add(workdir / "lib")
-    win = MainWindow(LibraryRoots(settings), roots, prefer_gpu=False, settings=settings)
-    win.resize(640, 420)
-    win.show()
-    win.settingsPanel.set_values(1, 1.0)   # keep renders cheap
-    wait_until(lambda: win.fractalLibraryPanel.model.rowCount() == 1 and not win.fractal_library._pending)
-    yield win
-    win.gradient_library.document.modified = False
-    win.document.undo_stack.setClean()   # never prompt on teardown
-    win.close()
+def window(main_window_factory, workdir):
+    return main_window_factory(workdir / "lib", cheap_renders=True)
 
 
 def open_and_wait(win, path, index=0, announce=False):
-    win.files.open_path(path, index, announce=announce)
-    wait_until(lambda: win.document.is_showing(path, index))
+    open_flame_and_wait(win, path, index, announce=announce)
 
 
 # --- undo / redo -------------------------------------------------------------------------
@@ -185,7 +172,7 @@ def test_several_fractals_collect_in_one_fa_file(window, workdir, monkeypatch):
     assert window.actionSaveAsNewEntry.isEnabled()
     # Add to This File: the edited flame joins its own file under a new name and becomes that entry
     window.document.set_view(zoom=1.0)
-    monkeypatch.setattr(fractal_file_actions.QInputDialog, "getText", lambda *a, **k: ("original, zoomed", True))
+    monkeypatch.setattr(file_actions_base.QInputDialog, "getText", lambda *a, **k: ("original, zoomed", True))
     window.actionSaveAsNewEntry.trigger()
     wait_until(lambda: window.document.source_index == 1 and not window.document.modified)
     assert flame_names(collection) == ["original", "original, zoomed"]
@@ -194,7 +181,7 @@ def test_several_fractals_collect_in_one_fa_file(window, workdir, monkeypatch):
     # Add to Another File: a flame from a different file joins the collection too
     open_and_wait(window, workdir / "candy.flame", 3)
     monkeypatch.setattr(fractal_file_actions.QFileDialog, "getOpenFileName", lambda *a, **k: (str(collection), ""))
-    monkeypatch.setattr(fractal_file_actions.QInputDialog, "getText", lambda *a, **k: ("pearl in collection", True))
+    monkeypatch.setattr(file_actions_base.QInputDialog, "getText", lambda *a, **k: ("pearl in collection", True))
     window.actionSaveAsIntoFile.trigger()
     wait_until(lambda: window.document.source_path == collection and window.document.source_index == 2)
     assert flame_names(collection) == ["original", "original, zoomed", "pearl in collection"]
@@ -210,7 +197,7 @@ def test_several_fractals_collect_in_one_fa_file(window, workdir, monkeypatch):
     assert asked == [1]
     # a cancelled name prompt starts no write
     open_and_wait(window, collection, 0)
-    monkeypatch.setattr(fractal_file_actions.QInputDialog, "getText", lambda *a, **k: ("", False))
+    monkeypatch.setattr(file_actions_base.QInputDialog, "getText", lambda *a, **k: ("", False))
     assert not window.files.save_as_new_entry() and len(flame_names(collection)) == 3
 
 
@@ -303,3 +290,34 @@ def test_new_file_is_suggested_as_fa_date_counter(window, workdir, monkeypatch):
     monkeypatch.setattr(fractal_file_actions.QFileDialog, "getSaveFileName", lambda parent, title, start, *a, **k: offered.append(start) or ("", ""))
     window.files.save_as_new_file()
     assert offered[0].startswith(str(workdir / f"FA-{date.today():%y%m%d}-")) and offered[0].endswith(".fa")
+
+
+def test_opened_file_refresh_never_raises_a_dialog(window, workdir, monkeypatch):
+    """A watcher event can catch the file mid-write: the section must cope quietly, not pop a modal box."""
+    model = window.fractal_library.model
+    path = workdir / "two.fa"
+    open_and_wait(window, path, 0, announce=True)
+    wait_until(lambda: model.opened_file() == path.resolve())
+    boxes = []
+    for module in ("library_host", "file_actions_base"):
+        monkeypatch.setattr(f"fractalchemy.ui.{module}.QMessageBox.warning", lambda *a, **k: boxes.append(a))
+    messages = []
+    window.fractal_library.status.connect(messages.append)
+    path.write_text("{ not json")                      # half-written file
+    window.fractal_library.refresh_opened_file()
+    wait_until(lambda: any("Could not re-read" in m for m in messages))
+    assert model.opened_file() == path.resolve() and model.item(0).rowCount() == 2 and not boxes   # section kept
+    path.write_text('{"format": "fractalchemy", "version": 1, "flames": []}')
+    window.fractal_library.refresh_opened_file()
+    wait_until(lambda: model.opened_file() is None)
+    assert not boxes and any("holds no fractals" in m for m in messages)
+
+
+def test_paste_copes_with_every_kind_of_bad_clipboard_text(window):
+    warnings = []
+    window.files._fail = lambda title, exc, quiet=False: warnings.append(str(exc))
+    for text in ("", "hello", '{"format": "fractalchemy", "flames": [1]}', '{"format": "fractalchemy", "flames": [{"xforms": [{"coefs": 1}]}]}',
+                 '<flame name="x"><xform weight="1"/>', "<world><IFS", '{"format": "fractalchemy", "flames": []}'):
+        QGuiApplication.clipboard().setText(text)
+        assert not window.files.paste(), text
+    assert len(warnings) == 6 and window.document.flame is None     # the empty-list document is simply nothing to paste

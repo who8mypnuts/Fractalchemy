@@ -68,12 +68,14 @@ class RenderStatus:
         self.fractal.setToolTip(self.fractal.text())
 
     def set_engine(self, name: str) -> None:
+        """Remember which engine renders (shown until the first pass reports facts)."""
         self.engine_name = name
         self.render.setToolTip(name)
         if not self.render.text():
             self.render.setText(name.split(" (")[0] if name.startswith(("GPU", "CPU")) else name)
 
     def show_idle(self) -> None:
+        """No render in progress: clear the pass counter and progress bar."""
         self.passes.setText("")
         self.progress.setRange(0, 1)
         self.progress.setValue(0)

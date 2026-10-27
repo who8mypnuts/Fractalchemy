@@ -10,11 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QWidget
+from PySide6.QtWidgets import QMainWindow, QWidget
 
-from ..library.context_menu import LibraryContextMenu
 from ..library.controller import LibraryController
-from ..library.dialog import EditLibraryDialog
 from ..library.items import LibraryItem
 from ..library.panel import LibraryPanel
 from ..library.roots import LibraryRoots
@@ -28,10 +26,10 @@ from ..widgets.node_panel import NodePanel
 from ..widgets.whole_gradient_panel import WholeGradientPanel
 from .document import GradientDocument
 from .file_actions import FileActions
+from .library_host import LibraryHost
 from .loader import load_ui
 
 WINDOW_TITLE = "Gradient Library"
-SCANNING_MESSAGE = "Scanning library…"
 UI_FILE = Path(__file__).resolve().parents[2] / "ui" / "gradient_library_window.ui"
 CUSTOM_WIDGETS = {
     "FractalPreview": FractalPreview,
@@ -64,7 +62,7 @@ class GradientLibraryWindow(QMainWindow):
         self.nodePanel.bind(self.document)
         self.files = FileActions(self.document, self)
         self.library = LibraryController(self.libraryPanel.model, roots or LibraryRoots(parent=self), self)
-        self.library_menu = LibraryContextMenu(self.library, self.open_item, self)
+        self.library_host = LibraryHost(self.libraryPanel, self.library, self, self.open_item)
         self._connect_actions()
         self._connect_document()
         self._connect_browser()
@@ -80,7 +78,7 @@ class GradientLibraryWindow(QMainWindow):
         self.actionSaveAsNewFile.triggered.connect(self.files.save_as_new_file)
         self.actionSaveAsIntoFile.triggered.connect(self.files.save_as_into_file)
         self.actionClose.triggered.connect(self.close)
-        self.actionEditLibrary.triggered.connect(self.edit_library)
+        self.actionEditLibrary.triggered.connect(self.library_host.edit)
         self.actionToggleLibrary.toggled.connect(lambda shown: self.splitter.set_collapsed(not shown))
         self.actionRefreshLibrary.triggered.connect(self.library.rescan_all)
         self.btnOpen.clicked.connect(self.files.open)
@@ -108,15 +106,7 @@ class GradientLibraryWindow(QMainWindow):
         browser.entry_chosen.connect(self.files.show_entry)
 
     def _connect_library(self) -> None:
-        panel = self.libraryPanel
-        panel.add_requested.connect(self.add_library_folder)
-        panel.edit_requested.connect(self.edit_library)
-        panel.item_chosen.connect(self.open_item)
-        panel.menu_requested.connect(lambda item, pos: self.library_menu.show(item, panel.tree.selected_items(), pos))
-        self.library.status.connect(self.statusBar().showMessage)
-        self.library.failed.connect(self._report_library_error)
         self.library.file_changed_externally.connect(self._on_external_change)
-        self.library.scanning.connect(self._show_scanning)
 
     # --- window management --------------------------------------------------
     def show_fractal_image(self, image) -> None:
@@ -138,30 +128,14 @@ class GradientLibraryWindow(QMainWindow):
         if self.files.confirm_discard():
             self.files.open_path(item.path, item.index)
 
-    def add_library_folder(self) -> None:
-        """Prompt for a folder and add it to the library."""
-        folder = QFileDialog.getExistingDirectory(self, "Add folder to library")
-        if folder and not self.library.roots.add(Path(folder)):
-            self.statusBar().showMessage("That folder is already in the library")
-
     def edit_library(self) -> None:
-        """Open the modal Edit Library dialog."""
-        EditLibraryDialog(self.library, self.add_library_folder, self).exec()
-
-    def _show_scanning(self, busy: bool) -> None:
-        if busy:
-            self.statusBar().showMessage(SCANNING_MESSAGE)
-        elif self.statusBar().currentMessage() == SCANNING_MESSAGE:
-            self.statusBar().clearMessage()
+        """Open the modal Edit Library dialog (kept for the main window's menu)."""
+        self.library_host.edit()
 
     def _on_external_change(self, path: Path) -> None:
         """Reload the open file if another program changed it and we have no unsaved edits."""
         if path == self.document.source_path and not self.document.modified and not self.files.wrote_recently(path):
-            self.files.open_path(path, self.document.source_index)
-
-    def _report_library_error(self, message: str) -> None:
-        self.statusBar().showMessage(message)
-        QMessageBox.warning(self, "Library", message)
+            self.files.open_path(path, self.document.source_index, quiet=True)
 
     # --- presentation -------------------------------------------------------
     def _refresh_header(self) -> None:

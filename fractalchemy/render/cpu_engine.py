@@ -27,6 +27,7 @@ RESET_LIMIT = 1e10            # |x| beyond this (or NaN) re-seeds the point
 
 
 def thread_count() -> int:
+    """Worker threads to use: the configured number, else one per core."""
     return config.CPU_RENDER_THREADS or max(1, os.cpu_count() or 1)
 
 
@@ -107,6 +108,7 @@ class _Worker:
         self.opacities = np.array([x.opacity for x in compiled.xforms])
 
     def fuse(self, iterations: int) -> None:
+        """Warm-up iterations that are not plotted (the population converges onto the attractor)."""
         for _ in range(iterations):
             self._step()
 

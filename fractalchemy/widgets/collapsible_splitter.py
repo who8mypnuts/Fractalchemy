@@ -103,9 +103,11 @@ class CollapsibleSplitter(QSplitter):
 
     # --- last pane (three-pane layouts) -----------------------------------------
     def has_last_pane(self) -> bool:
+        """True with three panes (the last one can collapse too)."""
         return self.count() >= 3
 
     def set_last_width(self, width: int) -> None:
+        """Width the last pane opens at (applied on show, or immediately if already expanded)."""
         self._last_pane_width = max(1, width)
         if self._initialised and self.has_last_pane() and not self.is_last_collapsed():
             self._apply_sizes(last=self._last_pane_width)
@@ -116,6 +118,7 @@ class CollapsibleSplitter(QSplitter):
         return self.has_last_pane() and sizes[-1] == 0
 
     def set_last_collapsed(self, collapsed: bool) -> None:
+        """Collapse the last pane to zero width, or restore its last width (no-op with two panes)."""
         if not self.has_last_pane() or collapsed == self.is_last_collapsed():
             return
         if collapsed:
@@ -124,6 +127,7 @@ class CollapsibleSplitter(QSplitter):
         self._sync()
 
     def toggle_last(self) -> None:
+        """Collapse the last pane if expanded, expand it if collapsed."""
         self.set_last_collapsed(not self.is_last_collapsed())
 
     # --- internals -------------------------------------------------------------
