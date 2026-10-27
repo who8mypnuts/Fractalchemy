@@ -5,10 +5,9 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QMessageBox, QToolButton
 
 from fractalchemy import config
-from fractalchemy.library.roots import KEY as ROOTS_KEY, LibraryRoots
+from fractalchemy.library.roots import LibraryRoots
 from fractalchemy.model import Gradient
 from fractalchemy.fractal.formats import load_flame
-from fractalchemy.settings import migrate_legacy_settings
 from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
 from fractalchemy.ui.main_window import MainWindow
 from tests.conftest import spin, wait_until
@@ -147,25 +146,6 @@ def test_quitting_with_unsaved_edits_asks_first(window, monkeypatch):
     assert window.close()
     spin(50)
     assert not window.isVisible() and not library.isVisible()
-
-
-# --- settings migration -------------------------------------------------------
-def test_legacy_hueclid_settings_are_migrated_once(tmp_path):
-    old = QSettings(str(tmp_path / "hueclid.ini"), QSettings.Format.IniFormat)
-    new = QSettings(str(tmp_path / "fractalchemy.ini"), QSettings.Format.IniFormat)
-    old.setValue(ROOTS_KEY, [str(tmp_path)])
-    assert migrate_legacy_settings(old, new) == [ROOTS_KEY]
-    assert LibraryRoots(new).paths() == [tmp_path.resolve()]
-    new.setValue(ROOTS_KEY, [])
-    assert migrate_legacy_settings(old, new) == []  # the user's newer value wins
-    assert LibraryRoots(new).paths() == []
-
-
-def test_migration_is_a_no_op_without_legacy_settings(tmp_path):
-    old = QSettings(str(tmp_path / "hueclid.ini"), QSettings.Format.IniFormat)
-    new = QSettings(str(tmp_path / "fractalchemy.ini"), QSettings.Format.IniFormat)
-    assert migrate_legacy_settings(old, new) == []
-    assert not new.contains(ROOTS_KEY)
 
 
 # --- fractal library, viewport and status bar ----------------------------------

@@ -2,7 +2,6 @@
 A fractal flame viewer and gradient editor growing into a full fractal editor. Today it browses libraries of
 Apophysis / Chaotica / Fractalchemy fractals, renders them progressively in a GPU-accelerated viewport (with a
 multithreaded CPU fallback), and edits, saves and converts gradients for a variety of fractal programs.
-(Fractalchemy was previously called HueClid; the library folders saved under that name are picked up automatically on first run.)
 
 ## Running
 
@@ -356,7 +355,7 @@ ui/gradient_library_window.ui
 docs/rendering.md       the dual-engine rendering design
 fractalchemy/
   config.py             tunables: app name/version, node counts, simplify tolerance, sizes, preview quality
-  settings.py           QSettings identity + one-time migration of HueClid settings
+  settings.py           QSettings identity
   animation/            keyframed animations: model (Animation / Keyframe), interpolate (alignment + blending),
                         format (.faanim), render (AnimationRenderSettings, frame names, the ffmpeg command),
                         render_job (the batch thread: one sampler for every frame, then ffmpeg)

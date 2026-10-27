@@ -2,7 +2,6 @@
 
 APP_NAME = "Fractalchemy"
 APP_VERSION = "0.1"
-LEGACY_APP_NAME = "HueClid"     # settings written under this name are migrated on first run
 
 # --- Import behaviour -------------------------------------------------------
 # Max per-channel deviation (0-255) allowed when dropping redundant stops on
