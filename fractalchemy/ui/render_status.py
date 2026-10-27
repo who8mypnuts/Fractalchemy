@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QFrame, QLabel, QProgressBar, QSizePolicy, QStatus
 
 from ..fractal.scene import Flame
 from ..render.settings import RenderStats
+from ..render.units import format_count
 
 RENDER_SAMPLE_TEXT = "GPU  ·  3840×2160  ·  999.9 M samples  ·  999.9 M/s"
 PASSES_SAMPLE_TEXT = "Refining  ·  q 20000"
@@ -81,9 +82,9 @@ class RenderStatus:
 
     def show_progress(self, stats: RenderStats) -> None:
         """Update after a pass: engine, samples, speed, pass counter and the bar."""
-        facts = [stats.engine.split(" (")[0], f"{stats.width}×{stats.height}", _count(stats.samples) + " samples"]
+        facts = [stats.engine.split(" (")[0], f"{stats.width}×{stats.height}", format_count(stats.samples) + " samples"]
         if stats.seconds > 0:
-            facts.append(f"{_count(stats.samples_per_second)}/s")
+            facts.append(f"{format_count(stats.samples_per_second)}/s")
         self.render.setText("  ·  ".join(facts))
         self.render.setToolTip(stats.engine + ("\n" + "\n".join(stats.notes) if stats.notes else ""))
         quality = f"q {stats.quality:.0f}" if stats.quality >= 10 else f"q {stats.quality:.1f}"
@@ -109,13 +110,3 @@ def _separator(parent) -> QFrame:
     line.setFrameShape(QFrame.Shape.VLine)
     line.setFrameShadow(QFrame.Shadow.Sunken)
     return line
-
-
-def _count(value: float) -> str:
-    if value >= 1e9:
-        return f"{value / 1e9:.2f} G"
-    if value >= 1e6:
-        return f"{value / 1e6:.1f} M"
-    if value >= 1e3:
-        return f"{value / 1e3:.0f} k"
-    return f"{value:.0f}"

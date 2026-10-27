@@ -19,6 +19,7 @@ class FractalDocument(QObject):
 
     Signals:
         flame_replaced(): A different flame was loaded.
+        flame_renamed(): The flame took the name it was saved under.
         camera_changed(): The view (center / zoom / rotation / 3D camera) of the current flame changed.
         palette_changed(): The flame's colours changed (e.g. edited in the Gradient Library).
         coloring_changed(): Brightness / gamma / threshold / vibrancy / background changed.
@@ -28,6 +29,7 @@ class FractalDocument(QObject):
         undo_changed(bool, bool): (can undo, can redo).
     """
     flame_replaced = Signal()
+    flame_renamed = Signal()
     camera_changed = Signal()
     palette_changed = Signal()
     coloring_changed = Signal()

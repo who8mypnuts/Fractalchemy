@@ -53,6 +53,83 @@ GLYPH_COLOR = QColor("#3b3b3b")
 GLYPH_ACCENT = QColor("#1e88e5")
 
 
+def render_icon() -> QIcon:
+    """A framed picture (sun over hills) with a green 'go' badge — the Render Image glyph."""
+    icon = QIcon()
+    for size in ICON_SIZES:
+        icon.addPixmap(_render_pixmap(size))
+    return icon
+
+
+def _render_pixmap(size: int) -> QPixmap:
+    from PySide6.QtGui import QPolygonF
+
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    u = size / 16.0
+    frame = QRectF(1.5 * u, 2 * u, 13 * u, 11 * u)
+    sky = QLinearGradient(frame.topLeft(), frame.bottomLeft())
+    sky.setColorAt(0.0, QColor("#1e3a8a"))
+    sky.setColorAt(1.0, QColor("#60a5fa"))
+    painter.setBrush(sky)
+    painter.setPen(QPen(QColor(40, 40, 40), max(1.0, 0.9 * u)))
+    painter.drawRoundedRect(frame, u, u)
+    painter.setClipRect(frame.adjusted(0.5 * u, 0.5 * u, -0.5 * u, -0.5 * u))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#fbbf24"))
+    painter.drawEllipse(QPointF(5 * u, 5.5 * u), 1.8 * u, 1.8 * u)
+    painter.setBrush(QColor("#166534"))
+    painter.drawPolygon(QPolygonF([QPointF(1.5 * u, 13 * u), QPointF(6 * u, 7.5 * u), QPointF(10 * u, 13 * u)]))
+    painter.setBrush(QColor("#22c55e"))
+    painter.drawPolygon(QPolygonF([QPointF(7 * u, 13 * u), QPointF(11 * u, 8.5 * u), QPointF(15 * u, 13 * u)]))
+    painter.setClipping(False)
+    badge = QPointF(12 * u, 12 * u)
+    painter.setBrush(QColor("#15803d"))
+    painter.setPen(QPen(QColor(255, 255, 255), max(1.0, 0.8 * u)))
+    painter.drawEllipse(badge, 3.2 * u, 3.2 * u)
+    painter.setBrush(QColor(255, 255, 255))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawPolygon(QPolygonF([QPointF(10.9 * u, 10.2 * u), QPointF(10.9 * u, 13.8 * u), QPointF(14 * u, 12 * u)]))
+    painter.end()
+    return pixmap
+
+
+def link_icon(linked: bool) -> QIcon:
+    """Two chain links: joined and bold blue when the aspect ratio is locked, broken and faint when free.
+
+    The colours carry the state on their own, because a checked tool button's highlight differs
+    between platform styles (and can swallow a plain dark glyph).
+    """
+    icon = QIcon()
+    for size in ICON_SIZES:
+        icon.addPixmap(_link_pixmap(size, linked))
+    return icon
+
+
+def _link_pixmap(size: int, linked: bool) -> QPixmap:
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    u = size / 16.0
+    pen = QPen(QColor("#1e6fd9") if linked else QColor(165, 165, 165), max(1.0, (2.0 if linked else 1.4) * u))
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    gap = 0.0 if linked else 1.6 * u
+    painter.drawRoundedRect(QRectF(3 * u, 2 * u - gap, 5 * u, 7 * u), 2.5 * u, 2.5 * u)
+    painter.drawRoundedRect(QRectF(8 * u, 7 * u + gap, 5 * u, 7 * u), 2.5 * u, 2.5 * u)
+    if linked:
+        painter.drawLine(QPointF(6.5 * u, 5 * u), QPointF(9.5 * u, 11 * u))
+    else:
+        painter.setPen(QPen(QColor(200, 70, 70), max(1.0, 1.4 * u)))
+        painter.drawLine(QPointF(6.5 * u, 6.5 * u), QPointF(9.5 * u, 9.5 * u))   # the cut
+    painter.end()
+    return pixmap
+
+
+# --- standard actions: theme icon when the platform has one, else a painted glyph -------------------
 def action_icon(name: str) -> QIcon:
     """The platform theme's icon for undo / redo / copy / paste / save, or our painted look-alike."""
     themed = QIcon.fromTheme(THEME_NAMES.get(name, name))

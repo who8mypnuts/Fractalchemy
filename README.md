@@ -22,15 +22,29 @@ python -m pytest
 ### Main window
 * Menu bar: *File* (Open Fractal…, Save Fractal `Ctrl+S`, Save Fractal As ▸ New Entry / New File `Ctrl+Shift+S` /
   Into Existing File, Exit), *Edit* (Undo `Ctrl+Z`, Redo `Ctrl+Shift+Z`, Copy Parameters `Ctrl+Shift+C`, Paste
-  Parameters `Ctrl+Shift+V`, Edit Fractal Library…), … (Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
+  Parameters `Ctrl+Shift+V`, Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
   Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
-  *Windows* (Gradient Library `F6`), *Help* (Formulas…, About).
+  *Windows* (Gradient Library `F6`, Random Batch `F7`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
 * Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
   **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
   (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Gradient Library**,
-  **Random Batch** (`F7`).
+  **Random Batch** (`F7`), **Render Image** (`Ctrl+R`).
   Nothing is ever written unless you save: edits only change the preview, the title shows `*`, and Save / Save As
   let you keep as many versions as you like.
+* **Open Fractal…** shows the file's first flame and lists *all* of the file's flames in a temporary section at the
+  top of the Fractal Library, above a separator; opening another file replaces it. The section follows the file:
+  rename / delete / duplicate its flames there, or drag them into library files.
+* **Undo / Redo** cover every edit to the fractal — camera moves (Ctrl+drag / Ctrl+wheel / double-click) and gradient
+  edits made in the Gradient Library; a drag or a slider sweep is one step. The title shows `*` while unsaved.
+* **Save** writes the flame back into its own entry (`.fa`, `.flame`); for a Chaotica world or a flame without a file
+  it becomes *New File…*. **Save As ▸** (File menu and the toolbar button) has the same three flavours as the
+  Gradient Library, so one `.fa` (or `.flame`) file can collect many fractals: *Add to This File as New Fractal…*
+  (`Ctrl+Shift+A`, appends under a name you choose), *New File…* (`Ctrl+Shift+S`, `.fa` by default, also `.flame` /
+  `.chaos`; an existing multi-fractal file is added to, never wiped), *Add to Another File…* (append to any `.fa` /
+  `.flame`). Afterwards the document points at the saved entry, so the next Save is in place. Saving a flame that
+  uses variations we can't render yet back into its `.flame` warns first, because those variations would be dropped.
+* **Copy Parameters** puts the parameters (transforms, camera, colouring *and* gradient) on the clipboard as
+  Fractalchemy text; **Paste Parameters** accepts `.fa`, Apophysis `<flame>` XML or a Chaotica world.
 * **Fractal Library** (left pane, collapsible via the divider arrow or `Ctrl+L`): folders of `.flame`
   (Apophysis / flam3, legacy files included), `.chaos` (Chaotica) and `.fa` (Fractalchemy) files, each file
   expanding into its flames. A file opened with **Open Fractal** sits in a temporary area at the top, above a
@@ -130,6 +144,45 @@ opened file there), browsable with thumbnails like any file. Open one, adjust it
 in a file of your choosing — the batch stays on show so you can keep the others too. Your checks, count and
 range persist; a formula you add later starts out checked.
 
+### Render Image window (the final renderer)
+*Windows ▸ Render Image…* (`Ctrl+R`) or the toolbar button opens a non-modal tool window; a render runs on its
+own thread with a snapshot of the flame, so you can open and edit another fractal while it works. Closing the
+window hides it — the render carries on; quitting asks first.
+
+* **Size** — the first preset is the viewer's current image size; then common screen and print sizes, or type
+  any width × height (no upper limit beyond memory and disk). The **link** button keeps the aspect ratio: with it
+  on, typing one dimension updates the other; off, they are independent. **⇄** swaps them.
+* **Quality** — the Apophysis render options: **Density** (samples per pixel; 100 … 16 000 presets or any value),
+  **Oversample** (1–8 buckets per pixel per axis), **Filter** + **Radius**. The filter is the anti-aliasing
+  choice: Gaussian, Box, Triangle, Mitchell-Netravali, Catmull-Rom, B-spline, Lanczos 2 / 3,
+  Blackman-Harris. **Denoiser**: *Density estimation* (flam3's adaptive blur, with max / min radius and curve),
+  or an image-space pass after rendering — *Guided filter* and *Bilateral* (built in), *Non-local means*
+  (with `opencv-python-headless`), *Intel Open Image Denoise* (with the `oidn` package) — each with a strength.
+  **Engine**: automatic, GPU (OpenGL, single precision, fast) or CPU (one worker process per core, float64,
+  exact at deep zooms). **Memory limit**: the histogram budget; larger images are rendered in tiles
+  (Apophysis's "slices": every tile runs the full chaos game, so the plan line tells you the cost).
+* **Output** — file and format: PNG (8 / 16-bit), JPEG, TIFF (8 / 16-bit), WebP, BMP, AVIF, HEIF, JPEG XL
+  (the last three when their encoders are installed), **OpenEXR** (16-bit half or 32-bit float, linear light with
+  premultiplied alpha, ZIP-compressed; the header carries the flame's name, source, camera, colouring, engine, sample
+  count, render time, tile count, the full settings as JSON and the parameters XML, plus `comments` / `capDate` /
+  `writer` for other DCCs), SVG (the render embedded as PNG). Options greyed out when the format cannot use them:
+  bit depth, quality / lossless, **transparent background**. *Save parameters*
+  writes a `.flame` beside the image; *Embed parameters* stores them in the file (PNG text chunk, JPEG comment,
+  TIFF description, EXIF comment elsewhere); *Save incomplete renders* keeps what was done when you stop.
+  *Save fractal and render details* (off by default) writes a report beside the image — `name.md`, `name.txt`
+  or `name.html` — with every render setting, the tile plan, timings per phase and per tile, sample counts,
+  speeds, hit ratios and bucket statistics, the system it ran on, and a full breakdown of the fractal:
+  camera and colouring, palette statistics (dominant hues, luminance, smoothness), every transform (weights,
+  probabilities, affines, determinants, variations, parameters, xaos), and a per-variation usage table.
+  The text form is one `key<TAB>value` record per line with dotted lower-case keys and `#` comments, so
+  `grep '^timing\.' name.txt | cut -f2` or `awk -F'\t' '$1=="render.samples_per_second"'` work as-is for
+  tracking usage over time.
+* **Progress** — a live preview that fills in tile by tile, a progress bar, elapsed and **remaining** time
+  (from the measured sample rate), speed and tile counter. Before you start, the window estimates the time from
+  the preview engine's or the last render's measured speed. **Pause / Resume** and **Stop** (which still saves if
+  *Save incomplete renders* is on); afterwards the result line links to the file and its folder.
+* Settings persist between runs; the destination defaults to the last folder and the flame's name.
+
 ### Gradient Library window
 Its own *File* (Open, Save, Save As, Close Window), *Edit* (Edit Library…) and *View* (Show/Hide
 Library, Refresh Library) menus, so the shortcuts below work whenever that window is active. The
@@ -220,17 +273,26 @@ fractalchemy/
                         apophysis7x / plugins / ports / reconstructed), lang/ (the compiler), loader (user folders,
                         cache), apophysis_depth (the built-ins' depth rule)
   render/               RenderSettings / RenderStats, CompiledFlame, tone map (numpy + GLSL), cpu_engine, codegen +
-                        gpu_engine (moderngl), RenderService (worker thread, priorities, cancellation)
+                        gpu_engine (moderngl), RenderService (worker thread, priorities, cancellation);
+                        the final renderer: final_settings (options, tile plan) + memory (RAM / budgets), filters
+                        (reconstruction filters, density estimation), denoise, control (cancel / pause), samplers
+                        (+ cpu_workers: shared-memory worker processes), final_engine (tiles → filter → tone map →
+                        denoise) + preview_canvas, output (formats, metadata) + png_tiff / exr encoders, report/
+                        (model, writers, render_facts, fractal_facts: the details file in md / txt / html and the EXR
+                        attributes), estimate (time estimate), units (shared formatting), final_service (FinalRenderJob)
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,
                         model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
   widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons
-  ui/                   .ui loader, background tasks, MainWindow, FractalDocument, FractalViewport (image framing,
-                        view vs. camera pan/zoom), ViewerBar (zoom + image size), SettingsPanel, FractalLibraryPanel,
-                        ThumbnailProvider, RenderStatus (status bar), GradientLink, FormulaBrowser, and the gradient side:
-                        GradientDocument, file actions, GradientLibraryWindow
+  ui/                   .ui loader, background tasks, MainWindow, FractalDocument (undo history), FractalViewport +
+                        ViewGeometry (image framing, view vs. camera pan/zoom), ViewerBar (zoom + image size),
+                        SettingsPanel, FractalLibraryPanel, ThumbnailProvider, RenderStatus (status bar),
+                        GradientLink, FormulaBrowser, LibraryHost (shared library-pane wiring),
+                        FileActionsBase + the fractal / gradient file actions, GradientDocument,
+                        GradientLibraryWindow, RenderWindow (+ render_size_panel, render_quality_panel,
+                        render_output_panel, render_progress)
 tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas)
 tests/                  pytest suite
 samples/                sample flames / gradients / images used by the tests, plus

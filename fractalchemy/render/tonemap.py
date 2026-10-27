@@ -82,13 +82,14 @@ def filter_uniforms(oversample: int, filter_radius: float) -> dict[str, object]:
             "u_adjust": kernel_adjust(oversample, filter_radius), "u_norm": kernel_norm(oversample, filter_radius)}
 
 
-def log_scale(histogram: np.ndarray, params: ToneParams) -> np.ndarray:
+def log_scale(histogram: np.ndarray, params: ToneParams, out_dtype=np.float64) -> np.ndarray:
     """Per-bucket log-density scaling: (…, 4) array of (L · mean colour, L)."""
     count = histogram[..., 3].astype(np.float64)
     lit = count > 0
     L = params.k1 * np.log10(1.0 + count * params.k2)
     ls = np.where(lit, L / np.where(lit, count, 1.0), 0.0)   # L / count: scales the summed colour to L · mean
-    scaled = histogram.astype(np.float64) * ls[..., None]
+    scaled = np.empty(histogram.shape, dtype=out_dtype)
+    scaled[..., :3] = histogram[..., :3] * ls[..., None] if out_dtype is np.float64 else histogram[..., :3].astype(np.float64) * ls[..., None]
     scaled[..., 3] = L
     return scaled
 
@@ -119,38 +120,53 @@ def tonemap(histogram: np.ndarray, params: ToneParams, oversample: int = 1, filt
     scaled = log_scale(histogram, params)
     if size is not None and (oversample > 1 or filter_width(oversample, filter_radius) > 1):
         scaled = filter_buckets(scaled, oversample, filter_radius, size[0], size[1])
-    return finish(scaled, params, luts)
+    rgba = finish(scaled, params, luts=luts)
+    image = np.empty(scaled.shape[:2] + (4,), dtype=np.uint8)
+    image[..., :3] = np.clip(rgba[..., :3] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    image[..., 3] = 255
+    return image
 
 
-def finish(scaled: np.ndarray, params: ToneParams, luts: np.ndarray | None = None) -> np.ndarray:
-    """Gamma, vibrancy, background and the tone curves for filtered (rgb, L) pixels."""
-    L = scaled[..., 3]
+def finish(scaled: np.ndarray, params: ToneParams, transparent: bool = False,
+           luts: np.ndarray | None = None) -> np.ndarray:
+    """Gamma, vibrancy, background and tone curves on (r, g, b, L) → float RGBA in 0..1.
+
+    With `transparent` the background is not blended in and the colour is un-premultiplied
+    (straight alpha), as flam3 does for transparent PNGs; otherwise alpha is 1 everywhere.
+    `luts` are the tone curves from `curve_luts()` (None = identity).
+    """
+    rgb = np.maximum(scaled[..., :3].astype(np.float64), 0.0)
+    L = np.maximum(scaled[..., 3].astype(np.float64), 0.0)
     lit = L > 0
-    rgb = scaled[..., :3]
-    alpha = np.where(lit, np.power(np.maximum(L, 0.0), params.inv_gamma), 0.0)
+    alpha = np.where(lit, np.power(L, params.inv_gamma), 0.0)
     if params.threshold > 0:
         below = lit & (L <= params.threshold)
         frac = L / params.threshold
         alpha = np.where(below, (1.0 - frac) * L * params.funcval + frac * alpha, alpha)
     alpha = np.clip(alpha, 0.0, 1.0)
 
-    safe_L = np.where(L > 0, L, 1.0)
-    ls = params.vibrancy * alpha / safe_L
-    out = ls[..., None] * rgb + (1.0 - params.vibrancy) * np.power(np.maximum(rgb, 0.0), params.inv_gamma)
+    safe_L = np.where(lit, L, 1.0)
+    ls = np.where(lit, params.vibrancy * alpha / safe_L, 0.0)
+    out = np.empty(scaled.shape[:2] + (4,), dtype=np.float64)
+    out[..., :3] = ls[..., None] * rgb + (1.0 - params.vibrancy) * np.power(rgb, params.inv_gamma)
     if luts is not None:
         coverage = apply_luts(alpha, luts[4])                    # the alpha curve remaps how much background shows
-        out = out * np.where(alpha > 0, coverage / np.where(alpha > 0, alpha, 1.0), 0.0)[..., None]
+        out[..., :3] *= np.where(alpha > 0, coverage / np.where(alpha > 0, alpha, 1.0), 0.0)[..., None]
         alpha = coverage
-    out += (1.0 - alpha)[..., None] * np.asarray(params.background)
-    out = np.where(lit[..., None], out, np.asarray(params.background))
-    if luts is not None:
-        out = np.clip(out, 0.0, 1.0)
-        overall = apply_luts(out, luts[0])
-        out = np.stack([apply_luts(overall[..., ch], luts[1 + ch]) for ch in range(3)], axis=-1)
-    image = np.empty(scaled.shape[:2] + (4,), dtype=np.uint8)
-    image[..., :3] = np.clip(out * 255.0 + 0.5, 0, 255).astype(np.uint8)
-    image[..., 3] = 255
-    return image
+    if transparent:
+        safe_alpha = np.where(alpha > 0, alpha, 1.0)
+        out[..., :3] = np.where((alpha > 0)[..., None], out[..., :3] / safe_alpha[..., None], 0.0)
+        out[..., 3] = alpha
+    else:
+        out[..., :3] += (1.0 - alpha)[..., None] * np.asarray(params.background)
+        out[..., 3] = 1.0
+        if luts is not None:
+            out = np.clip(out, 0.0, 1.0)
+            overall = apply_luts(out, luts[0])
+            out = np.stack([apply_luts(overall[..., ch], luts[1 + ch]) for ch in range(3)], axis=-1)
+            out = np.concatenate([out, np.ones(out.shape[:2] + (1,), dtype=np.float64)], axis=-1)
+    np.clip(out, 0.0, 1.0, out=out)
+    return out
 
 
 SCALE_GLSL = """

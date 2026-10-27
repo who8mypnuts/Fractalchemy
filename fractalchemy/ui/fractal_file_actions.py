@@ -137,6 +137,7 @@ class FractalFileActions(QObject):
             self._written[path] = time.monotonic()
             if self._document.flame is not None:
                 self._document.flame.name = flame.name
+                self._document.flame_renamed.emit()
             self._document.set_source(path, index)
             self._document.mark_saved()
             self.file_written.emit(path, index)

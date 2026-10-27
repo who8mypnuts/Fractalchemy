@@ -26,6 +26,7 @@ from .tonemap import ToneParams, curve_luts, tonemap
 
 ITERATIONS_PER_CHUNK = 8      # plotted iterations between cancellation checks / histogram flushes
 RESET_LIMIT = 1e10            # |x| beyond this (or NaN) re-seeds the point
+SELECT_BINS = 1024            # resolution of the xform-selection lookup table (exact: see `PointPopulation._select`)
 
 
 def thread_count() -> int:
@@ -40,10 +41,11 @@ class CpuEngine:
         self.threads = threads or thread_count()
 
     def start(self, flame: Flame, settings: RenderSettings) -> "CpuRenderJob":
+        """A new progressive render job for `flame`."""
         return CpuRenderJob(flame, settings, self.threads)
 
     def close(self) -> None:
-        pass
+        """Nothing to release (kept for symmetry with the GPU engine)."""
 
 
 class CpuRenderJob:
@@ -64,8 +66,9 @@ class CpuRenderJob:
                                  width=settings.width, height=settings.height, notes=list(self.compiled.notes),
                                  samples_target=settings.samples_target)
         per_thread = max(64, settings.points // self.threads)
-        self._workers = [_Worker(self.compiled, per_thread, settings.seed * 7919 + i, self.pixel_transform,
-                                 self.bucket_size[0], self.bucket_size[1], flame.camera) for i in range(self.threads)]
+        self._workers = [PointPopulation(self.compiled, per_thread, settings.seed * 7919 + i, self.pixel_transform,
+                                         self.bucket_size[0], self.bucket_size[1], flame.camera)
+                         for i in range(self.threads)]
         self._pool = ThreadPoolExecutor(max_workers=self.threads, thread_name_prefix="render-cpu")
         self._elapsed = 0.0
         self._fused = False
@@ -97,11 +100,16 @@ class CpuRenderJob:
         return tonemap(self.histogram, params, s.oversample, s.filter_radius, (s.width, s.height), self.luts)
 
     def close(self) -> None:
+        """Stop the worker threads."""
         self._pool.shutdown(wait=False)
 
 
-class _Worker:
-    """One thread's point population and private histogram."""
+class PointPopulation:
+    """A point population iterated in numpy, plus the preview engine's private bincount histogram.
+
+    The final renderer's worker processes subclass it (`cpu_workers.TilePopulation`) to keep the
+    iteration (`_step`, `_select`, `_project`) in one place.
+    """
 
     def __init__(self, compiled: CompiledFlame, points: int, seed: int, pixel_transform, width: int, height: int,
                  camera: Camera | None = None):
@@ -116,6 +124,8 @@ class _Worker:
         self.width, self.height = width, height
         self.camera = camera if camera is not None else Camera()
         self.opacities = np.array([x.opacity for x in compiled.xforms])
+        bins = np.arange(SELECT_BINS) / SELECT_BINS
+        self._select_lut = np.stack([np.searchsorted(row, bins, side="right") for row in compiled.selection])
 
     def fuse(self, iterations: int) -> None:
         for _ in range(iterations):
@@ -152,9 +162,7 @@ class _Worker:
     # --- one iteration --------------------------------------------------------
     def _step(self) -> np.ndarray:
         """Advance every point by one chosen xform; returns the chosen xform indices."""
-        r = self.rng.random(self.x.shape[0])
-        rows = self.compiled.selection[self.prev]
-        xi = np.minimum((r[:, None] >= rows).sum(axis=1), self.compiled.count - 1)
+        xi = self._select(self.rng.random(self.x.shape[0]))
         for i, xform in enumerate(self.compiled.xforms):
             sel = np.nonzero(xi == i)[0]
             if sel.shape[0]:
@@ -168,6 +176,22 @@ class _Worker:
             self.z[bad] = 0.0
             self.c[bad] = self.rng.random(k)
         self.prev = xi
+        return xi
+
+    def _select(self, r: np.ndarray) -> np.ndarray:
+        """The xform each point moves to: the first whose cumulative probability exceeds `r` (xaos row = previous xform).
+
+        A lookup table on the top bits of `r` gives a lower bound; the few points whose bin straddles
+        a boundary advance until the cumulative value is above `r`. Exact, and O(n) instead of O(n · xforms).
+        """
+        cum = self.compiled.selection
+        xi = self._select_lut[self.prev, (r * SELECT_BINS).astype(np.intp)]
+        last = cum.shape[1] - 1
+        for _ in range(last):
+            behind = (cum[self.prev, xi] <= r) & (xi < last)
+            if not behind.any():
+                break
+            xi = xi + behind
         return xi
 
     def _project(self, xi: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

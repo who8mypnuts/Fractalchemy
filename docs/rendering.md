@@ -2,7 +2,7 @@
 
 Fractalchemy renders with two engines that **share one definition of the scene** and differ only
 in how they trade precision for speed. The preview engine exists for immediate feedback while
-exploring; the final engine (in progress) exists for numerical precision and output quality.
+exploring; the final renderer exists for numerical precision and output quality.
 Because both read the same `Flame` — formulas, camera, colouring, palette — the viewport is a
 faithful preview of the final render.
 
@@ -26,6 +26,12 @@ faithful preview of the final render.
                                │
              RenderService (render/service.py): one worker thread,
              priority queue, cancellation, progressive passes, pause/resume of refining jobs
+
+   Final renderer (render/final_engine.py) — one FinalRenderJob thread per render
+        samplers.py: CpuSampler (worker processes, shared-memory histogram, float64)
+                     GpuSampler (GpuPopulation → RGBA32F texture → float64 master)
+        per tile:  histogram → log_scale → density estimation → reconstruction filter → finish
+        output.py: PNG / TIFF 16-bit writers, Pillow formats, SVG, embedded parameters
 ```
 
 ## The scene (`fractalchemy/fractal`)
@@ -148,15 +154,64 @@ the Info tab's *Render* group. The generated vertex/plot shaders and the driver'
   from older generations are discarded.
 * Every pass delivers an image, so the picture sharpens in stages instead of appearing all at once.
 
-## Tiers (roadmap)
+## Final renderer
+
+`FinalRenderer.run()` (render/final_engine.py) turns a `Flame` and a `FinalRenderSettings` into a
+16-bit RGBA image, reporting `FinalProgress` as it goes; `FinalRenderJob` runs it on a QThread for
+the Render window. The stages, in order, and why they are in that order:
+
+1. **Plan** (`final_settings.plan_tiles`). The histogram has `oversample²` buckets per pixel, 32 bytes
+   each in float64 (plus filter copies), so a large image exceeds any memory budget. The image is cut
+   into the fewest **tiles** that fit the budget (and, on the GPU, the texture size limit), each padded
+   by a **gutter** as wide as the widest filter. Every tile runs the complete chaos game and keeps only
+   the points landing inside it — Apophysis's "slices" — so the plan's cost is `tiles × quality × pixels`.
+   The window shows that before Start.
+2. **Sample** (`samplers.py`). The CPU sampler spawns one **worker process** per core: threads do not scale
+   here because a chaos-game step is dozens of short numpy kernels and they serialise on the interpreter
+   and allocator (measured 1.5× on four cores; processes give ~linear scaling). The tile's histogram is a
+   `(4, rows, cols)` float64 block in **shared memory**. Each worker partitions its batch of hits by
+   horizontal band (a radix sort on a 16-bit key, O(n)) and adds each band under that band's lock — no
+   hit is ever lost to a race, workers rarely wait, and the adds become cache-friendly, which dominates
+   for multi-million-bucket tiles. The GPU sampler reuses the preview engine's `GpuPopulation` and plots
+   into an RGBA32F texture that is read back into the float64 master every few seconds and cleared, so
+   float32 never accumulates long enough to lose counts. Both samplers check a `RenderControl`
+   (cancel / pause) between chunks; paused time is excluded from the clock.
+3. **Log-scale** (`tonemap.log_scale`). Per bucket, `L = k1·log10(1 + count·k2)` and `L · mean colour`.
+   flam3 and Apophysis filter *this*, not the raw counts and not the gamma-corrected colour, so the
+   spatial filters below operate on it. `k2` uses the bucket density, i.e. `ppu × oversample`, and the
+   samples actually run for the tile — a tile stopped early is therefore correctly exposed, just noisier.
+4. **Density estimation** (`filters.density_estimate`), when chosen as the denoiser. flam3 scatters each
+   bucket through a Gaussian whose width is `max_radius / density^curve`, clamped to `[min, max]`. Doing that
+   per bucket in numpy is hopeless; instead the widths are quantised to a geometric ladder of ~8 levels,
+   each bucket's value is split between its two nearest levels, each level's share is blurred once
+   (scipy's C Gaussian when available, three box blurs otherwise), and the results are summed. Energy is
+   conserved, sparse regions smooth out, dense detail stays sharp.
+5. **Reconstruction filter** (`filters.downsample`). The oversampled buckets become pixels through a
+   separable kernel built from a 1-D profile: Gaussian (the flam3 / Apophysis `exp(-2u²)` cut at 1.8 radii), box,
+   triangle, the Mitchell-Netravali family, Lanczos 2 / 3, Blackman-Harris. Taps are strided slices of the
+   padded tile, so a kernel of *t* taps costs `t × pixels` per axis.
+6. **Finish** (`tonemap.finish`): gamma, gamma threshold, vibrancy and background, or — for transparent
+   output — straight alpha with the colour un-premultiplied, as flam3 does.
+7. **Denoise** (`denoise.py`), for image-space denoisers, once on the whole 16-bit image: guided filter and
+   bilateral in numpy; OpenCV non-local means and Intel Open Image Denoise when installed.
+8. **Save** (`output.py`). Pillow writes the 8-bit formats; 16-bit PNG and TIFF (`png_tiff.py`) and OpenEXR
+   (`exr.py`, linear light, associated alpha, ZIP chunks) are written directly; SVG wraps the PNG. Parameters are
+   embedded as Apophysis XML when asked, and the `report/` package can write a details file beside the image
+   (Markdown / HTML for people, `key<TAB>value` text for pipelines) from the same `FinalResult` facts that fill
+   the EXR header.
+
+The same `ToneParams` drive the preview and the final image, which is why a final render has the same
+exposure as the viewport at any density, oversample or tile split (tested against the preview engine).
+
+## Tiers
 
 | Mode | Numerics | Status |
 |---|---|---|
-| Interactive | float32 GPU, progressive | **done** (this preview engine) |
+| Interactive | float32 GPU, progressive | **done** (the preview engine) |
 | Refined preview | continuous refinement, oversample + filter | **done** (Image tab ▸ Preview) |
-| Precision render | float64 CPU (multi-threaded) and/or fp64 GPU at chosen quality / size | CPU engine is the base; output to come |
+| Final render | tiles; float64 CPU processes or float32 GPU with float64 accumulation; oversampling, reconstruction filters, density estimation, denoisers; 8 / 16-bit output | **done** (Render Image window) |
 | Deep render | arbitrary-precision reference orbit + perturbation | later — matters for escape-time formulas more than flames |
-| Output | PNG / TIFF / OpenEXR with saved render settings | to come |
+| fp64 on the GPU | `GL_ARB_gpu_shader_fp64` | not planned: the variation snippets use float intrinsics and consumer GPUs run doubles at 1/32 rate |
 
 Adding a variation: drop a plugin-dialect `.c` file (or a `@variation(...)` Python module) into a formulas
 folder; the tests pick it up (see formulas.md).

@@ -101,6 +101,7 @@
     </property>
     <addaction name="actionGradientLibrary"/>
     <addaction name="actionRandomBatch"/>
+    <addaction name="actionRenderImage"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -151,6 +152,7 @@
    <addaction name="separator"/>
    <addaction name="actionGradientLibrary"/>
    <addaction name="actionRandomBatch"/>
+   <addaction name="actionRenderImage"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionOpenFractal">
@@ -212,6 +214,12 @@
    <property name="text"><string>Paste Parameters</string></property>
    <property name="toolTip"><string>Replace the fractal with parameters from the clipboard: .fa, Apophysis &lt;flame&gt; XML or a Chaotica world (Ctrl+Shift+V)</string></property>
    <property name="shortcut"><string>Ctrl+Shift+V</string></property>
+  </action>
+  <action name="actionRenderImage">
+   <property name="text"><string>Render Image…</string></property>
+   <property name="toolTip"><string>Render Image</string></property>
+   <property name="shortcut"><string>Ctrl+R</string></property>
+   <property name="statusTip"><string>Render the fractal to an image file at any size, with oversampling, filtering and denoising</string></property>
   </action>
   <action name="actionExit">
    <property name="text"><string>Exit</string></property>

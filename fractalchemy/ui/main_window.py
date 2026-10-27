@@ -2,7 +2,8 @@
 
 Menus (File / Edit / View / Windows / Help), a toolbar, and a status bar showing the
 loaded fractal, render facts, the progressive pass counter and a progress bar. The
-Gradient Library is a separate tool window opened from *Windows* or the toolbar.
+Gradient Library and the Render Image window are separate tool windows opened from *Windows*
+or the toolbar.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import action_icon, gradient_icon
+from ..widgets.icons import action_icon, gradient_icon, render_icon
 from .background import run_in_background
 from .fractal_document import FractalDocument
 from .fractal_file_actions import FractalFileActions
@@ -34,6 +35,7 @@ from .gradient_library_window import GradientLibraryWindow
 from .gradient_link import GradientLink
 from .loader import load_ui
 from .render_status import RenderStatus
+from .render_window import RenderWindow
 from .settings_panel import SettingsPanel
 from .thumbnails import ThumbnailProvider
 from .viewer_bar import ViewerBar
@@ -86,6 +88,8 @@ class MainWindow(QMainWindow):
         self.files = FractalFileActions(self.document, self)
         self.gradient_library = GradientLibraryWindow(roots, self)
         self.gradient_link = GradientLink(self.document, self.gradient_library, self.viewport, self)
+        self.render_window = RenderWindow(self.document, self, settings if settings is not None else QSettings(),
+                                          rate_hint=self._preview_rate)
         self.splitter.first_label, self.splitter.last_label = "fractal library", "settings panel"
         self.splitter.set_first_width(LIBRARY_PANE_WIDTH)
         self.splitter.set_last_width(SETTINGS_PANE_WIDTH)
@@ -104,6 +108,10 @@ class MainWindow(QMainWindow):
 
     # --- wiring -------------------------------------------------------------
     def _connect_actions(self) -> None:
+        self.actionGradientLibrary.setIcon(gradient_icon())
+        self.actionGradientLibrary.triggered.connect(self.show_gradient_library)
+        self.actionRenderImage.setIcon(render_icon())
+        self.actionRenderImage.triggered.connect(self.show_render_window)
         self.actionOpenFractal.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_DialogOpenButton))
         self.actionOpenFractal.triggered.connect(self.open_file)
         self.actionSaveFractal.setIcon(action_icon("save"))
@@ -352,6 +360,17 @@ class MainWindow(QMainWindow):
         """Open the Gradient Library window, or bring it to the front if it is already open."""
         self.gradient_library.bring_to_front()
 
+    def show_render_window(self) -> None:
+        """Open the Render Image window (a render in progress keeps its progress view)."""
+        self.render_window.bring_to_front()
+
+    def _preview_rate(self) -> tuple[str, float] | None:
+        """(engine, samples/s) of the last viewport render, for the Render window's time estimate."""
+        stats = self.viewport.stats
+        if stats is None or stats.samples_per_second <= 0:
+            return None
+        return stats.engine, stats.samples_per_second
+
     def about(self) -> None:
         QMessageBox.about(self, f"About {config.APP_NAME}", ABOUT_TEXT)
 
@@ -405,6 +424,10 @@ class MainWindow(QMainWindow):
         if not self.gradient_library.files.confirm_discard():
             event.ignore()
             return
+        if not self.render_window.confirm_quit():
+            event.ignore()
+            return
         self.gradient_library.close()
+        self.render_window.hide()
         self.render_service.stop()
         super().closeEvent(event)

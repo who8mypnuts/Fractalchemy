@@ -21,7 +21,7 @@ from typing import Callable
 
 import numpy as np
 
-from ..fractal.scene import Flame
+from ..fractal.scene import Camera, Flame
 from .codegen import STATE_BYTES, GeneratedProgram, generate
 from .compiled import CompiledFlame
 from .filtering import bucket_transform
@@ -56,6 +56,11 @@ def _create_context():
         return moderngl.create_standalone_context(require=330)
     except Exception:  # noqa: BLE001 - retry headless (EGL) before giving up
         return moderngl.create_standalone_context(require=330, backend="egl")
+
+
+def create_context():
+    """Public alias used by tests and callers that need a standalone OpenGL context."""
+    return _create_context()
 
 
 class ShaderBuildError(RuntimeError):
@@ -106,6 +111,7 @@ class GpuEngine:
         self._programs: dict[str, tuple] = {}   # shader source -> compiled programs (structure cache)
 
     def start(self, flame: Flame, settings: RenderSettings) -> "GpuRenderJob":
+        """A new progressive render job for `flame`."""
         return GpuRenderJob(self, flame, settings)
 
     def programs(self, generated: GeneratedProgram):
@@ -128,6 +134,7 @@ class GpuEngine:
         return self._programs[key]
 
     def close(self) -> None:
+        """Release the OpenGL context."""
         self.ctx.release()
 
 
@@ -146,6 +153,90 @@ void main() { f_color = v_color; }
 """
 
 
+class GpuPopulation:
+    """A point population with its flame baked in: iterate it, plot it into whatever framebuffer is bound.
+
+    Shared by the preview job and the final renderer's GPU sampler. The plot target and the
+    camera are the caller's business: `set_pixel_transform` takes the affine mapping fractal
+    coordinates to pixels of a `width × height` target (row 0 at the top).
+    """
+
+    def __init__(self, engine: GpuEngine, compiled: CompiledFlame, points: int, seed: int,
+                 camera: Camera | None = None):
+        self.engine = engine
+        self.ctx = engine.ctx
+        self.compiled = compiled
+        self.points = points
+        self.camera = camera if camera is not None else Camera()
+        self.generated = generate(compiled)
+        self.iterate_prog, self.plot_prog = engine.programs(self.generated)
+        self._rng = np.random.default_rng(seed)
+        self._upload_params()
+        self._create_population(seed)
+        self._released = False
+
+    def _upload_params(self) -> None:
+        w, h = self.generated.params_texture_size
+        self.params_tex = self.ctx.texture((w, h), 1, self.generated.params.tobytes(), dtype="f4")
+        self.params_tex.filter = (self.engine.gl.NEAREST, self.engine.gl.NEAREST)
+        self.palette_tex = self.ctx.texture((256, 1), 3, self.compiled.palette.astype(np.float32).tobytes(), dtype="f4")
+        self.palette_tex.filter = (self.engine.gl.NEAREST, self.engine.gl.NEAREST)
+
+    def _create_population(self, seed: int) -> None:
+        n = self.points
+        rng = np.random.default_rng(seed)
+        state = np.zeros((n, STATE_BYTES // 4), dtype=np.uint32)
+        # (x, y, z, colour) as float32 bits, then the last xform index and the RNG seed
+        state[:, :4] = np.column_stack([rng.uniform(-1, 1, n), rng.uniform(-1, 1, n), np.zeros(n),
+                                        rng.random(n)]).astype(np.float32).view(np.uint32)
+        state[:, 4] = 0
+        state[:, 5] = rng.integers(1, 2 ** 32 - 1, n, dtype=np.uint32)
+        self.buffers = [self.ctx.buffer(state.tobytes()), self.ctx.buffer(reserve=state.nbytes)]
+        self.iterate_vaos = [self.ctx.vertex_array(self.iterate_prog,
+                                                   [(b, "4f 1u 1u", "in_state", "in_xi", "in_seed")])
+                             for b in self.buffers]
+        self.plot_vaos = [self.ctx.vertex_array(self.plot_prog, [(b, "4f 1u 1x4", "in_state", "in_xi")])
+                          for b in self.buffers]
+        self.current = 0
+
+    def set_pixel_transform(self, affine, width: int, height: int) -> None:
+        """Camera for plotting: `affine` maps fractal space to pixels of a `width × height` target."""
+        a, b, c, d, e, f = affine
+        # pixel -> clip: x_clip = px / w * 2 - 1 ; y_clip = py / h * 2 - 1 (row 0 of the texture = top of the image)
+        _set(self.plot_prog, "u_cam_x", (a * 2.0 / width, c * 2.0 / width, e * 2.0 / width - 1.0))
+        _set(self.plot_prog, "u_cam_y", (b * 2.0 / height, d * 2.0 / height, f * 2.0 / height - 1.0))
+        for name, value in glsl_uniforms(self.camera).items():
+            _set(self.plot_prog, name, value)
+
+    def bind(self) -> None:
+        """Bind the parameter and palette textures (once per batch of draws)."""
+        self.params_tex.use(0)
+        self.palette_tex.use(1)
+        _set(self.iterate_prog, "u_params", 0)
+        _set(self.plot_prog, "u_params", 0)
+        _set(self.plot_prog, "u_palette", 1)
+
+    def iterate(self, iterations: int) -> None:
+        """Advance every point `iterations` chaos-game steps (transform feedback ping-pong)."""
+        self.iterate_prog["u_iters"].value = iterations
+        src, dst = self.current, 1 - self.current
+        self.iterate_vaos[src].transform(self.buffers[dst], mode=self.engine.gl.POINTS)
+        self.current = dst
+
+    def plot(self) -> None:
+        """Draw the population as points into the bound framebuffer (additive blending must be enabled)."""
+        _set(self.plot_prog, "u_salt", int(self._rng.integers(1, 2 ** 32 - 1)))
+        self.plot_vaos[self.current].render(mode=self.engine.gl.POINTS)
+
+    def release(self) -> None:
+        """Free the GPU objects."""
+        if self._released:
+            return
+        self._released = True
+        for obj in (*self.iterate_vaos, *self.plot_vaos, *self.buffers, self.params_tex, self.palette_tex):
+            obj.release()
+
+
 class GpuRenderJob:
     """One progressive render on the GPU; call `run_pass()` until `stats.finished`."""
 
@@ -154,29 +245,24 @@ class GpuRenderJob:
         self.ctx = engine.ctx
         self.settings = settings
         self.compiled = CompiledFlame.build(flame)
-        self.generated = generate(self.compiled)
-        self.iterate_prog, self.plot_prog = engine.programs(self.generated)
+        self.population = GpuPopulation(engine, self.compiled, settings.points, settings.seed, flame.camera)
         self.coloring = flame.coloring
         self.ppu = flame.camera.pixels_per_unit(settings.width, settings.height)
         self.stats = RenderStats(engine=f"GPU ({engine.renderer})", passes_total=settings.passes,
                                  width=settings.width, height=settings.height, notes=list(self.compiled.notes),
                                  samples_target=settings.samples_target)
-        self._upload_params()
-        self._create_population()
+        self._upload_curves()
         self._create_targets()
-        self._set_camera(flame)
-        self._rng = np.random.default_rng(settings.seed)
+        s = settings
+        self.population.set_pixel_transform(
+            bucket_transform(flame.camera.pixel_transform(s.width, s.height), s.oversample, s.gutter),
+            *self.bucket_size)
         self._elapsed = 0.0
         self._fused = False
         self._closed = False
 
     # --- setup --------------------------------------------------------------
-    def _upload_params(self) -> None:
-        w, h = self.generated.params_texture_size
-        self.params_tex = self.ctx.texture((w, h), 1, self.generated.params.tobytes(), dtype="f4")
-        self.params_tex.filter = (self.engine.gl.NEAREST, self.engine.gl.NEAREST)
-        self.palette_tex = self.ctx.texture((256, 1), 3, self.compiled.palette.astype(np.float32).tobytes(), dtype="f4")
-        self.palette_tex.filter = (self.engine.gl.NEAREST, self.engine.gl.NEAREST)
+    def _upload_curves(self) -> None:
         luts = curve_luts(self.coloring.curves)
         self.has_curves = luts is not None
         table = np.zeros((2, 256, 4), dtype=np.float32)
@@ -186,19 +272,6 @@ class GpuRenderJob:
         self.curves_tex = self.ctx.texture((256, 2), 4, table.tobytes(), dtype="f4")
         self.curves_tex.filter = (self.engine.gl.LINEAR, self.engine.gl.LINEAR)
         self.curves_tex.repeat_x = self.curves_tex.repeat_y = False
-
-    def _create_population(self) -> None:
-        n = self.settings.points
-        rng = np.random.default_rng(self.settings.seed)
-        state = np.zeros((n, STATE_BYTES // 4), dtype=np.uint32)
-        # (x, y, z, colour) as float32 bits, then the last xform index and the RNG seed
-        state[:, :4] = np.column_stack([rng.uniform(-1, 1, n), rng.uniform(-1, 1, n), np.zeros(n), rng.random(n)]).astype(np.float32).view(np.uint32)
-        state[:, 4] = 0
-        state[:, 5] = rng.integers(1, 2 ** 32 - 1, n, dtype=np.uint32)
-        self.buffers = [self.ctx.buffer(state.tobytes()), self.ctx.buffer(reserve=state.nbytes)]
-        self.iterate_vaos = [self.ctx.vertex_array(self.iterate_prog, [(b, "4f 1u 1u", "in_state", "in_xi", "in_seed")]) for b in self.buffers]
-        self.plot_vaos = [self.ctx.vertex_array(self.plot_prog, [(b, "4f 1u 1x4", "in_state", "in_xi")]) for b in self.buffers]
-        self.current = 0
 
     def _create_targets(self) -> None:
         self.bucket_size = self.settings.bucket_size    # supersampled + gutter (Apophysis oversample / filter)
@@ -212,16 +285,6 @@ class GpuRenderJob:
         self.out_tex = self.ctx.texture((self.settings.width, self.settings.height), 4)
         self.out_fbo = self.ctx.framebuffer([self.out_tex])
 
-    def _set_camera(self, flame: Flame) -> None:
-        s = self.settings
-        w, h = self.bucket_size
-        a, b, c, d, e, f = bucket_transform(flame.camera.pixel_transform(s.width, s.height), s.oversample, s.gutter)
-        # bucket -> clip: x_clip = bx / w * 2 - 1 ; y_clip = by / h * 2 - 1 (row 0 of the texture = top of the image)
-        _set(self.plot_prog, "u_cam_x", (a * 2.0 / w, c * 2.0 / w, e * 2.0 / w - 1.0))
-        _set(self.plot_prog, "u_cam_y", (b * 2.0 / h, d * 2.0 / h, f * 2.0 / h - 1.0))
-        for name, value in glsl_uniforms(flame.camera).items():
-            _set(self.plot_prog, name, value)
-
     # --- rendering ----------------------------------------------------------
     def run_pass(self, cancelled: Callable[[], bool] = lambda: False) -> np.ndarray | None:
         """Iterate + plot enough draws for one pass, then tone-map and read back."""
@@ -229,13 +292,9 @@ class GpuRenderJob:
             return None
         started = time.perf_counter()
         gl = self.engine.gl
-        self.params_tex.use(0)
-        self.palette_tex.use(1)
-        _set(self.iterate_prog, "u_params", 0)
-        _set(self.plot_prog, "u_params", 0)
-        _set(self.plot_prog, "u_palette", 1)
+        self.population.bind()
         if not self._fused:
-            self._iterate(self.settings.fuse)
+            self.population.iterate(self.settings.fuse)
             self._fused = True
         wanted = self.settings.next_pass_samples(self.stats.passes_done, self.stats.samples)
         draws = max(1, -(-wanted // self.settings.points))
@@ -246,9 +305,8 @@ class GpuRenderJob:
         for _ in range(draws):
             if cancelled():
                 return None
-            self._iterate(1)
-            _set(self.plot_prog, "u_salt", int(self._rng.integers(1, 2 ** 32 - 1)))
-            self.plot_vaos[self.current].render(mode=gl.POINTS)
+            self.population.iterate(1)
+            self.population.plot()
             self.stats.samples += self.settings.points
         self.ctx.disable(gl.BLEND)
         image = self._tonemap()
@@ -257,12 +315,6 @@ class GpuRenderJob:
         self.stats.seconds = self._elapsed
         self.stats.hits = self.stats.samples
         return image
-
-    def _iterate(self, iterations: int) -> None:
-        self.iterate_prog["u_iters"].value = iterations
-        src, dst = self.current, 1 - self.current
-        self.iterate_vaos[src].transform(self.buffers[dst], mode=self.engine.gl.POINTS)
-        self.current = dst
 
     def _tonemap(self) -> np.ndarray:
         s = self.settings
@@ -293,12 +345,15 @@ class GpuRenderJob:
         return np.frombuffer(data, dtype=np.uint8).reshape(self.settings.height, self.settings.width, 4).copy()
 
     def image(self) -> np.ndarray:
+        """The current histogram tone-mapped to RGBA8."""
         return self._tonemap()
 
     def close(self) -> None:
+        """Free the GPU objects (idempotent)."""
         if self._closed:
             return
         self._closed = True
-        for obj in (*self.iterate_vaos, *self.plot_vaos, *self.buffers, self.params_tex, self.palette_tex, self.curves_tex,
-                    self.hist_fbo, self.hist_tex, self.scaled_fbo, self.scaled_tex, self.out_fbo, self.out_tex):
+        self.population.release()
+        for obj in (self.curves_tex, self.hist_fbo, self.hist_tex, self.scaled_fbo, self.scaled_tex,
+                    self.out_fbo, self.out_tex):
             obj.release()
