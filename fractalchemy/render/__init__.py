@@ -5,9 +5,12 @@ Two engines share the scene model in `fractalchemy.fractal`:
 * the **preview** engine (`gpu_engine` via moderngl, falling back to `cpu_engine`)
   trades precision for immediate feedback — progressive passes, reduced resolution
   while interacting;
-* the **final** engine (to come) will favour precision and output quality.
+* the **final** renderer (`final_engine`, driven by `final_service.FinalRenderJob`) favours
+  precision and output quality: tiles within a memory budget, oversampling with a choice of
+  reconstruction filters, density estimation and denoisers, 8 / 16-bit output in many formats.
 
-`RenderSettings` describes *how* to render (size, passes, quality); the flame says *what*.
+`RenderSettings` describes *how* to preview and `FinalRenderSettings` how to render for output;
+the flame says *what*.
 """
 
 from .settings import RenderSettings, RenderStats

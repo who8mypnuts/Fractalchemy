@@ -140,7 +140,8 @@ def test_registry_dispatches_by_extension():
 def test_fractal_catalog_scans_only_fractal_files(samples):
     scanned = scan_directory(samples / FLAMES, FRACTAL_CATALOG)
     names = {f.path.name for f in scanned.files}
-    assert names == {"candy.flame", "bel2.flame", "stuff.flame", "69e8n5w1.flame", "satania_spikobius.chaos", "tatasz_tram_rails.chaos"}
+    assert names == {"candy.flame", "bel2.flame", "stuff.flame", "69e8n5w1.flame", "satania_spikobius.chaos", "tatasz_tram_rails.chaos",
+                     "ANEW-261026-203.fa", "ANEW2-261026-203.fa"}
     candy = next(f for f in scanned.files if f.path.name == "candy.flame")
     assert candy.multi and candy.names[0] == "original"
     gradients = scan_directory(samples / "sample gradients", FRACTAL_CATALOG)

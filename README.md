@@ -23,8 +23,8 @@ python -m pytest
 * Menu bar: *File* (Open Fractal…, Save `Ctrl+S`, Save As… `Ctrl+Shift+S`, Exit), *Edit* (Undo `Ctrl+Z`, Redo `Ctrl+Y`,
   Copy `Ctrl+C`, Copy As ▸ Apophysis / Chaotica Parameters, Paste `Ctrl+V`, Edit Fractal Library…), *View* (Show/Hide
   Fractal Library `Ctrl+L`, Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
-  *Windows* (Gradient Library `F6`), *Help*.
-* Toolbar: Open · Save · Save As · Undo · Redo · Copy · Paste · Gradient Library (hover for tooltips).
+  *Windows* (Gradient Library `F6`, Render Image… `Ctrl+R`), *Help*.
+* Toolbar: Open · Save · Save As · Undo · Redo · Copy · Paste · Gradient Library · Render Image (hover for tooltips).
 * **Open Fractal…** shows the file's first flame and lists *all* of the file's flames in a temporary section at the
   top of the Fractal Library, above a separator; opening another file replaces it. The section follows the file:
   rename / delete / duplicate its flames there, or drag them into library files.
@@ -89,6 +89,34 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
   3D variations render as their 2D projection.
 * Tunables in `config.py`: `PREVIEW_PASSES` / `PREVIEW_QUALITY` (defaults for the settings panel),
   `INTERACTIVE_SCALE`, thumbnail size / quality.
+
+### Render Image window (the final renderer)
+*Windows ▸ Render Image…* (`Ctrl+R`) or the toolbar button opens a non-modal tool window; a render runs on its
+own thread with a snapshot of the flame, so you can open and edit another fractal while it works. Closing the
+window hides it — the render carries on; quitting asks first.
+
+* **Size** — the first preset is the viewer's current image size; then common screen and print sizes, or type
+  any width × height (no upper limit beyond memory and disk). The **link** button keeps the aspect ratio: with it
+  on, typing one dimension updates the other; off, they are independent. **⇄** swaps them.
+* **Quality** — the Apophysis render options: **Density** (samples per pixel; 100 … 16 000 presets or any value),
+  **Oversample** (1–8 buckets per pixel per axis), **Filter** + **Radius**. The filter is the anti-aliasing
+  choice: Gaussian (Apophysis), Box, Triangle, Mitchell-Netravali, Catmull-Rom, B-spline, Lanczos 2 / 3,
+  Blackman-Harris. **Denoiser**: *Density estimation* (flam3's adaptive blur, with max / min radius and curve),
+  or an image-space pass after rendering — *Guided filter* and *Bilateral* (built in), *Non-local means*
+  (with `opencv-python-headless`), *Intel Open Image Denoise* (with the `oidn` package) — each with a strength.
+  **Engine**: automatic, GPU (OpenGL, single precision, fast) or CPU (one worker process per core, float64,
+  exact at deep zooms). **Memory limit**: the histogram budget; larger images are rendered in tiles
+  (Apophysis's "slices": every tile runs the full chaos game, so the plan line tells you the cost).
+* **Output** — file and format: PNG (8 / 16-bit), JPEG, TIFF (8 / 16-bit), WebP, BMP, AVIF, HEIF, JPEG XL
+  (the last three when their encoders are installed), SVG (the render embedded as PNG). Options greyed out when
+  the format cannot use them: bit depth, quality / lossless, **transparent background**. *Save parameters*
+  writes a `.flame` beside the image; *Embed parameters* stores them in the file (PNG text chunk, JPEG comment,
+  TIFF description, EXIF comment elsewhere); *Save incomplete renders* keeps what was done when you stop.
+* **Progress** — a live preview that fills in tile by tile, a progress bar, elapsed and **remaining** time
+  (from the measured sample rate), speed and tile counter. Before you start, the window estimates the time from
+  the preview engine's or the last render's measured speed. **Pause / Resume** and **Stop** (which still saves if
+  *Save incomplete renders* is on); afterwards the result line links to the file and its folder.
+* Settings persist between runs; the destination defaults to the last folder and the flame's name.
 
 | Fractal format | Read | Entries | Rename | Add / remove / replace entry | Write whole file |
 |---|---|---|---|---|---|
@@ -183,7 +211,11 @@ fractalchemy/
   fractal/              the shared scene: Flame / XForm / Camera / Coloring, the variation registry (numpy + GLSL),
                         formats/ (registry + .flame XML, .chaos reader/writer, .fa, clipboard text)
   render/               RenderSettings / RenderStats, CompiledFlame, tone map (numpy + GLSL), cpu_engine, codegen +
-                        gpu_engine (moderngl), RenderService (worker thread, priorities, cancellation)
+                        gpu_engine (moderngl), RenderService (worker thread, priorities, cancellation);
+                        the final renderer: final_settings (options, tile plan), filters (reconstruction filters,
+                        density estimation), denoise, samplers (+ cpu_workers: shared-memory worker processes),
+                        final_engine (tiles → filter → tone map → denoise), output (formats, 16-bit PNG / TIFF,
+                        SVG, metadata), final_service (FinalRenderJob thread)
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,
@@ -194,7 +226,8 @@ fractalchemy/
                         ViewGeometry (image framing, view vs. camera pan/zoom), ViewerBar, SettingsPanel,
                         FractalLibraryPanel, ThumbnailProvider, RenderStatus, GradientLink, LibraryHost (shared
                         library-pane wiring), FileActionsBase + the fractal / gradient file actions,
-                        GradientDocument, GradientLibraryWindow
+                        GradientDocument, GradientLibraryWindow, RenderWindow (+ render_size_panel,
+                        render_quality_panel, render_output_panel, render_progress)
 tests/                  pytest suite
 samples/                sample flames / gradients / images used by the tests, plus
 samples/aposource/      the Apophysis 7x source and plugin code, kept for reference (not scanned by the tests)

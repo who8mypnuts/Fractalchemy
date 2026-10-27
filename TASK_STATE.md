@@ -249,3 +249,74 @@ Commands: `python -m pytest -q -p no:cacheprovider` (≈ 80 s; GL tests use Mesa
   Regression test `test_destroying_an_edited_document_is_silent` (captures stderr; verified to fail against the lambda).
 - Rule of thumb recorded for the codebase: never connect a lambda to a signal that can fire during teardown
   (QUndoStack, QAction text/enabled signals); use bound methods. Suite: 312 passed.
+
+# Final rendering engine + Render Image window (this session)
+Scope: the full-fledged final renderer and its window, opened from *Windows ▸ Render Image…* (`Ctrl+R`) or the
+toolbar button (`render_icon()`: framed picture with a green go-badge; `link_icon()` for the aspect lock).
+
+## What was built
+- `render/final_settings.py` — `FinalRenderSettings` (size, density, oversample, filter + radius, denoiser + strength,
+  flam3 DE params, engine, workers, memory limit, transparency, depth, output path/format, lossy quality, lossless,
+  save/embed parameters, save incomplete), `to_dict`/`from_dict` (persisted as JSON in QSettings), `problems()`,
+  `plan_tiles()` (fewest tiles within the memory budget / GPU texture limit, interior edges on pixel boundaries,
+  gutter = max filter reach), `describe_plan()`, `physical_memory_bytes()` (sysconf / GlobalMemoryStatusEx).
+- `render/filters.py` — 9 reconstruction filters as 1-D profiles (`make_taps` → strided separable `downsample`);
+  `DensityEstimation` + `density_estimate` (flam3 scatter semantics via a geometric ladder of kernel levels;
+  scipy Gaussian when present, Kutskir box³ fallback); `box_blur` via cumulative sums (edge-clipped windows).
+- `render/denoise.py` — registry with availability: none, density (handled by the engine), guided filter (numpy),
+  bilateral (numpy), non-local means (cv2, optional), Intel OIDN (optional `oidn` package). Strength 0..100.
+- `render/tonemap.py` — split into `log_scale` (per-bucket L and L·mean colour, what flam3 filters) and `finish`
+  (gamma / vibrancy / background, or straight-alpha transparent); `tonemap()` unchanged = finish(log_scale()).
+- `render/cpu_workers.py` + `render/samplers.py` — `CpuSampler`: one **spawned process per core** writing into a
+  shared-memory `(4, rows, cols)` float64 histogram; hits partitioned by row band (radix argsort on uint16 key)
+  and added under 64 band locks (plain adds under one lock for histograms ≤ 2 M buckets); cancel/pause flags in a
+  `mp.Array`. `GpuSampler`: `GpuPopulation` (extracted from `GpuRenderJob` in `gpu_engine.py`) → RGBA32F texture,
+  read back into the float64 master every 3 s / 2^28 samples. `RenderControl` (cancel / pause, paused seconds).
+  `create_sampler()` falls back to the CPU with a note when GL fails.
+- `render/cpu_engine.py` — `_Worker._select`: xform selection via a 1024-bin lookup table + exact fix-up
+  (was O(n·xforms) with an (n, k) temporary); shared by the preview CPU engine and the final workers.
+- `render/final_engine.py` — `FinalRenderer.run(progress)`: tiles → batches sized to ~1.5 s → previews (block means
+  of the histogram, adaptive interval) → log-scale (row-chunked) → DE → downsample → finish → uint16 image;
+  image-space denoise at the end; `FinalProgress` (phase, fraction, elapsed, remaining from measured rate + timed
+  filter phases, preview canvas) and `FinalResult`. Cancel with `save_incomplete` finishes the current tile.
+- `render/output.py` — `FORMATS` (png, jpeg, tiff, webp, bmp, avif, heif, jxl, svg) with alpha / 16-bit / lossy /
+  max side / availability; own 16-bit PNG and deflate TIFF writers (verified bit-exact with OpenCV); SVG with
+  embedded PNG; parameters as PNG tEXt / JPEG comment / TIFF description / EXIF user comment; `.flame` sidecar.
+- `render/final_service.py` — `FinalRenderJob(QThread)`: progressed (throttled to 4/s, previews always),
+  succeeded(FinalOutcome), failed(str); pause / resume / cancel.
+- UI: `ui/render_size_panel.py` (presets with "Preview size — W × H" first, link, swap, aspect line),
+  `ui/render_quality_panel.py`, `ui/render_output_panel.py` (format ⇄ suffix sync, greyed-out options, Browse),
+  `ui/render_progress.py` (scaled preview, bar, elapsed / remaining / speed / tile, result links),
+  `ui/render_window.py` (`RenderWindow`: plan + time estimate lines, Start / Pause / Stop / Close, overwrite prompt,
+  1 s clock, settings persistence, `confirm_quit`, close = hide). `MainWindow.render_window`, `actionRenderImage`
+  in `ui/main_window.ui` (Windows menu + toolbar), `_preview_rate()` feeds the estimate.
+- `main.py`: `multiprocessing.freeze_support()`, lazy MainWindow import (spawned workers re-import `__main__`).
+- `requirements.txt`: scipy (optional, fallback built in); opencv / oidn noted as optional extras.
+
+## Measurements (4-vCPU sandbox, noisy)
+- Preview CPU engine: 0.4–1 M samples/s and *no* thread scaling (tiny per-thread batches). Final CPU sampler:
+  ~2.2 M/s per process, 4.4 M/s with 4 processes. Histogram adds: band-partitioned `np.add.at` ≈ 47 ns/sample vs
+  400–800 ns unpartitioned on 8 M-bucket buffers (memory-latency bound).
+- Final render exposure equals the preview engine's (mean 21.42 vs 21.42 on candy.flame at 640×480, 2 tiles, DE).
+
+## Tests
+- `tests/test_final_render.py` (43): filters (normalisation, symmetry, box = block mean, gutter check), DE (energy,
+  sparse vs dense), blur fallback, tone-map halves + transparency, denoisers, settings round-trip / validation,
+  tile coverage / budgets / GPU limits, every format writes + PNG16 bit-exact + embedded params + size limits,
+  engine vs preview exposure + seamless tiles, cancel (keep / discard), RenderControl pauses, GPU ≈ CPU (skips
+  without GL), GPU→CPU fallback note, FinalRenderJob success + setup failure.
+- `tests/test_render_window.py` (8): size link / swap / presets / preview-size following, output format ⇄ suffix,
+  time formatting, Start gating, background render keeps its snapshot while the document changes, pause / stop
+  keeps a partial file, persistence, main-window action / toolbar / hide-on-close.
+- Fixed stale expectation in `test_fractal_catalog_scans_only_fractal_files` (two `.fa` samples had been added);
+  `test_menu_bar_has_windows_and_help_menus` now expects "Render Image…".
+- Suite: `python -m pytest -q -p no:cacheprovider` → 363 passed; pyflakes clean.
+- Gotcha recorded: `spin()` needs a QApplication (use `time.sleep` in Qt-free tests); `QMessageBox.question`
+  in `RenderWindow.start()` blocks offscreen tests → pass `ask_overwrite=False`.
+
+## Known limits / ideas
+- GPU is float32 (documented in the engine combo); fp64 GPU not planned. Chaotica's exact AA filter names are
+  approximated by the standard kernels. OIDN untested here (no package); wrapped defensively.
+- Image memory is `8 B × pixels` (uint16 RGBA) on top of the tile budget; gigapixel renders need the disk.
+- Possible next steps: render queue (several jobs), post-process window (re-tone-map a kept histogram),
+  EXR / float output, reading `quality` / `oversample` / `filter` attributes from `.flame` files as defaults.

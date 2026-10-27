@@ -24,6 +24,7 @@ from .tonemap import ToneParams, tonemap
 
 ITERATIONS_PER_CHUNK = 8      # plotted iterations between cancellation checks / histogram flushes
 RESET_LIMIT = 1e10            # |x| beyond this (or NaN) re-seeds the point
+SELECT_BINS = 1024            # resolution of the xform-selection lookup table (exact: see `_Worker._select`)
 
 
 def thread_count() -> int:
@@ -106,6 +107,8 @@ class _Worker:
         self.pixel_transform = pixel_transform
         self.width, self.height = width, height
         self.opacities = np.array([x.opacity for x in compiled.xforms])
+        bins = np.arange(SELECT_BINS) / SELECT_BINS
+        self._select_lut = np.stack([np.searchsorted(row, bins, side="right") for row in compiled.selection])
 
     def fuse(self, iterations: int) -> None:
         """Warm-up iterations that are not plotted (the population converges onto the attractor)."""
@@ -143,9 +146,7 @@ class _Worker:
     # --- one iteration --------------------------------------------------------
     def _step(self) -> np.ndarray:
         """Advance every point by one chosen xform; returns the chosen xform indices."""
-        r = self.rng.random(self.x.shape[0])
-        rows = self.compiled.selection[self.prev]
-        xi = np.minimum((r[:, None] >= rows).sum(axis=1), self.compiled.count - 1)
+        xi = self._select(self.rng.random(self.x.shape[0]))
         for i, xform in enumerate(self.compiled.xforms):
             sel = np.nonzero(xi == i)[0]
             if sel.shape[0]:
@@ -157,6 +158,22 @@ class _Worker:
             self.y[bad] = self.rng.uniform(-1.0, 1.0, k)
             self.c[bad] = self.rng.random(k)
         self.prev = xi
+        return xi
+
+    def _select(self, r: np.ndarray) -> np.ndarray:
+        """The xform each point moves to: the first whose cumulative probability exceeds `r` (xaos row = previous xform).
+
+        A lookup table on the top bits of `r` gives a lower bound; the few points whose bin straddles
+        a boundary advance until the cumulative value is above `r`. Exact, and O(n) instead of O(n · xforms).
+        """
+        cum = self.compiled.selection
+        xi = self._select_lut[self.prev, (r * SELECT_BINS).astype(np.intp)]
+        last = cum.shape[1] - 1
+        for _ in range(last):
+            behind = (cum[self.prev, xi] <= r) & (xi < last)
+            if not behind.any():
+                break
+            xi = xi + behind
         return xi
 
     def _project(self, xi: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

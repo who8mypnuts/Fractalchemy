@@ -108,6 +108,7 @@
      <string>Windows</string>
     </property>
     <addaction name="actionGradientLibrary"/>
+    <addaction name="actionRenderImage"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -154,6 +155,7 @@
    <addaction name="actionPaste"/>
    <addaction name="separator"/>
    <addaction name="actionGradientLibrary"/>
+   <addaction name="actionRenderImage"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionOpenFractal">
@@ -213,6 +215,12 @@
    <property name="toolTip"><string>Paste parameters (Ctrl+V)</string></property>
    <property name="shortcut"><string>Ctrl+V</string></property>
    <property name="statusTip"><string>Show the fractal on the clipboard (Fractalchemy, Apophysis or Chaotica parameters)</string></property>
+  </action>
+  <action name="actionRenderImage">
+   <property name="text"><string>Render Image…</string></property>
+   <property name="toolTip"><string>Render Image</string></property>
+   <property name="shortcut"><string>Ctrl+R</string></property>
+   <property name="statusTip"><string>Render the fractal to an image file at any size, with oversampling, filtering and denoising</string></property>
   </action>
   <action name="actionExit">
    <property name="text"><string>Exit</string></property>
