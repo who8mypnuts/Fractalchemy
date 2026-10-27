@@ -101,6 +101,7 @@
     </property>
     <addaction name="actionGradientLibrary"/>
     <addaction name="actionRandomBatch"/>
+    <addaction name="actionScriptEditor"/>
     <addaction name="actionRenderImage"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
@@ -152,6 +153,7 @@
    <addaction name="separator"/>
    <addaction name="actionGradientLibrary"/>
    <addaction name="actionRandomBatch"/>
+   <addaction name="actionScriptEditor"/>
    <addaction name="actionRenderImage"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -214,6 +216,12 @@
    <property name="text"><string>Paste Parameters</string></property>
    <property name="toolTip"><string>Replace the fractal with parameters from the clipboard: .fa, Apophysis &lt;flame&gt; XML or a Chaotica world (Ctrl+Shift+V)</string></property>
    <property name="shortcut"><string>Ctrl+Shift+V</string></property>
+  </action>
+  <action name="actionScriptEditor">
+   <property name="text"><string>Script Editor</string></property>
+   <property name="toolTip"><string>Script Editor: edit the fractal with Python scripts — transforms, variations, colours, xaos, camera (F8)</string></property>
+   <property name="shortcut"><string>F8</string></property>
+   <property name="statusTip"><string>Open the Script Editor window</string></property>
   </action>
   <action name="actionRenderImage">
    <property name="text"><string>Render Image…</string></property>

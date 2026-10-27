@@ -2,7 +2,8 @@
 
 Two panes: the first pane collapses (the Gradient Library). Three panes: the first
 *and* the last pane collapse independently (the main window's library and settings
-panels); the middle pane takes all resizing.
+panels); the middle pane takes all resizing. With `collapse_last=True` a two-pane
+splitter collapses its *last* pane instead (the Script Editor's drawer on the right).
 """
 
 from __future__ import annotations
@@ -59,11 +60,18 @@ class CollapsibleSplitter(QSplitter):
     last_collapsed_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None, first_width: int = DEFAULT_FIRST_WIDTH,
-                 last_width: int = DEFAULT_LAST_WIDTH):
-        """Create an empty horizontal splitter; add two or three widgets."""
+                 last_width: int = DEFAULT_LAST_WIDTH, collapse_last: bool = False):
+        """Create an empty horizontal splitter; add two or three widgets.
+
+        Args:
+            first_width: Width the first pane opens at.
+            last_width: Width the last pane opens at (three panes, or `collapse_last`).
+            collapse_last: With two panes, make the *last* pane the collapsible one (a drawer on the right).
+        """
         super().__init__(Qt.Orientation.Horizontal, parent)
         self._last_width = first_width
         self._last_pane_width = last_width
+        self._collapse_last = collapse_last
         self._initialised = False
         self.first_label = "library"
         self.last_label = "panel"
@@ -83,14 +91,17 @@ class CollapsibleSplitter(QSplitter):
         if self._initialised and not self.is_collapsed():
             self._apply_sizes(first=self._last_width)
 
+    def _first_collapsible(self) -> bool:
+        return not (self._collapse_last and self.count() == 2)
+
     def is_collapsed(self) -> bool:
-        """True when the first pane has zero width."""
+        """True when the first pane has zero width (never with a two-pane `collapse_last` splitter)."""
         sizes = self.sizes()
-        return bool(sizes) and sizes[0] == 0
+        return self._first_collapsible() and bool(sizes) and sizes[0] == 0
 
     def set_collapsed(self, collapsed: bool) -> None:
         """Collapse the first pane to zero width, or restore its last width."""
-        if collapsed == self.is_collapsed():
+        if not self._first_collapsible() or collapsed == self.is_collapsed():
             return
         if collapsed:
             self._last_width = self.sizes()[0] or self._last_width
@@ -103,7 +114,8 @@ class CollapsibleSplitter(QSplitter):
 
     # --- last pane (three-pane layouts) -----------------------------------------
     def has_last_pane(self) -> bool:
-        return self.count() >= 3
+        """True if the last pane collapses on its own: three panes, or two with `collapse_last`."""
+        return self.count() >= 3 or (self._collapse_last and self.count() == 2)
 
     def set_last_width(self, width: int) -> None:
         self._last_pane_width = max(1, width)
@@ -139,11 +151,14 @@ class CollapsibleSplitter(QSplitter):
     def _apply_sizes(self, first: int | None = None, last: int | None = None) -> None:
         sizes = self.sizes()
         total = sum(sizes) or self.width()
+        if self.has_last_pane() and last is None:
+            last = 0 if self.is_last_collapsed() else (sizes[-1] if sizes else self._last_pane_width)
+        if not self._first_collapsible():
+            self.setSizes([max(1, total - last), last])
+            return
         if first is None:
             first = 0 if self.is_collapsed() else (sizes[0] if sizes else self._last_width)
         if self.has_last_pane():
-            if last is None:
-                last = 0 if self.is_last_collapsed() else (sizes[-1] if sizes else self._last_pane_width)
             self.setSizes([first, max(1, total - first - last), last])
         else:
             self.setSizes([first, max(1, total - first)])
@@ -158,11 +173,12 @@ class CollapsibleSplitter(QSplitter):
     def _sync(self) -> None:
         sizes = self.sizes()
         collapsed = self.is_collapsed()
-        if not collapsed and sizes:
-            self._last_width = sizes[0]  # remember the user's chosen width
-        if self.count() >= 2:
-            self.handle(1).set_state(collapsed, True, self.first_label)
-        self.collapsed_changed.emit(collapsed)
+        if self._first_collapsible():
+            if not collapsed and sizes:
+                self._last_width = sizes[0]  # remember the user's chosen width
+            if self.count() >= 2:
+                self.handle(1).set_state(collapsed, True, self.first_label)
+            self.collapsed_changed.emit(collapsed)
         if self.has_last_pane():
             last_collapsed = self.is_last_collapsed()
             if not last_collapsed:

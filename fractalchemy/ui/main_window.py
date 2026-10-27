@@ -2,8 +2,8 @@
 
 Menus (File / Edit / View / Windows / Help), a toolbar, and a status bar showing the
 loaded fractal, render facts, the progressive pass counter and a progress bar. The
-Gradient Library and the Render Image window are separate tool windows opened from *Windows*
-or the toolbar.
+Gradient Library, the Script Editor and the Render Image window are separate tool windows opened
+from *Windows* or the toolbar.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import action_icon, gradient_icon, render_icon
+from ..widgets.icons import action_icon, gradient_icon, render_icon, script_icon
 from .background import run_in_background
 from .fractal_document import FractalDocument
 from .fractal_file_actions import FractalFileActions
@@ -83,6 +83,7 @@ class MainWindow(QMainWindow):
         self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
         self._formula_browser = None
         self._random_window = None
+        self._script_editor = None
         self._batch: list[Flame] = []          # generated fractals shown in the library's temporary area
         self._batch_showing: int | None = None
         self.files = FractalFileActions(self.document, self)
@@ -146,6 +147,8 @@ class MainWindow(QMainWindow):
         self.actionFormulas.triggered.connect(lambda: self.show_formulas())
         self.actionRandomBatch.setIcon(action_icon("random"))
         self.actionRandomBatch.triggered.connect(self.show_random_batch_window)
+        self.actionScriptEditor.setIcon(script_icon())
+        self.actionScriptEditor.triggered.connect(lambda: self.show_script_editor())
         self.actionAboutQt.triggered.connect(lambda: QMessageBox.aboutQt(self, f"About Qt — {config.APP_NAME}"))
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
@@ -258,6 +261,23 @@ class MainWindow(QMainWindow):
         self._random_window.raise_()
         self._random_window.activateWindow()
 
+    # --- script editor ------------------------------------------------------
+    @property
+    def script_editor(self):
+        """The Script Editor window (created on first use; hidden rather than destroyed when closed)."""
+        if self._script_editor is None:
+            from .script_editor_window import ScriptEditorWindow
+            self._script_editor = ScriptEditorWindow(self.document, self, self._settings)
+            self._script_editor.bind_viewport(self.viewport)
+        return self._script_editor
+
+    def show_script_editor(self, tab: str | None = None) -> None:
+        """Open (or raise) the Script Editor, optionally on one of its drawer tabs."""
+        editor = self.script_editor
+        editor.bring_to_front()
+        if tab:
+            editor.show_tab(tab)
+
     def show_random_batch(self, flames: list) -> None:
         """Put generated flames in the library's temporary area (under 'Randomly Generated') and show the first."""
         from .random_batch_window import BATCH_NAME
@@ -320,6 +340,7 @@ class MainWindow(QMainWindow):
         """Undo / redo / paste: everything may have changed."""
         flame = self.document.flame
         self.status.show_fractal(flame, self.document.source_path.name if self.document.source_path else "")
+        self.viewerBar.show_flame(flame)
         self.settingsPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
         self._update_title()
 
@@ -427,6 +448,11 @@ class MainWindow(QMainWindow):
         if not self.render_window.confirm_quit():
             event.ignore()
             return
+        if self._script_editor is not None:
+            if self._script_editor.runner.running:
+                self._script_editor.stop()
+            self._script_editor.save_state()
+            self._script_editor.hide()
         self.gradient_library.close()
         self.render_window.hide()
         self.render_service.stop()

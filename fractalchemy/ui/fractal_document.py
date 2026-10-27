@@ -49,6 +49,7 @@ class FractalDocument(QObject):
         self._undo: list[tuple[str, Flame]] = []
         self._redo: list[Flame] = []
         self._last_edit: tuple[str, float] = ("", 0.0)
+        self._script_run: object = None   # the run whose undo step is already recorded (see apply_script)
 
     @property
     def flame(self) -> Flame | None:
@@ -156,6 +157,25 @@ class FractalDocument(QObject):
             return
         self._record("paste")
         self._last_edit = ("", 0.0)
+        self._flame = flame.copy()
+        self._set_modified(True)
+        self.flame_restored.emit()
+
+    def apply_script(self, flame: Flame, run: object = None) -> None:
+        """Take over a script's result (transforms, camera, colouring, palette), keeping the file link.
+
+        One undo step per script run: `run` identifies the run, so the intermediate `update()` calls of a
+        running script and its final result share the step recorded at its first call. Without a flame
+        loaded the result simply becomes the document's flame (no file).
+        """
+        if self._flame is None:
+            self.replace(flame)
+            self._set_modified(True)
+            return
+        if run is None or run is not self._script_run:
+            self._record("script")
+            self._last_edit = ("", 0.0)
+            self._script_run = run
         self._flame = flame.copy()
         self._set_modified(True)
         self.flame_restored.emit()

@@ -85,6 +85,7 @@ class FractalViewport(QWidget):
         document.palette_changed.connect(self._render_interactive)
         document.coloring_changed.connect(self._render_interactive)
         document.image_size_changed.connect(self._on_image_size_changed)
+        document.flame_restored.connect(self._on_flame_restored)
         service.pass_done.connect(self._on_pass)
         service.job_failed.connect(self._on_failed)
 
@@ -227,6 +228,13 @@ class FractalViewport(QWidget):
     def _on_flame_replaced(self) -> None:
         self._clear_image()
         self._zoom = None
+        self._layout()
+        self.view_changed.emit(self.zoom(), self.fit_zoom())
+        self.update()
+        self._render_full()
+
+    def _on_flame_restored(self) -> None:
+        """Undo / redo / paste / a script: anything may have changed, the framing included; the old picture stays until the new one lands."""
         self._layout()
         self.view_changed.emit(self.zoom(), self.fit_zoom())
         self.update()
