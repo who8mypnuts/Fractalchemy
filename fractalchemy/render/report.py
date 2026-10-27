@@ -213,8 +213,12 @@ def _output_section(s: FinalRenderSettings, r: FinalResult, image_path, sidecar,
     sec.add("height", "Height", s.height, f"{s.height:,} px")
     sec.add("megapixels", "Megapixels", round(s.width * s.height / 1e6, 3), f"{s.width * s.height / 1e6:.2f} Mpx")
     sec.add("aspect_ratio", "Aspect ratio", round(s.width / max(1, s.height), 6), _gcd_aspect(s.width, s.height))
-    depth = s.depth if fmt.depth16 else 8
-    sec.add("bits_per_channel", "Bits per channel", depth)
+    if fmt.float_channels:
+        depth = 32 if s.depth >= 32 else 16
+        sec.add("bits_per_channel", "Bits per channel", depth, f"{depth}-bit {'half ' if depth == 16 else ''}float, linear light")
+    else:
+        depth = s.depth if fmt.depth16 and s.depth >= 16 else 8
+        sec.add("bits_per_channel", "Bits per channel", min(depth, 16))
     sec.add("transparent", "Transparent background", bool(s.transparent and fmt.alpha))
     if fmt.lossy:
         lossless = bool(s.lossless and fmt.lossless_option)
@@ -261,6 +265,8 @@ def _render_section(s: FinalRenderSettings, r: FinalResult) -> Section:
     sec.add("memory_limit_mb", "Memory limit setting", s.memory_limit_mb, f"{s.memory_limit_mb} MB" if s.memory_limit_mb else "automatic")
     budget = memory_budget_bytes(s)
     sec.add("memory_budget_bytes", "Histogram memory budget", budget, human_bytes(budget))
+    if r.engine.startswith("GPU"):
+        sec.add("gpu_memory_mb", "GPU tile memory setting", s.gpu_memory_mb, f"{s.gpu_memory_mb} MB" if s.gpu_memory_mb else "automatic (1 GB)")
     plan = r.plan
     if plan is not None:
         columns = len({t.x0 for t in plan.tiles})

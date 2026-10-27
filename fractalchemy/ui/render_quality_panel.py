@@ -40,6 +40,7 @@ class QualityPanel(QGroupBox):
         self.engine = QComboBox(self)
         self.threads = QSpinBox(self)
         self.memory = QSpinBox(self)
+        self.gpu_memory = QSpinBox(self)
         self._build()
 
     def _build(self) -> None:
@@ -81,12 +82,18 @@ class QualityPanel(QGroupBox):
         self.threads.setRange(0, 256)
         self.threads.setSpecialValueText("all cores")
         self.threads.setToolTip("CPU worker processes (0 = every core)")
-        self.memory.setRange(0, 1 << 20)
+        self.memory.setRange(0, 1 << 24)
         self.memory.setSuffix(" MB")
         self.memory.setSpecialValueText("auto (half of RAM)")
-        self.memory.setSingleStep(256)
-        self.memory.setToolTip("Histogram memory budget; bigger images are rendered in tiles to stay within it")
-        for box in (self.oversample, self.radius, self.de_max, self.de_min, self.de_curve, self.threads, self.memory):
+        self.memory.setSingleStep(1024)
+        self.memory.setToolTip("Histogram memory budget (no fixed ceiling: default is half of installed RAM); bigger images "
+                               "are rendered in tiles to stay within it")
+        self.gpu_memory.setRange(0, 1 << 24)
+        self.gpu_memory.setSuffix(" MB")
+        self.gpu_memory.setSpecialValueText("auto (1 GB)")
+        self.gpu_memory.setSingleStep(512)
+        self.gpu_memory.setToolTip("Largest tile texture on the GPU; raise it on cards with plenty of memory to render in fewer tiles")
+        for box in (self.oversample, self.radius, self.de_max, self.de_min, self.de_curve, self.threads, self.memory, self.gpu_memory):
             box.setKeyboardTracking(False)
         self._layout()
         self._connect()
@@ -114,11 +121,12 @@ class QualityPanel(QGroupBox):
             de.addWidget(box, 1)
         form.addRow("", self.de_row)
         form.addRow("Engine", self.engine)
+        form.addRow("Workers", self.threads)
         row = QHBoxLayout()
-        row.addWidget(self.threads)
-        row.addWidget(QLabel("Memory limit", self))
         row.addWidget(self.memory, 1)
-        form.addRow("Workers", row)
+        row.addWidget(QLabel("GPU", self))
+        row.addWidget(self.gpu_memory, 1)
+        form.addRow("Memory limit", row)
 
     def _connect(self) -> None:
         self.density.currentTextChanged.connect(self._emit)
@@ -127,7 +135,7 @@ class QualityPanel(QGroupBox):
         self.radius.valueChanged.connect(self._emit)
         self.denoiser.currentIndexChanged.connect(self._on_denoiser_changed)
         self.strength.valueChanged.connect(self._on_strength)
-        for box in (self.de_max, self.de_min, self.de_curve, self.threads, self.memory):
+        for box in (self.de_max, self.de_min, self.de_curve, self.threads, self.memory, self.gpu_memory):
             box.valueChanged.connect(self._emit)
         self.engine.currentIndexChanged.connect(self._emit)
 
@@ -135,8 +143,9 @@ class QualityPanel(QGroupBox):
     def apply(self, s: FinalRenderSettings) -> None:
         """Show the settings' values (no signal)."""
         self.blockSignals(True)
-        for widget in (self.density, self.oversample, self.filter_box, self.radius, self.denoiser, self.strength,
-                       self.de_max, self.de_min, self.de_curve, self.engine, self.threads, self.memory):
+        widgets = (self.density, self.oversample, self.filter_box, self.radius, self.denoiser, self.strength,
+                   self.de_max, self.de_min, self.de_curve, self.engine, self.threads, self.memory, self.gpu_memory)
+        for widget in widgets:
             widget.blockSignals(True)
         self.density.setEditText(f"{s.quality:g}")
         self.oversample.setValue(s.oversample)
@@ -150,8 +159,8 @@ class QualityPanel(QGroupBox):
         self.engine.setCurrentIndex(max(0, self.engine.findData(s.engine)))
         self.threads.setValue(s.cpu_threads)
         self.memory.setValue(s.memory_limit_mb)
-        for widget in (self.density, self.oversample, self.filter_box, self.radius, self.denoiser, self.strength,
-                       self.de_max, self.de_min, self.de_curve, self.engine, self.threads, self.memory):
+        self.gpu_memory.setValue(s.gpu_memory_mb)
+        for widget in widgets:
             widget.blockSignals(False)
         self.blockSignals(False)
         self._refresh_dependent()
@@ -162,7 +171,7 @@ class QualityPanel(QGroupBox):
                        filter_radius=self.radius.value(), denoiser=self.denoiser.currentData(),
                        denoise_strength=float(self.strength.value()), de_max_radius=self.de_max.value(),
                        de_min_radius=self.de_min.value(), de_curve=self.de_curve.value(), engine=self.engine.currentData(),
-                       cpu_threads=self.threads.value(), memory_limit_mb=self.memory.value())
+                       cpu_threads=self.threads.value(), memory_limit_mb=self.memory.value(), gpu_memory_mb=self.gpu_memory.value())
 
     def quality(self) -> float:
         """The density typed or chosen (falls back to the first preset when unparsable)."""
@@ -193,6 +202,7 @@ class QualityPanel(QGroupBox):
         self.strength_value.setEnabled(image_space)
         self.strength_value.setText(str(self.strength.value()))
         self.threads.setEnabled(self.engine.currentData() != "gpu")
+        self.gpu_memory.setEnabled(self.engine.currentData() != "cpu")
 
     def _emit(self, *_args) -> None:
         self._refresh_dependent()

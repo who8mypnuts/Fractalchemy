@@ -108,8 +108,11 @@ window hides it — the render carries on; quitting asks first.
   exact at deep zooms). **Memory limit**: the histogram budget; larger images are rendered in tiles
   (Apophysis's "slices": every tile runs the full chaos game, so the plan line tells you the cost).
 * **Output** — file and format: PNG (8 / 16-bit), JPEG, TIFF (8 / 16-bit), WebP, BMP, AVIF, HEIF, JPEG XL
-  (the last three when their encoders are installed), SVG (the render embedded as PNG). Options greyed out when
-  the format cannot use them: bit depth, quality / lossless, **transparent background**. *Save parameters*
+  (the last three when their encoders are installed), **OpenEXR** (16-bit half or 32-bit float, linear light with
+  premultiplied alpha, ZIP-compressed; the header carries the flame's name, source, camera, colouring, engine, sample
+  count, render time, tile count, the full settings as JSON and the parameters XML, plus `comments` / `capDate` /
+  `writer` for other DCCs), SVG (the render embedded as PNG). Options greyed out when the format cannot use them:
+  bit depth, quality / lossless, **transparent background**. *Save parameters*
   writes a `.flame` beside the image; *Embed parameters* stores them in the file (PNG text chunk, JPEG comment,
   TIFF description, EXIF comment elsewhere); *Save incomplete renders* keeps what was done when you stop.
   *Save fractal and render details* (off by default) writes a report beside the image — `name.md`, `name.txt`
@@ -223,7 +226,7 @@ fractalchemy/
                         the final renderer: final_settings (options, tile plan), filters (reconstruction filters,
                         density estimation), denoise, samplers (+ cpu_workers: shared-memory worker processes),
                         final_engine (tiles → filter → tone map → denoise), output (formats, 16-bit PNG / TIFF,
-                        SVG, metadata), report (fractal + render details in md / txt / html),
+                        OpenEXR via exr.py, SVG, metadata), report (fractal + render details in md / txt / html),
                         final_service (FinalRenderJob thread)
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits

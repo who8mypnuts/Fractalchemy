@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QSettings
 
+from fractalchemy.render.final_settings import FinalRenderSettings
 from fractalchemy.render.output import read_embedded_parameters
 from fractalchemy.ui.fractal_document import FractalDocument
 from fractalchemy.ui.render_output_panel import OutputPanel
@@ -66,6 +67,14 @@ def test_output_panel_keeps_format_and_extension_in_step(qapp, tmp_path):
     assert panel.lossless.isEnabled()
     panel.lossless.setChecked(True)
     assert not panel.quality.isEnabled()
+    panel.format_box.setCurrentIndex(panel.format_box.findData("png"))
+    panel.depth.setCurrentIndex(panel.depth.findData(16))
+    panel.format_box.setCurrentIndex(panel.format_box.findData("exr"))
+    assert panel.path.text().endswith(".exr") and panel.depth.currentData() == 16 and "half" in panel.depth.currentText()
+    panel.depth.setCurrentIndex(panel.depth.findData(32))
+    assert panel.read(FinalRenderSettings()).depth == 32 and panel.transparent.isEnabled()
+    panel.format_box.setCurrentIndex(panel.format_box.findData("png"))
+    assert panel.depth.currentData() == 16 and "bits per channel" in panel.depth.currentText()
     assert not panel.save_details.isChecked() and not panel.details_format.isEnabled()     # off by default
     panel.save_details.setChecked(True)
     assert panel.details_format.isEnabled() and panel.details_format.currentData() == "md"

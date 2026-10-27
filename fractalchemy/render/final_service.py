@@ -14,8 +14,10 @@ later edits never leak into a running render.
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -143,9 +145,41 @@ class FinalRenderJob(QThread):
         path = Path(s.output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         options = SaveOptions(depth=s.depth, transparent=s.transparent, quality=s.lossy_quality, lossless=s.lossless,
-                              parameters=parameters_text(self.flame) if s.embed_parameters else "")
+                              parameters=parameters_text(self.flame) if s.embed_parameters else "",
+                              attributes=self._attributes(result))
         save_image(result.image, path, output_format(s.output_format), options)
         return path
+
+    def _attributes(self, result: FinalResult) -> dict[str, str]:
+        """Render facts for formats with free-form metadata (OpenEXR): standard keys plus a `fractalchemy:` set."""
+        s = self.settings
+        finished = datetime.fromtimestamp(result.finished_at or time.time()).astimezone()
+        offset = finished.utcoffset()
+        cam = self.flame.camera
+        attributes = {
+            "comments": f"{self.flame.name} — rendered by {self.flame.source_version or 'Fractalchemy'} at {s.quality:g} samples/px, "
+                        f"oversample {s.oversample}, {result.engine}",
+            "capDate": finished.strftime("%Y:%m:%d %H:%M:%S"),
+            "utcOffset": f"{-offset.total_seconds() + 0.0:.0f}" if offset is not None else "0",   # OpenEXR: seconds *behind* UTC
+            "fractalchemy:name": self.flame.name,
+            "fractalchemy:source": self.source,
+            "fractalchemy:engine": result.engine,
+            "fractalchemy:complete": "true" if result.complete else "false",
+            "fractalchemy:samples": str(result.samples),
+            "fractalchemy:samplesPerPixel": f"{result.samples / max(1, s.width * s.height):.3f}",
+            "fractalchemy:renderSeconds": f"{result.seconds:.3f}",
+            "fractalchemy:tiles": str(result.plan.count if result.plan else 1),
+            "fractalchemy:density": f"{s.quality:g}",
+            "fractalchemy:oversample": str(s.oversample),
+            "fractalchemy:filter": f"{s.filter_kind} radius {s.filter_radius:g}",
+            "fractalchemy:denoiser": s.denoiser,
+            "fractalchemy:camera": f"center {cam.center[0] + 0.0:g} {cam.center[1] + 0.0:g} scale {cam.scale:g} "
+                                   f"zoom {cam.zoom + 0.0:g} rotate {cam.rotate + 0.0:g}",
+            "fractalchemy:coloring": f"brightness {self.flame.coloring.brightness:g} gamma {self.flame.coloring.gamma:g} "
+                                     f"vibrancy {self.flame.coloring.vibrancy:g} contrast {self.flame.coloring.contrast:g}",
+            "fractalchemy:settings": json.dumps(s.to_dict(), sort_keys=True),
+        }
+        return attributes
 
 
 __all__ = ["FinalRenderJob", "FinalOutcome"]

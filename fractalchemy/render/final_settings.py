@@ -31,7 +31,7 @@ MAX_DIMENSION = 1 << 20           # 1,048,576 px per side; memory and disk are t
 CPU_BYTES_PER_BUCKET = 32 + 16    # float64 RGBA histogram + float32 log-scaled copy for filtering
 GPU_BYTES_PER_BUCKET = 32 + 16 + 16   # master + readback copy + filter copy (the texture lives on the GPU)
 GPU_TEXTURE_BYTES_PER_BUCKET = 16
-GPU_MAX_BUCKETS = 24_000_000      # 384 MB of RGBA32F: safe on weak / shared-memory GPUs
+DEFAULT_GPU_MEMORY_MB = 1024      # RGBA32F tile texture budget when none is set: fine on any discrete GPU
 DEFAULT_MEMORY_FRACTION = 0.5     # of physical RAM, when no limit is set
 
 
@@ -51,6 +51,7 @@ class FinalRenderSettings:
         engine: "auto" / "gpu" / "cpu".
         cpu_threads: Worker threads for the CPU engine (0 = every core).
         memory_limit_mb: Histogram memory budget deciding the tile split (0 = half of physical RAM).
+        gpu_memory_mb: Largest tile texture on the GPU (0 = 1 GB); raise it on big cards to render in fewer tiles.
         transparent: Render the background as transparency (alpha-capable formats only).
         depth: Bits per channel in the file: 8 or 16 (PNG / TIFF).
         output_path: Destination file ("" = not chosen yet).
@@ -79,6 +80,7 @@ class FinalRenderSettings:
     engine: str = ENGINE_AUTO
     cpu_threads: int = 0
     memory_limit_mb: int = 0
+    gpu_memory_mb: int = 0
     transparent: bool = False
     depth: int = 8
     output_path: str = ""
@@ -186,10 +188,15 @@ def physical_memory_bytes() -> int:
 
 
 def memory_budget_bytes(settings: FinalRenderSettings) -> int:
-    """The histogram memory a render may use: the explicit limit, else half of physical RAM."""
+    """The histogram memory a render may use: the explicit limit, else half of physical RAM (no fixed ceiling)."""
     if settings.memory_limit_mb > 0:
         return int(settings.memory_limit_mb) << 20
     return int(physical_memory_bytes() * DEFAULT_MEMORY_FRACTION)
+
+
+def gpu_budget_bytes(settings: FinalRenderSettings) -> int:
+    """Texture memory one GPU tile may use."""
+    return int(settings.gpu_memory_mb or DEFAULT_GPU_MEMORY_MB) << 20
 
 
 @dataclass(frozen=True)
@@ -270,7 +277,7 @@ def plan_tiles(settings: FinalRenderSettings, gpu: bool = False, max_texture: in
     budget = memory_budget_bytes(settings) if budget_bytes is None else budget_bytes
     max_buckets = max(os_ * os_, budget // bytes_per_bucket)
     if gpu:
-        max_buckets = min(max_buckets, GPU_MAX_BUCKETS)
+        max_buckets = min(max_buckets, max(os_ * os_, gpu_budget_bytes(settings) // GPU_TEXTURE_BYTES_PER_BUCKET))
     max_side = max(os_, (max_texture if gpu else 1 << 30) - 2 * gutter)
     columns = _split(bucket_w, os_, max_side)
     padded_w = max(w for _, w in columns) + 2 * gutter
@@ -297,15 +304,20 @@ def _split(length: int, os_: int, max_len: int) -> list[tuple[int, int]]:
 
 def describe_plan(settings: FinalRenderSettings, plan: TilePlan) -> str:
     """A sentence for the Render window about memory and tiling."""
-    peak = plan.peak_bytes / (1 << 20)
-    output_mb = settings.width * settings.height * 8 / (1 << 20)
-    total = f"{peak:,.0f} MB for the histogram + {output_mb:,.0f} MB for the image"
+    peak = _mb_text(plan.peak_bytes)
+    output = _mb_text(settings.width * settings.height * 8)
     if plan.count == 1:
-        return f"One tile: {total}."
-    return (f"{plan.count} tiles (≤ {peak:,.0f} MB each, + {output_mb:,.0f} MB for the image): every tile runs the full "
-            f"chaos game, so this render costs {plan.count}× the iterations of a single tile. Raise the memory limit "
+        return f"One tile: {peak} for the histogram + {output} for the image."
+    limit = "GPU memory or the memory limit" if plan.bytes_per_bucket == GPU_BYTES_PER_BUCKET else "memory limit"
+    return (f"{plan.count} tiles (≤ {peak} each, + {output} for the image): every tile runs the full "
+            f"chaos game, so this render costs {plan.count}× the iterations of a single tile. Raise the {limit} "
             f"to use fewer tiles.")
 
 
+def _mb_text(n: int) -> str:
+    return f"{n / (1 << 30):,.1f} GB" if n >= (1 << 30) else f"{n / (1 << 20):,.0f} MB"
+
+
 __all__ = ["FinalRenderSettings", "ENGINES", "ENGINE_AUTO", "ENGINE_GPU", "ENGINE_CPU", "DENSITY_PRESETS", "MAX_OVERSAMPLE",
-           "MAX_DIMENSION", "Tile", "TilePlan", "plan_tiles", "describe_plan", "memory_budget_bytes", "physical_memory_bytes"]
+           "MAX_DIMENSION", "Tile", "TilePlan", "plan_tiles", "describe_plan", "memory_budget_bytes", "gpu_budget_bytes",
+           "physical_memory_bytes"]

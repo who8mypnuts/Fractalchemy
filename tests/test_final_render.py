@@ -170,6 +170,32 @@ def test_every_available_format_writes_and_png16_is_exact(tmp_path):
         assert im.size == (13, 9) and im.mode == "RGB"
 
 
+def test_exr_is_linear_premultiplied_and_carries_metadata(tmp_path):
+    from fractalchemy.render.exr import read_exr_attributes, srgb_to_linear, write_exr
+    image = np.zeros((6, 8, 4), dtype=np.uint16)
+    image[..., 0] = 65535                # pure red …
+    image[..., 1] = 32768                # … half green (display value)
+    image[..., 3] = 32768                # 50 % alpha
+    path = tmp_path / "x.exr"
+    fmt = output_format("exr")
+    assert fmt.float_channels and fmt.depth16 and fmt.alpha
+    save_image(image, path, fmt, SaveOptions(depth=32, transparent=True, parameters="<flame name='e'/>",
+                                             attributes={"fractalchemy:samples": "123", "comments": "hi"}))
+    attrs = read_exr_attributes(path)
+    assert attrs["comments"] == "hi" and attrs["fractalchemy:samples"] == "123" and "premultiplied" in attrs["fractalchemy:alpha"]
+    assert read_embedded_parameters(path) == "<flame name='e'/>" and attrs["writer"].startswith("Fractalchemy")
+    pytest.importorskip("OpenEXR")
+    import OpenEXR
+    channels = OpenEXR.File(str(path), separate_channels=True).channels()
+    alpha = 32768 / 65535
+    assert channels["A"].pixels.dtype == np.float32 and channels["A"].pixels[0, 0] == pytest.approx(alpha)
+    assert channels["R"].pixels[0, 0] == pytest.approx(1.0 * alpha, abs=1e-6)                       # premultiplied
+    assert channels["G"].pixels[0, 0] == pytest.approx(float(srgb_to_linear(np.float32(alpha))) * alpha, abs=1e-6)  # linearised
+    half = tmp_path / "h.exr"
+    write_exr(half, {"R": np.full((3, 3), 0.25, np.float32)}, half=True)
+    assert OpenEXR.File(str(half), separate_channels=True).channels()["R"].pixels.dtype == np.float16
+
+
 def test_format_helpers_and_limits(tmp_path):
     assert format_for_path("a/b.JPG").key == "jpeg" and format_for_path("x.txt") is None
     assert with_extension("/p/name.jpg", output_format("png")) == "/p/name.png"

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, Q
                                QSpinBox, QWidget)
 
 from ..render.final_settings import FinalRenderSettings
-from ..render.output import FORMATS, format_for_path, output_format, with_extension
+from ..render.output import DEPTH_LABELS, FLOAT_DEPTH_LABELS, FORMATS, format_for_path, output_format, with_extension
 from ..render.report import REPORT_FORMATS
 
 
@@ -49,9 +49,8 @@ class OutputPanel(QGroupBox):
             self.format_box.addItem(f.label if f.available else f"{f.label} — not installed", f.key)
             if not f.available:
                 self.format_box.model().item(self.format_box.count() - 1).setEnabled(False)
-        self.depth.addItem("8 bits per channel", 8)
-        self.depth.addItem("16 bits per channel", 16)
-        self.depth.setToolTip("16-bit PNG / TIFF keep smooth gradients for later editing")
+        self._fill_depths(DEPTH_LABELS)
+        self.depth.setToolTip("16-bit PNG / TIFF keep smooth gradients for later editing; OpenEXR stores half or full floats")
         self.quality.setRange(1, 100)
         self.quality.setSuffix(" %")
         self.quality.setToolTip("Compression quality for lossy formats")
@@ -163,13 +162,27 @@ class OutputPanel(QGroupBox):
             self.path.setText(with_extension(self.path.text().strip(), fmt))
         self._emit()
 
+    def _fill_depths(self, labels: dict[int, str]) -> None:
+        """Offer the depths a format family has, keeping the current choice when it still exists."""
+        current = self.depth.currentData()
+        self.depth.blockSignals(True)
+        self.depth.clear()
+        for depth, label in labels.items():
+            self.depth.addItem(label, depth)
+        index = self.depth.findData(current)
+        self.depth.setCurrentIndex(index if index >= 0 else (self.depth.count() - 1 if current and current > max(labels) else 0))
+        self.depth.blockSignals(False)
+
     def _refresh_dependent(self) -> None:
         fmt = output_format(self.format_box.currentData())
+        labels = FLOAT_DEPTH_LABELS if fmt.float_channels else DEPTH_LABELS
+        if [self.depth.itemData(i) for i in range(self.depth.count())] != list(labels):
+            self._fill_depths(labels)
         self.depth.setEnabled(fmt.depth16)
         self.quality.setEnabled(fmt.lossy and not (fmt.lossless_option and self.lossless.isChecked()))
         self.lossless.setEnabled(fmt.lossless_option)
         self.transparent.setEnabled(fmt.alpha)
-        self.embed_parameters.setEnabled(fmt.key in ("png", "jpeg", "tiff", "svg", "webp", "avif", "heif", "jxl"))
+        self.embed_parameters.setEnabled(fmt.key in ("png", "jpeg", "tiff", "svg", "webp", "avif", "heif", "jxl", "exr"))
         self.details_format.setEnabled(self.save_details.isChecked())
 
     def _emit(self, *_args) -> None:

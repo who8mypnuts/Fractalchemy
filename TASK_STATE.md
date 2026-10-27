@@ -336,3 +336,11 @@ toolbar button (`render_icon()`: framed picture with a green go-badge; `link_ico
   `FinalRenderJob(..., source=)` writes `<image>.<ext>` after the image and sidecar; `FinalOutcome.report`;
   the result line links to it. OutputPanel: checkbox + format combo (combo enabled only when checked).
 - Tests: `test_report_is_complete_in_all_three_formats` (+ job / window coverage); suite 365 passed, pyflakes clean.
+- Memory audit: no Apophysis-style ceiling anywhere — budget defaults to half of physical RAM, the limit box goes to
+  16 TB, the image array is unbounded. The one fixed cap (384 MB GPU tile texture) became `gpu_memory_mb` (auto 1 GB;
+  "GPU" box beside the memory limit, reported in the details). Shared-memory allocation failures now say to lower the limit.
+- OpenEXR output: `render/exr.py` — dependency-free scanline writer (ZIP chunks with OpenEXR's interleave + delta
+  predictor, half or float channels, string attributes) verified bit-exact against the official `OpenEXR` package
+  (test skips without it). `output.py`: "exr" format (`float_channels`), linearised (inverse sRGB) and premultiplied
+  channels, attributes from `FinalRenderJob._attributes` (comments / capDate / utcOffset / writer + `fractalchemy:*`
+  facts + settings JSON + `flame` XML); `read_embedded_parameters` reads EXR; depth combo relabels to half / float.

@@ -114,7 +114,11 @@ class CpuSampler:
     def begin_tile(self, affine, width: int, height: int) -> None:
         """Allocate the tile's shared histogram and aim every worker at it."""
         self.end_tile()
-        self._histogram = cpu_workers.SharedHistogram(width, height, create=True)
+        try:
+            self._histogram = cpu_workers.SharedHistogram(width, height, create=True)
+        except OSError as exc:
+            raise RuntimeError(f"Could not allocate {4 * width * height * 8 / (1 << 30):.1f} GB of shared memory for a tile "
+                               f"({exc}); lower the memory limit so the image is rendered in smaller tiles") from exc
         for queue in self._commands:
             queue.put(("tile", self._histogram.name, width, height, tuple(float(v) for v in affine)))
         self._collect("ready")
