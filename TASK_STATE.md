@@ -59,8 +59,8 @@ formulas of Fractalchemy. Design and reference: **docs/formulas.md** (read it fi
    cache, errors), `test_variations.py` now runs every registered formula through both engines (one of twelve
    points may differ: float32 discontinuities), engine 3D/DC/pre-post tests, flame 3D attribute round trip,
    formula browser test, `test_info_panel.py` (6), `test_image_panel.py` (8: document setters, pan geometry,
-   FloatRow, panel ↔ document, save round trip, preview options, undo/paste, curves, file flows, opened-file area). **1370 passed** at
-   the last full run.
+   FloatRow, panel ↔ document, save round trip, preview options, undo/paste, curves, file flows, opened-file area), `test_random_batch.py` (6). **1376 passed** at the
+   last full run.
 
 Also fixed: the `.flame` reader treated `modulus` / `modulus_x` / `modulus_y` as transform attributes (a
 baseline assumption); they are the `modulus` plugin, which is now in the library — flames using it rendered
@@ -93,6 +93,15 @@ black before.
     the line, `LibraryWatcher.watch_file` + `loose_file_changed`, `LibraryController.show_file/rescan_open_file`
     (`rescan_containing` covers it), `MainWindow.open_file_path`; Save As into a file outside the library shows it there.
 
+11. **Random Batch** (`fractal/random_flame.py`: Apophysis `RandomFlame` recipes, `RandomVariation`, area /
+    equal weights, blow-up rejection, `frame_camera` from a short CPU iteration, random gradient via `reroll`;
+    `ui/random_batch_window.py`: registry list with check boxes, debounced filter, check/uncheck listed, count,
+    transform range, background generation, QSettings `random/*`). Generated flames live in memory:
+    `LibraryItem.virtual`, `LibraryModel.set_open_file(..., virtual=True)` / `open_file_is_virtual`,
+    `LibraryController.show_virtual`, `ThumbnailProvider.set_virtual`, `MainWindow.show_random_batch /
+    show_batch_entry` (heading "Randomly Generated" in the temporary area; context menu = Open only; no drag).
+    Icons: `action_icon("save-as")` (diskette + pencil), `action_icon("random")` (die).
+
 ## Known gaps / next steps
 * Not available (see `tools/apo_decompile.py --batch` report): DLL-only plugins with loops (tile, tile_hyp,
   tile_plane, hy2, disc2square, fibonacci_blur, bubbleT3D, pre/post_hexcrop, jac_cn/dn/sn/elk, swirl3sin,
@@ -103,6 +112,7 @@ black before.
   The decompiler would need structured loop reconstruction for the first group.
 * CPU speed of a few compiled formulas is low (crackle ~20 µs/point, eMod ~3 µs/point): both branches of every
   divergent `if` are evaluated; the GPU path is fine.
+* Random Batch has no symmetry options yet (Apophysis: bilateral / rotational); parameters stay at defaults.
 * The editor that lets users pick formulas and edit parameters (incl. the z / 3D variations such as
   `ztranslate`, `zscale`, `zcone`, `julia3D_power`, `curl3D_cz`) is the next feature; `Variation.param_info`
   (type, default, min/max, cyclic, non-zero) is ready for it, and `FormulaBrowser` shows the catalogue.

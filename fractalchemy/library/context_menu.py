@@ -29,6 +29,9 @@ class LibraryContextMenu:
         menu = QMenu(self._parent)
         if item is None:
             self._add(menu, "Refresh", self._controller.rescan_all)
+        elif item.virtual:   # generated, not on disk: open it, then save it from the main window
+            if item.opens_entry:
+                self._add(menu, "Open", lambda: self._open_item(item))
         else:
             self._populate(menu, item, selection if item in selection else [item])
         menu.exec(pos)

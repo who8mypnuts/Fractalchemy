@@ -47,7 +47,8 @@ def _gradient_pixmap(size: int) -> QPixmap:
 
 
 # --- the standard editing glyphs -----------------------------------------------------------------------------
-THEME_NAMES = {"undo": "edit-undo", "redo": "edit-redo", "copy": "edit-copy", "paste": "edit-paste", "save": "document-save"}
+THEME_NAMES = {"undo": "edit-undo", "redo": "edit-redo", "copy": "edit-copy", "paste": "edit-paste", "save": "document-save",
+               "save-as": "document-save-as", "random": "roll"}
 GLYPH_COLOR = QColor("#3b3b3b")
 GLYPH_ACCENT = QColor("#1e88e5")
 
@@ -85,15 +86,44 @@ def _glyph_pixmap(name: str, size: int) -> QPixmap:
         painter.drawRoundedRect(QRectF(5.5 * u, 1.5 * u, 5 * u, 3 * u), 0.8 * u, 0.8 * u)   # its clip
         painter.setBrush(QColor("#fafafa"))
         painter.drawRect(QRectF(4.5 * u, 6 * u, 7 * u, 7 * u))                          # the sheet
-    elif name == "save":
+    elif name in ("save", "save-as"):
         painter.setBrush(GLYPH_ACCENT)
         painter.drawRoundedRect(QRectF(2 * u, 2 * u, 12 * u, 12 * u), u, u)             # the diskette
         painter.setBrush(QColor("#fafafa"))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRect(QRectF(4.5 * u, 2.5 * u, 7 * u, 4 * u))
         painter.drawRect(QRectF(4 * u, 9 * u, 8 * u, 5 * u))
+        if name == "save-as":
+            _pencil(painter, u)
+    elif name == "random":
+        painter.setBrush(QColor("#fafafa"))
+        painter.drawRoundedRect(QRectF(2 * u, 2 * u, 12 * u, 12 * u), 2 * u, 2 * u)     # a die
+        painter.setBrush(GLYPH_COLOR)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for cx, cy in ((5, 5), (11, 5), (8, 8), (5, 11), (11, 11)):
+            painter.drawEllipse(QPointF(cx * u, cy * u), 1.3 * u, 1.3 * u)
     painter.end()
     return pixmap
+
+
+def _pencil(painter: QPainter, u: float) -> None:
+    """A small pencil over the bottom-right corner (the 'save as' marker), outlined in white for contrast."""
+    painter.save()
+    painter.translate(11.2 * u, 11.2 * u)
+    painter.rotate(-45)
+    body = QRectF(-1.6 * u, -5.2 * u, 3.2 * u, 7.4 * u)
+    painter.setPen(QPen(QColor("#ffffff"), max(1.0, 1.2 * u)))
+    painter.setBrush(QColor("#f4b400"))
+    painter.drawRect(body)
+    tip = [QPointF(-1.6 * u, 2.2 * u), QPointF(1.6 * u, 2.2 * u), QPointF(0.0, 4.6 * u)]
+    painter.setBrush(QColor("#f8e0b0"))
+    painter.drawPolygon(tip)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#e57373"))
+    painter.drawRect(QRectF(-1.6 * u, -5.2 * u, 3.2 * u, 1.6 * u))   # the eraser end
+    painter.setBrush(GLYPH_COLOR)
+    painter.drawPolygon([QPointF(-0.6 * u, 3.7 * u), QPointF(0.6 * u, 3.7 * u), QPointF(0.0, 4.6 * u)])   # the lead
+    painter.restore()
 
 
 def _curved_arrow(painter: QPainter, u: float, mirrored: bool) -> None:

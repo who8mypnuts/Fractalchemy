@@ -80,6 +80,9 @@ class MainWindow(QMainWindow):
         self.fractal_menu = LibraryContextMenu(self.fractal_library, self.open_item, self)
         self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
         self._formula_browser = None
+        self._random_window = None
+        self._batch: list[Flame] = []          # generated fractals shown in the library's temporary area
+        self._batch_showing: int | None = None
         self.files = FractalFileActions(self.document, self)
         self.gradient_library = GradientLibraryWindow(roots, self)
         self.gradient_link = GradientLink(self.document, self.gradient_library, self.viewport, self)
@@ -88,7 +91,8 @@ class MainWindow(QMainWindow):
         self.splitter.set_last_width(SETTINGS_PANE_WIDTH)
         for pane, stretch in ((0, 0), (1, 1), (2, 0)):   # window resizes go to the viewport, not the side panes
             self.splitter.setStretchFactor(pane, stretch)
-        self.settingsPanel.attach_settings(settings if settings is not None else QSettings())
+        self._settings = settings if settings is not None else QSettings()
+        self.settingsPanel.attach_settings(self._settings)
         self.settingsPanel.bind(self.document)
         self._connect_actions()
         self._connect_document()
@@ -104,7 +108,7 @@ class MainWindow(QMainWindow):
         self.actionOpenFractal.triggered.connect(self.open_file)
         self.actionSaveFractal.setIcon(action_icon("save"))
         self.actionSaveFractal.triggered.connect(self.files.save)
-        self.actionSaveAs.setIcon(action_icon("save"))
+        self.actionSaveAs.setIcon(action_icon("save-as"))
         self.actionSaveAs.setMenu(self.menuSaveAs)
         self.actionSaveAs.triggered.connect(self.files.save_as_new_file)
         save_as_button = self.toolBar.widgetForAction(self.actionSaveAs)
@@ -132,6 +136,8 @@ class MainWindow(QMainWindow):
         self.actionExit.triggered.connect(self.close)
         self.actionAbout.triggered.connect(self.about)
         self.actionFormulas.triggered.connect(lambda: self.show_formulas())
+        self.actionRandomBatch.setIcon(action_icon("random"))
+        self.actionRandomBatch.triggered.connect(self.show_random_batch_window)
         self.actionAboutQt.triggered.connect(lambda: QMessageBox.aboutQt(self, f"About Qt — {config.APP_NAME}"))
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
@@ -202,12 +208,20 @@ class MainWindow(QMainWindow):
 
     def open_file_path(self, path: Path) -> None:
         """Show `path` in the library's temporary area (browsable like any file) and load its first flame."""
+        self._forget_batch()
         self.fractal_library.show_file(path)
         self.open_path(path, 0)
 
+    def _forget_batch(self) -> None:
+        self._batch = []
+        self._batch_showing = None
+        self.thumbnails.set_virtual(None)
+
     def open_item(self, item: LibraryItem) -> None:
-        """Show the flame a library row refers to."""
-        if not self.document.is_showing(item.path, item.index):
+        """Show the flame a library row refers to (generated ones come from memory)."""
+        if item.virtual:
+            self.show_batch_entry(item.index)
+        elif not self.document.is_showing(item.path, item.index):
             self.open_path(item.path, item.index)
 
     def open_path(self, path: Path, index: int = 0) -> None:
@@ -219,9 +233,43 @@ class MainWindow(QMainWindow):
 
     def show_flame(self, flame: Flame) -> None:
         """Show a flame that did not come from a file."""
+        self._batch_showing = None
         self.document.replace(flame)
 
+    # --- random batch -------------------------------------------------------
+    def show_random_batch_window(self) -> None:
+        """Open (or raise) the Random Batch window."""
+        if self._random_window is None:
+            from .random_batch_window import RandomBatchWindow
+            self._random_window = RandomBatchWindow(self, self._settings)
+            self._random_window.batch_ready.connect(self.show_random_batch)
+            self._random_window.status.connect(self._message)
+        else:
+            self._random_window.populate()   # formulas added meanwhile
+        self._random_window.show()
+        self._random_window.raise_()
+        self._random_window.activateWindow()
+
+    def show_random_batch(self, flames: list) -> None:
+        """Put generated flames in the library's temporary area (under 'Randomly Generated') and show the first."""
+        from .random_batch_window import BATCH_NAME
+        self._batch = [f.copy() for f in flames]
+        self._batch_showing = None
+        self.thumbnails.set_virtual(Path(BATCH_NAME), self._batch)
+        self.fractal_library.show_virtual(BATCH_NAME, [f.name for f in self._batch])
+        if self._batch:
+            self.show_batch_entry(0)
+
+    def show_batch_entry(self, index: int) -> None:
+        """Show generated flame `index` (kept in memory; Save writes it to a file of your choosing)."""
+        if not 0 <= index < len(self._batch) or self._batch_showing == index:
+            return
+        self._batch_showing = index
+        self.document.replace(self._batch[index])
+        self._message(f"Showing generated fractal {index + 1} of {len(self._batch)} — not saved yet")
+
     def _loaded(self, flame: Flame, path: Path, index: int) -> None:
+        self._batch_showing = None
         self.document.replace(flame, path, index)
         self._message(f"Loaded '{flame.name}' from {path.name}")
 
@@ -246,10 +294,10 @@ class MainWindow(QMainWindow):
 
     def _on_fractal_written(self, path: Path, _index: int) -> None:
         library = self.fractal_library
-        if library.root_of(path) is None and library.open_file != path:
+        if library.root_of(path) is None and library.open_file != path and not self._batch:
             library.show_file(path)       # a new file outside the library: browse it from the temporary area
         else:
-            library.rescan_containing(path)
+            library.rescan_containing(path)   # (a generated batch stays on show so the rest can be saved too)
         self._on_flame_replaced()   # the source (file, entry) changed: status bar, Info tab, title
 
     def _on_modified_changed(self, modified: bool) -> None:

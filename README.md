@@ -27,7 +27,8 @@ python -m pytest
   *Windows* (Gradient Library `F6`), *Help* (Formulas…, About).
 * Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
   **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
-  (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Gradient Library**.
+  (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Gradient Library**,
+  **Random Batch** (`F7`).
   Nothing is ever written unless you save: edits only change the preview, the title shows `*`, and Save / Save As
   let you keep as many versions as you like.
 * **Fractal Library** (left pane, collapsible via the divider arrow or `Ctrl+L`): folders of `.flame`
@@ -116,6 +117,18 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
 | `.flame` (Apophysis / flam3) | ✓ | many | ✓ | ✓ (in-place text edits; unknown data survives) |
 | `.fa` (Fractalchemy, JSON) | ✓ | many | ✓ | ✓ |
 | `.chaos` (Chaotica) | ✓ | many | ✓ | – |
+
+### Random Batch window
+*Windows ▸ Random Batch…* (`F7`, the die on the toolbar) generates random fractals the way Apophysis's random
+batch does: a list of **every loaded variation** — built-ins, bundled plugins and your own formulas — each with
+a check box (filter box with debounce, *Check all* / *Uncheck all* acting on what is listed), the number of
+fractals to make and the transform range. Each fractal gets 2–5 transforms from Apophysis's affine recipes,
+two of the checked variations with complementary weights per transform, area-based or equal weights, a
+random gradient, and is framed automatically; systems that blow up are rolled again. The result is **not
+saved**: it appears in the library's temporary area under the heading **Randomly Generated** (replacing an
+opened file there), browsable with thumbnails like any file. Open one, adjust it, and *Save* / *Save As* put it
+in a file of your choosing — the batch stays on show so you can keep the others too. Your checks, count and
+range persist; a formula you add later starts out checked.
 
 ### Gradient Library window
 Its own *File* (Open, Save, Save As, Close Window), *Edit* (Edit Library…) and *View* (Show/Hide

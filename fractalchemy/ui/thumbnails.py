@@ -8,6 +8,7 @@ and a background load + render is started. Results are cached in memory keyed by
 from __future__ import annotations
 
 from collections import OrderedDict
+from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QObject, QSize, Signal
@@ -42,6 +43,8 @@ class ThumbnailProvider(QObject):
         self._enabled = False
         self._size = QSize(*config.THUMBNAIL_SIZE)
         self._placeholder = _placeholder(self._size)
+        self._virtual: dict[Path, tuple[int, list]] = {}   # path of in-memory entries -> (batch id, flames)
+        self._virtual_id = 0
         service.pass_done.connect(self._on_pass)
         service.job_failed.connect(self._on_failed)
 
@@ -61,6 +64,11 @@ class ThumbnailProvider(QObject):
             self._service.cancel_where(lambda key: isinstance(key, tuple) and key[0] == "thumb")
             self._pending.clear()
 
+    def set_virtual(self, path: Path | None, flames: list | None = None) -> None:
+        """Serve thumbnails for in-memory `flames` listed under `path` (None forgets every virtual source)."""
+        self._virtual_id += 1
+        self._virtual = {} if path is None or flames is None else {Path(path): (self._virtual_id, list(flames))}
+
     def icon_for(self, item: LibraryItem) -> QIcon | None:
         """Cached thumbnail, or a placeholder after scheduling a render."""
         key = self._key(item)
@@ -72,9 +80,16 @@ class ThumbnailProvider(QObject):
             return icon
         if key not in self._pending:
             self._pending[key] = item
-            run_in_background(load_flame, item.path, item.index,
-                              on_done=lambda flame, k=key: self._render(k, flame),
-                              on_error=lambda exc, k=key: self._pending.pop(k, None))
+            virtual = self._virtual.get(item.path)
+            if virtual is not None:
+                if 0 <= item.index < len(virtual[1]):
+                    self._render(key, virtual[1][item.index])
+                else:
+                    self._pending.pop(key, None)
+            else:
+                run_in_background(load_flame, item.path, item.index,
+                                  on_done=lambda flame, k=key: self._render(k, flame),
+                                  on_error=lambda exc, k=key: self._pending.pop(k, None))
         return self._placeholder
 
     def cached(self, item: LibraryItem) -> QIcon | None:
@@ -83,6 +98,9 @@ class ThumbnailProvider(QObject):
 
     # --- internals ----------------------------------------------------------
     def _key(self, item: LibraryItem) -> tuple | None:
+        virtual = self._virtual.get(item.path)
+        if virtual is not None:
+            return (item.path, item.index, -virtual[0])
         try:
             mtime = item.path.stat().st_mtime_ns
         except OSError:

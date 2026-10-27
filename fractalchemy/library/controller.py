@@ -20,7 +20,7 @@ from .items import Kind, LibraryItem
 from .model import LibraryModel
 from .payload import from_mime, to_mime
 from .roots import LibraryRoots
-from .scanner import ScannedDir, scan_directory, scan_file
+from .scanner import ScannedDir, ScannedFile, scan_directory, scan_file
 from .watcher import LibraryWatcher
 
 
@@ -90,6 +90,13 @@ class LibraryController(QObject):
     def open_file(self) -> Path | None:
         return self.model.open_file
 
+    def show_virtual(self, name: str, entry_names: list[str]) -> None:
+        """Show in-memory entries (a generated batch) in the temporary area under the heading `name`."""
+        self._open_generation += 1
+        self.model.set_open_file(ScannedFile(Path(name), list(entry_names)), virtual=True)
+        self.watcher.watch_file(None)
+        self.root_scanned.emit(Path(name))
+
     def show_file(self, path: Path | None) -> None:
         """Show `path` in the temporary area at the top of the tree (replacing whatever was there); None clears it."""
         self._open_generation += 1
@@ -104,7 +111,7 @@ class LibraryController(QObject):
                           on_error=lambda exc: self._scan_failed(Path(path), exc))
 
     def rescan_open_file(self) -> None:
-        if self.open_file is not None:
+        if self.open_file is not None and not self.model.open_file_is_virtual:
             self.show_file(self.open_file)
 
     def _apply_open_scan(self, path: Path, scanned, generation: int) -> None:

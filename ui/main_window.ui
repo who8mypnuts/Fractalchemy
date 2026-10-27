@@ -100,6 +100,7 @@
      <string>Windows</string>
     </property>
     <addaction name="actionGradientLibrary"/>
+    <addaction name="actionRandomBatch"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -149,6 +150,7 @@
    <addaction name="actionPasteParameters"/>
    <addaction name="separator"/>
    <addaction name="actionGradientLibrary"/>
+   <addaction name="actionRandomBatch"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionOpenFractal">
@@ -181,6 +183,12 @@
   <action name="actionSaveAsIntoFile">
    <property name="text"><string>Into Existing File…</string></property>
    <property name="statusTip"><string>Append the fractal to another .flame or .fa file</string></property>
+  </action>
+  <action name="actionRandomBatch">
+   <property name="text"><string>Random Batch…</string></property>
+   <property name="toolTip"><string>Random Batch: generate random fractals from chosen variations (F7)</string></property>
+   <property name="shortcut"><string>F7</string></property>
+   <property name="statusTip"><string>Open the Random Batch window</string></property>
   </action>
   <action name="actionUndo">
    <property name="text"><string>Undo</string></property>

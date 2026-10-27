@@ -88,8 +88,16 @@ class LibraryModel(QStandardItemModel):
         first = self.item(0).data(ITEM_ROLE) if self.rowCount() else None
         return first.path if first is not None and first.temporary else None
 
-    def set_open_file(self, scanned: ScannedFile | None) -> None:
-        """Show `scanned` (or nothing) in the temporary area at the top, above a separator line."""
+    @property
+    def open_file_is_virtual(self) -> bool:
+        first = self.item(0).data(ITEM_ROLE) if self.rowCount() else None
+        return bool(first is not None and first.temporary and first.virtual)
+
+    def set_open_file(self, scanned: ScannedFile | None, virtual: bool = False) -> None:
+        """Show `scanned` (or nothing) in the temporary area at the top, above a separator line.
+
+        `virtual` marks entries that live in memory rather than in a file (a generated batch).
+        """
         while self.rowCount():
             data = self.item(0).data(ITEM_ROLE)
             if data.kind != Kind.SEPARATOR and not data.temporary:
@@ -102,8 +110,8 @@ class LibraryModel(QStandardItemModel):
             separator.setFlags(Qt.ItemFlag.NoItemFlags)
             separator.setSelectable(False)
             self.insertRow(0, separator)
-            item = self._build_file(scanned, temporary=True)
-            item.setToolTip(f"Opened file (not in a library folder)\n{scanned.path}")
+            item = self._build_file(scanned, temporary=True, virtual=virtual)
+            item.setToolTip("Generated fractals (not saved)" if virtual else f"Opened file (not in a library folder)\n{scanned.path}")
             self.insertRow(0, item)
         self._reindex()
 
@@ -177,22 +185,28 @@ class LibraryModel(QStandardItemModel):
             item.appendRow(self._build_file(file))
         return item
 
-    def _build_file(self, scanned: ScannedFile, temporary: bool = False) -> QStandardItem:
-        item = self._make_item(LibraryItem(Kind.FILE, scanned.path, name=scanned.path.name, temporary=temporary), self._icons.file)
+    def _build_file(self, scanned: ScannedFile, temporary: bool = False, virtual: bool = False) -> QStandardItem:
+        item = self._make_item(LibraryItem(Kind.FILE, scanned.path, name=scanned.path.name, temporary=temporary, virtual=virtual),
+                               self._icons.file)
         item.setData(" ".join([scanned.path.name, *scanned.names]), SEARCH_ROLE)
         item.setToolTip(str(scanned.path))
-        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled
-        if self._accepts_entries(scanned.path):
-            flags |= Qt.ItemFlag.ItemIsDropEnabled
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if not virtual:
+            flags |= Qt.ItemFlag.ItemIsDragEnabled
+            if self._accepts_entries(scanned.path):
+                flags |= Qt.ItemFlag.ItemIsDropEnabled
         item.setFlags(flags)
-        if scanned.multi:
+        if scanned.multi or virtual:
             for i, name in enumerate(scanned.names):
-                item.appendRow(self._build_entry(scanned.path, i, name, temporary))
+                item.appendRow(self._build_entry(scanned.path, i, name, temporary, virtual))
         return item
 
-    def _build_entry(self, path: Path, index: int, name: str, temporary: bool = False) -> QStandardItem:
-        item = self._make_item(LibraryItem(Kind.ENTRY, path, index, name, temporary), self._icons.entry)
-        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled)
+    def _build_entry(self, path: Path, index: int, name: str, temporary: bool = False, virtual: bool = False) -> QStandardItem:
+        item = self._make_item(LibraryItem(Kind.ENTRY, path, index, name, temporary, virtual), self._icons.entry)
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if not virtual:
+            flags |= Qt.ItemFlag.ItemIsDragEnabled
+        item.setFlags(flags)
         return item
 
     def _make_item(self, data: LibraryItem, icon) -> QStandardItem:
