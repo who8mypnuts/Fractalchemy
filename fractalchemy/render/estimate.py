@@ -9,9 +9,13 @@ Render window's wording can be tested directly.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 
 from .final_settings import ENGINE_CPU, FinalRenderSettings
 from .units import format_rate, format_seconds
+
+
+RateHint = Callable[[], "tuple[str, float] | None"]   # returns (preview engine name, samples / s), or None
 
 
 @dataclass
@@ -61,4 +65,4 @@ def engine_kind(settings: FinalRenderSettings, gpu_available: bool) -> str:
     return "gpu" if settings.engine != ENGINE_CPU and gpu_available else "cpu"
 
 
-__all__ = ["RenderEstimate", "engine_kind"]
+__all__ = ["RenderEstimate", "RateHint", "engine_kind"]

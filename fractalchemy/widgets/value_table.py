@@ -11,13 +11,15 @@ a model itself. `set_rows` keeps the scroll position and the current row when th
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
-from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QMouseEvent
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem, QWidget
 
-DRAG_STEPS = {"plain": 0.001, "shift": 0.01, "ctrl": 0.0001, "alt": 0.00001}
+DRAG_STEPS = {"plain": 0.001, "shift": 0.01, "ctrl": 0.0001, "alt": 0.00001}   # value change per pixel
+INTEGER_DRAG_SCALE = 100          # integer rows move 100× faster: one unit per 10 pixels at the plain step
 DRAG_DEAD_ZONE_PX = 2
 
 
@@ -34,7 +36,19 @@ class ValueRow:
     color: QColor | None = None
 
 
+def drag_step(modifiers) -> float:
+    """The value change per dragged pixel for the held modifiers (Alt finest, Ctrl fine, Shift coarse)."""
+    if modifiers & Qt.KeyboardModifier.AltModifier:
+        return DRAG_STEPS["alt"]
+    if modifiers & Qt.KeyboardModifier.ControlModifier:
+        return DRAG_STEPS["ctrl"]
+    if modifiers & Qt.KeyboardModifier.ShiftModifier:
+        return DRAG_STEPS["shift"]
+    return DRAG_STEPS["plain"]
+
+
 def format_value(value: float, decimals: int = 6, integer: bool = False) -> str:
+    """A value's text: trailing zeros dropped, integers without decimals."""
     if integer:
         return str(int(round(value)))
     text = f"{value:.{decimals}f}".rstrip("0").rstrip(".")
@@ -146,21 +160,26 @@ class ValueTable(QTableWidget):
                 self._updating = False
 
     def value_of(self, name: str) -> float | None:
+        """The value shown for `name` (None if there is no such row)."""
         row = self._rows.get(name)
         return None if row is None else row.value
 
     def names(self) -> list[str]:
+        """The row names in display order."""
         return list(self._order)
 
     def name_at(self, row: int) -> str | None:
+        """The name of row `row` (None when out of range)."""
         return self._order[row] if 0 <= row < len(self._order) else None
 
     def current_name(self) -> str | None:
+        """The name of the current row, if any."""
         return self.name_at(self.currentRow())
 
     def select_name(self, name: str) -> None:
+        """Make `name`'s row current (no-op for unknown names)."""
         if name in self._order:
-            self.setCurrentCell(self._order.index(name), 0)
+            self.setCurrentCell(self._order.index(name), 1)
 
     def filter(self, needle: str, hide_if=None) -> int:
         """Hide rows whose name does not contain `needle` (or for which `hide_if(row)` is true); returns the visible count."""
@@ -184,6 +203,8 @@ class ValueTable(QTableWidget):
         try:
             value = float(item.text().replace(",", "."))
         except ValueError:
+            value = math.nan
+        if not math.isfinite(value):          # garbage, "nan" and "inf" all leave the value alone
             self.update_value(name, row.value)
             return
         if row.integer:
@@ -204,7 +225,7 @@ class ValueTable(QTableWidget):
         if event.button() == Qt.MouseButton.LeftButton and item is not None and item.column() == 0:
             name = self.name_at(item.row())
             if name is not None:
-                self.setCurrentCell(item.row(), 0)
+                self.setCurrentCell(item.row(), 1)      # typing a number now edits the value
                 self._drag = (name, event.position().x(), self._rows[name].value, False)
                 self.setCursor(Qt.CursorShape.SizeHorCursor)
                 event.accept()
@@ -221,19 +242,12 @@ class ValueTable(QTableWidget):
         dx = event.position().x() - x0
         if not moved and abs(dx) < DRAG_DEAD_ZONE_PX:
             return
-        mods = event.modifiers()
-        if mods & Qt.KeyboardModifier.AltModifier:
-            step = DRAG_STEPS["alt"]
-        elif mods & Qt.KeyboardModifier.ControlModifier:
-            step = DRAG_STEPS["ctrl"]
-        elif mods & Qt.KeyboardModifier.ShiftModifier:
-            step = DRAG_STEPS["shift"]
-        else:
-            step = DRAG_STEPS["plain"]
         row = self._rows[name]
-        value = round(start + dx * step, 6)
+        step = drag_step(event.modifiers())
         if row.integer:
-            value = float(int(round(start + dx * step * 100)))   # a pixel is 0.1 for integers: 10 px per step
+            value = float(round(start + dx * step * INTEGER_DRAG_SCALE))
+        else:
+            value = round(start + dx * step, 6)
         self._drag = (name, x0, start, True)
         if value != row.value:
             row.value = value
@@ -257,9 +271,4 @@ class ValueTable(QTableWidget):
         super().mouseDoubleClickEvent(event)
 
 
-def blocked_table(table: ValueTable):
-    """Context manager blocking the table's signals (for programmatic selection changes)."""
-    return QSignalBlocker(table)
-
-
-__all__ = ["ValueTable", "ValueRow", "format_value", "blocked_table"]
+__all__ = ["ValueTable", "ValueRow", "format_value", "drag_step"]

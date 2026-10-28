@@ -131,44 +131,38 @@ def _align_xform_slot(flames: list[Flame], i: int) -> None:
     _align_variations([f.xforms[i] for f in flames])
 
 
-def _by_distance(flames: list[Flame], j: int) -> list[Flame]:
-    """The other flames ordered by distance (in the list) from index `j`."""
-    return [flames[k] for k in sorted((k for k in range(len(flames)) if k != j), key=lambda k: abs(k - j))]
+def _by_distance(items: list, j: int) -> list:
+    """The other items ordered by distance (in the list) from index `j` — the nearest keyframes first."""
+    return [items[k] for k in sorted((k for k in range(len(items)) if k != j), key=lambda k: abs(k - j))]
+
+
+def _ordered_union(groups) -> list[str]:
+    """Every name of every group once, in first-seen order."""
+    names: list[str] = []
+    for group in groups:
+        names += [name for name in group if name not in names]
+    return names
+
+
+def _default_parameter(key: str) -> float:
+    """The registry default of a parameter (0 when no formula declares it)."""
+    owner = V.parameter_owner(key)
+    var = V.REGISTRY.get(owner) if owner else None
+    return var.params.get(key, 0.0) if var is not None else 0.0
 
 
 def _align_variations(xforms: list[XForm]) -> None:
-    """Give every xform the union of variation names (missing at 0) and parameter keys (missing: nearest value)."""
-    names: list[str] = []
-    for x in xforms:
-        for name in x.variations:
-            if name not in names:
-                names.append(name)
-    keys: list[str] = []
-    for x in xforms:
-        for key in x.params:
-            if key not in keys:
-                keys.append(key)
-    for name in names:
-        var = V.REGISTRY.get(name)
-        if var is not None:
-            for key in var.params:
-                if key not in keys:
-                    keys.append(key)
+    """Give every xform the union of variation names (missing at 0) and parameter keys (missing: the nearest
+    keyframe's value, else the formula's default)."""
+    names = _ordered_union(x.variations for x in xforms)
+    declared = [V.REGISTRY[n].params for n in names if n in V.REGISTRY]
+    keys = _ordered_union([x.params for x in xforms] + declared)
     for j, x in enumerate(xforms):
         x.variations = {name: x.variations.get(name, 0.0) for name in names}
-        params = {}
-        for key in keys:
-            if key in x.params:
-                params[key] = x.params[key]
-                continue
-            donor = next((o.params[key] for o in (xforms[k] for k in sorted(range(len(xforms)), key=lambda k: abs(k - j)))
-                          if key in o.params), None)
-            if donor is None:
-                owner = V.parameter_owner(key)
-                var = V.REGISTRY.get(owner) if owner else None
-                donor = var.params.get(key, 0.0) if var is not None else 0.0
-            params[key] = donor
-        x.params = params
+        neighbours = _by_distance(xforms, j)
+        x.params = {key: x.params[key] if key in x.params
+                    else next((o.params[key] for o in neighbours if key in o.params), _default_parameter(key))
+                    for key in keys}
 
 
 def _resample_palette(palette, size: int) -> list:

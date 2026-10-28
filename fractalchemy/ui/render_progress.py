@@ -21,7 +21,7 @@ PREVIEW_MIN = QSize(320, 200)
 PROGRESS_STEPS = 10000
 
 
-class _PreviewLabel(QLabel):
+class PreviewLabel(QLabel):
     """Shows a pixmap scaled to fit, keeping its aspect ratio."""
 
     def __init__(self, parent: QWidget | None = None):
@@ -54,12 +54,13 @@ class RenderProgressPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.preview = _PreviewLabel(self)
+        self.preview = PreviewLabel(self)
         self.bar = QProgressBar(self)
         self.phase = QLabel(self)
         self.elapsed = QLabel(self)
         self.remaining = QLabel(self)
         self.rate = QLabel(self)
+        self.tiles_caption = QLabel("Tile", self)
         self.tiles = QLabel(self)
         self.result = QLabel(self)
         self._build()
@@ -80,7 +81,7 @@ class RenderProgressPanel(QWidget):
         grid.addWidget(self.remaining, 0, 3)
         grid.addWidget(QLabel("Speed", self), 1, 0)
         grid.addWidget(self.rate, 1, 1)
-        grid.addWidget(QLabel("Tile", self), 1, 2)
+        grid.addWidget(self.tiles_caption, 1, 2)
         grid.addWidget(self.tiles, 1, 3)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(3, 1)
@@ -131,10 +132,10 @@ class RenderProgressPanel(QWidget):
         line = "  ·  ".join(facts)
         if outcome.path is not None:
             p = outcome.path
-            line += (f'<br>Saved <a href="file:{p}">{p.name}</a> in <a href="file:{p.parent}">{p.parent}</a>')
+            line += f"<br>Saved {self.file_link(p)} in {self.file_link(p.parent, str(p.parent))}"
             extras = [x for x in (outcome.sidecar, outcome.report) if x is not None]
             if extras:
-                line += " (+ " + ", ".join(f'<a href="file:{x}">{x.name}</a>' for x in extras) + ")"
+                line += " (+ " + ", ".join(self.file_link(x) for x in extras) + ")"
         elif not r.complete:
             line += "<br>Nothing was saved (stopped before completion; see 'Save incomplete renders')."
         notes = [n for n in outcome.notes if n]
@@ -153,8 +154,14 @@ class RenderProgressPanel(QWidget):
         self.preview.set_image(None)
         self.preview.setText("Rendering…")
 
-    def _open_link(self, link: str) -> None:
+    @staticmethod
+    def _open_link(link: str) -> None:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(link.removeprefix("file:")))))
 
+    @staticmethod
+    def file_link(path: Path, text: str | None = None) -> str:
+        """An HTML link that `_open_link` opens with the system's file handler."""
+        return f'<a href="file:{path}">{text if text is not None else path.name}</a>'
 
-__all__ = ["RenderProgressPanel"]
+
+__all__ = ["RenderProgressPanel", "PreviewLabel"]

@@ -113,12 +113,15 @@ class AnimationRenderJob(QThread):
 
     # --- control (GUI thread) --------------------------------------------------------------------------------
     def pause(self) -> None:
+        """Hold the batch between chunks."""
         self.control.pause()
 
     def resume(self) -> None:
+        """Continue a paused batch."""
         self.control.resume()
 
     def cancel(self) -> None:
+        """Stop the batch (the frame being rendered finishes grainier or is dropped, per `save_incomplete`; ffmpeg is killed)."""
         self.control.cancel()
         process = self._process
         if process is not None and process.poll() is None:
@@ -126,6 +129,7 @@ class AnimationRenderJob(QThread):
 
     @property
     def paused(self) -> bool:
+        """True while paused."""
         return self.control.paused
 
     # --- worker thread --------------------------------------------------------------------------------------
@@ -149,6 +153,7 @@ class AnimationRenderJob(QThread):
         self.succeeded.emit(outcome)
 
     def _render_frames(self, outcome: AnimationOutcome) -> None:
+        """Render the batch frame by frame on one sampler; stops at the first cancelled or dropped frame."""
         sampler: Sampler | None = None
         try:
             for index, frame in enumerate(self.frames):
@@ -163,33 +168,40 @@ class AnimationRenderJob(QThread):
                 flame = self.animation.flame_at(frame)
                 if flame is None:
                     raise ValueError("the animation has no keyframes")
-                compiled = CompiledFlame.build(flame)
-                if sampler is None:
-                    sampler, note = create_sampler(flame, compiled, self.settings.image.engine, self.settings.image.cpu_threads,
-                                                   self.settings.image.seed, self.settings.image.fuse)
-                    outcome.engine = sampler.name
-                    if note:
-                        outcome.notes.append(note)
-                else:
-                    sampler.set_flame(flame, compiled)
-                started = time.perf_counter()
-                self._progress = replace(self._progress, frame=frame, index=index + 1, engine=sampler.name, phase=PHASE_FRAME)
-                result = FinalRenderer(flame, self.settings.image, self.control, sampler=sampler).run(
-                    lambda p, i=index: self._report_frame(i, p))
-                outcome.samples += result.samples
-                if not result.complete and not self.settings.image.save_incomplete:
-                    outcome.complete = False
-                    return
-                self._save(flame, result, path, outcome)
-                outcome.frames.append(path)
-                self._frame_seconds.append(time.perf_counter() - started)
-                self._frame_done(index, frame, result)
-                if not result.complete:
+                sampler = self._aim_sampler(sampler, flame, outcome)
+                if not self._render_frame(index, frame, flame, path, sampler, outcome):
                     outcome.complete = False
                     return
         finally:
             if sampler is not None:
                 sampler.close()
+
+    def _aim_sampler(self, sampler: Sampler | None, flame, outcome: AnimationOutcome) -> Sampler:
+        """The batch's sampler, created on the first frame and re-aimed at `flame` afterwards."""
+        compiled = CompiledFlame.build(flame)
+        if sampler is not None:
+            sampler.set_flame(flame, compiled)
+            return sampler
+        image = self.settings.image
+        sampler, note = create_sampler(flame, compiled, image.engine, image.cpu_threads, image.seed, image.fuse)
+        outcome.engine = sampler.name
+        if note:
+            outcome.notes.append(note)
+        return sampler
+
+    def _render_frame(self, index: int, frame: int, flame, path: Path, sampler: Sampler, outcome: AnimationOutcome) -> bool:
+        """Render and save one frame; False when the batch must stop (cancelled, or a dropped incomplete frame)."""
+        started = time.perf_counter()
+        self._progress = replace(self._progress, frame=frame, index=index + 1, engine=sampler.name, phase=PHASE_FRAME)
+        result = FinalRenderer(flame, self.settings.image, self.control, sampler=sampler).run(lambda p: self._report_frame(index, p))
+        outcome.samples += result.samples
+        if not result.complete and not self.settings.image.save_incomplete:
+            return False
+        self._save(flame, result, path, outcome)
+        outcome.frames.append(path)
+        self._frame_seconds.append(time.perf_counter() - started)
+        self._frame_done(index, frame, result)
+        return result.complete
 
     def _save(self, flame, result: FinalResult, path: Path, outcome: AnimationOutcome) -> None:
         s = self.settings.image

@@ -361,7 +361,8 @@ fractalchemy/
                         render_job (the batch thread: one sampler for every frame, then ffmpeg)
   fractal/              the shared scene: Flame / XForm / Camera / Coloring, the variation registry (numpy + GLSL),
                         formats/ (.flame XML, .chaos, .fa), triangles (affine ⇄ editor triangle geometry),
-                        xform_ops (add / duplicate / link / delete transforms with consistent xaos)
+                        triangle_drag (the mouse-drag maths), xform_ops (add / duplicate / link / delete transforms
+                        with consistent xaos)
   formulas/             the formulas: builtin/ (native Python), library/ (the plugin dialect, one file each:
                         apophysis7x / plugins / ports / reconstructed), lang/ (the compiler), loader (user folders,
                         cache), apophysis_depth (the built-ins' depth rule)
@@ -378,15 +379,17 @@ fractalchemy/
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,
                         model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
-  widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons,
+  widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons (+ glyphs),
                         TriangleView (the editor canvas), ValueTable (name / value lists with drag editing),
-                        Timeline (the animation timeline)
+                        PaletteSlider, Timeline (the animation timeline), actions / layouts / silent helpers
   ui/                   .ui loader, background tasks, MainWindow, FractalDocument (undo history), FractalViewport +
                         ViewGeometry (image framing, view vs. camera pan/zoom), ViewerBar (zoom + image size),
                         SettingsPanel, FractalLibraryPanel, ThumbnailProvider, RenderStatus (status bar),
                         GradientLink, FormulaBrowser, LibraryHost (shared library-pane wiring),
-                        EditorWindow (+ editor_context, editor_panels: the tabs, editor_preview: its mini preview),
-                        AnimationWindow (+ animation_document), AnimationRenderWindow (the batch / video renderer),
+                        EditorWindow (+ editor_context, editor_actions, editor_operations, editor_panels and
+                        editor_value_tabs: the tabs, live_preview: the mini preview shared with the animation),
+                        AnimationWindow (+ animation_document, animation_panels, animation_playback),
+                        JobWindowBase → RenderWindow and AnimationRenderWindow (+ animation_render_panels),
                         FileActionsBase + the fractal / gradient file actions, GradientDocument,
                         GradientLibraryWindow, RenderWindow (+ render_size_panel, render_quality_panel,
                         render_output_panel, render_progress)

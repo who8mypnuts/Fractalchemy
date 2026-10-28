@@ -26,7 +26,6 @@ TRACK_HEIGHT = 44
 MARGIN = 10
 MARKER_HALF = 7
 MARKER_HIT = 9
-MIN_PIXELS_PER_FRAME = 0.05
 MAX_PIXELS_PER_FRAME = 80.0
 BACKGROUND = QColor(28, 28, 28)
 RULER_BACKGROUND = QColor(40, 40, 40)
@@ -38,6 +37,8 @@ MARKER_COLOR = QColor(235, 235, 235)
 MARKER_OUTLINE = QColor(20, 20, 20)
 SEGMENT_COLOR = QColor(90, 90, 90)
 LOOP_COLOR = QColor(70, 110, 70)
+TICK_STEPS = (1, 2, 5, 10, 15, 25, 30, 50, 60, 100, 120, 150, 250, 300, 500, 600, 1000, 1200, 1500, 2500, 3000, 5000, 10000)
+LABEL_SPACING_PX = 48
 
 
 class Timeline(QWidget):
@@ -86,39 +87,48 @@ class Timeline(QWidget):
         self.update()
 
     def set_current_frame(self, frame: int) -> None:
+        """Move the playhead (clamped to the length)."""
         frame = max(0, min(self._total - 1, int(frame)))
         if frame != self._current:
             self._current = frame
             self.update()
 
     def set_selected(self, keyframe) -> None:
+        """Highlight a keyframe (None, or one not shown, clears the highlight)."""
         self._selected = keyframe if keyframe in self._keyframes else None
         self.update()
 
     # --- view ---------------------------------------------------------------------------------------------------
     @property
     def pixels_per_frame(self) -> float:
+        """The zoom: screen pixels per frame (the fit when not zoomed)."""
         width = max(1, self.width() - 2 * MARGIN)
         return self._ppf if self._ppf is not None else width / self._total
 
     def fit(self) -> None:
+        """Show the whole animation."""
         self._ppf = None
         self._start = 0.0
         self.view_changed.emit()
         self.update()
 
     def zoom_by(self, factor: float, anchor_x: float | None = None) -> None:
-        """Zoom about a widget x (the centre by default)."""
+        """Zoom about a widget x (the centre by default); zooming out stops where the whole animation fits."""
         anchor_x = self.width() / 2 if anchor_x is None else anchor_x
         frame_under = self.frame_at(anchor_x)
         fit = max(1, self.width() - 2 * MARGIN) / self._total
-        self._ppf = max(min(fit, MIN_PIXELS_PER_FRAME), min(MAX_PIXELS_PER_FRAME, self.pixels_per_frame * factor))
+        wanted = min(MAX_PIXELS_PER_FRAME, self.pixels_per_frame * factor)
+        if wanted <= fit:
+            self.fit()
+            return
+        self._ppf = wanted
         self._start = frame_under - (anchor_x - MARGIN) / self._ppf
         self._clamp_view()
         self.view_changed.emit()
         self.update()
 
     def scroll_by(self, frames: float) -> None:
+        """Scroll the view by `frames` (clamped to the animation)."""
         self._start += frames
         self._clamp_view()
         self.view_changed.emit()
@@ -132,12 +142,15 @@ class Timeline(QWidget):
         self._start = max(0.0, min(max(0.0, self._total - visible), self._start))
 
     def x_of(self, frame: float) -> float:
+        """Widget x of a frame."""
         return MARGIN + (frame - self._start) * self.pixels_per_frame
 
     def frame_at(self, x: float) -> float:
+        """The (fractional) frame under widget x."""
         return self._start + (x - MARGIN) / self.pixels_per_frame
 
     def frame_near(self, x: float) -> int:
+        """The frame nearest widget x, within the animation."""
         return max(0, min(self._total - 1, int(round(self.frame_at(x)))))
 
     def keyframe_at(self, pos: QPointF):
@@ -208,7 +221,8 @@ class Timeline(QWidget):
         if not steps:
             steps = event.angleDelta().x() / 120.0
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            self.scroll_by(-steps * 10 / max(0.01, self.pixels_per_frame) * 4)
+            visible = max(1, self.width() - 2 * MARGIN) / self.pixels_per_frame
+            self.scroll_by(-steps * visible / 10)          # a tenth of the view per notch
         else:
             self.zoom_by(1.25 ** steps, event.position().x())
         event.accept()
@@ -270,17 +284,9 @@ class Timeline(QWidget):
                 painter.drawLine(QPointF(self.x_of(last), y), QPointF(self.x_of(self._total), y))
 
     def _tick_step(self) -> int:
-        """Frames between labelled ticks: a nice number that leaves ≥ 48 px between labels."""
-        ppf = self.pixels_per_frame
-        need = 48.0 / max(ppf, 1e-9)
-        step = 1
-        for candidate in (1, 2, 5, 10, 15, 25, 30, 50, 60, 100, 120, 150, 250, 300, 500, 600, 1000, 1200, 1500, 2500, 3000, 5000, 10000):
-            step = candidate
-            if candidate >= need:
-                break
-        else:
-            step = int(math.ceil(need / 10000) * 10000)
-        return step
+        """Frames between labelled ticks: the first nice number that leaves `LABEL_SPACING_PX` between labels."""
+        need = LABEL_SPACING_PX / max(self.pixels_per_frame, 1e-9)
+        return next((step for step in TICK_STEPS if step >= need), int(math.ceil(need / TICK_STEPS[-1]) * TICK_STEPS[-1]))
 
     def _paint_ruler(self, painter: QPainter) -> None:
         step = self._tick_step()

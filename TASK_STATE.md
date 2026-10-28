@@ -1,4 +1,4 @@
-# TASK_STATE — formulas / plugin system (Apophysis plugins incorporated)
+# TASK_STATE — Fractalchemy (editor, animation, review cycles)
 
 Branch: `master`, uncommitted working tree on top of `13a9126 baseline`.
 
@@ -6,9 +6,90 @@ Branch: `master`, uncommitted working tree on top of `13a9126 baseline`.
 ```bash
 cd /workspace/Fractalchemy
 pip install -r requirements.txt                    # + pytest, pyflakes for development; py7zr for the import tool (7z packs)
-python3 -m pytest -q                               # ~4 min: every formula is checked on numpy *and* GLSL (llvmpipe)
+python3 -m pytest -q --ignore=tests/test_variations.py   # ~8 min (GUI tests on the CPU engine; set QT_QPA_PLATFORM=offscreen)
+python3 -m pytest -q tests/test_variations.py      # ~2 min: every formula on numpy *and* GLSL (llvmpipe)
 python3 -m pyflakes fractalchemy tests main.py tools
-python3 main.py                                    # Help ▸ Formulas… lists what loaded (and what failed, why)
+python3 main.py
+```
+Nothing is committed: the working tree holds the editor / animation work on top of `3fbbded baseline`.
+
+## Review loop (the clean-architecture / DRY / comments / tests pass over the uncommitted changes)
+Rubric: architecture 40 (gate 34), DRY 30 (gate 25.5), comments 20 (gate 17), tests 10 (gate 8.5); exit ≥ 90.
+
+### Cycle 1 — findings and repairs
+| # | Critic | Severity | Subsystem | Finding / root cause | Correction |
+|---|---|---|---|---|---|
+| A1 | Architect | high | ui/editor_window | 917-line window mixing construction, 30 actions, triangle operations, a 25-branch command dispatcher | split: `editor_actions.py` (actions / toolbar / menus), `editor_operations.py` (`TransformOperations`: every triangle / transform edit, command table), window = coordination only (≈520 lines) |
+| A2 | Architect | high | ui/animation_render_window | 707 lines, four classes | panels → `animation_render_panels.py`; window ≈ 230 lines |
+| A4 | Architect + DRY | high | ui/render_window, ui/animation_render_window | identical job life cycle (start / pause / stop / clock / thread end / confirm_quit / closeEvent / layout) written twice | `ui/job_window.py: JobWindowBase`; both windows subclass it |
+| A5 | DRY | medium | ui/animation_render_panels | progress panel re-implemented | `AnimationProgressPanel(RenderProgressPanel)` (caption label exposed, `file_link` helper) |
+| A3 | Architect | medium | ui/editor_panels | reusable widget buried in the tabs module; widgets importing from ui | `widgets/palette_slider.py`; `palette_pixmap` moved to `widgets/images.py` (no ui → widgets → ui cycle) |
+| A9 | Architect | low | ui/editor_preview | "EditorPreview" also serves the Animation window | renamed `ui/live_preview.py: LivePreview` |
+| D1 | DRY | medium | ui/render_output_panel, animation panels | `_row` layout helper copied; format / depth combo code copied | `widgets/layouts.py: row`; `fill_format_combo / fill_depth_combo / sync_format_controls` in render_output_panel used by both |
+| D2 | DRY | medium | editor / animation windows | two `_action` factories and four separator-loop menu builders | `widgets/actions.py: make_action, populate` |
+| D3 | DRY | medium | tests | synthetic mouse helpers copied into two test modules | `conftest.mouse_press / mouse_move / mouse_release / mouse_drag` |
+| D6 | DRY | low | editor operations | Shift / Ctrl step scaling written three times | `modifier_factor(coarse, fine)` |
+| A6 | DRY | low | ui/editor_window | private `_blocked` class duplicating `widgets.silent.blocked` | removed |
+| T1 | Tester | high | widgets/value_table, editor clipboard | `float("nan")` / `inf` accepted as weights / coordinates | non-finite input rejected (test) |
+| T2 | Tester | medium | animation/format, model | undecodable file raised `UnicodeDecodeError` past the window; malformed keyframe entries crashed `from_dict` | caught as `AnimationParseError`; non-dict entries skipped, duplicate frames de-duplicated |
+| T5 | Tester | medium | ui/live_preview | a `flame_provider` that raises killed the slot | caught and logged; preview clears (test) |
+| T6 | Tester | low | ui/animation_document | `set_settings` accepted fps 0 / unknown modes | clamped / rejected |
+| T4 | Tester | medium | widgets/timeline | zoom-out floor was a constant, not the fit (a long animation could shrink below fit; short ones could not reach it) | zooming out below fit snaps to fit (test) |
+| C1 | Comments | medium | several | public methods without docstrings (`ValueTable` accessors, `LivePreview` state, window option setters) | added |
+
+Tests added: `test_value_table_rejects_non_finite_input_and_supports_name_dragging`, `test_operations_helpers_modifier_factor_auto_zscale_and_clipboard_parsing`, `test_render_job_reports_a_failure_when_nothing_can_be_written`, `test_timeline_hit_testing_zoom_and_ticks`, `test_live_preview_survives_a_failing_flame_provider`.
+
+Regression check (same tests before / after): editor 25 → 27 passed, animation 14 → 17 passed, render window 7 → 7, main window 19 → 19 — **improved**, nothing regressed.
+Score after cycle 1 (self-assessed): architecture 33 / 40, DRY 25 / 30, comments 16 / 20, tests 8.5 / 10 = **82.5**.
+
+### Cycle 2 — findings and repairs
+| # | Critic | Severity | Subsystem | Finding / root cause | Correction |
+|---|---|---|---|---|---|
+| A10 | Architect | high | widgets/triangle_view | 830-line widget carrying the drag geometry (rotate / scale / snap maths) inside Qt event handlers — untestable without a widget | `fractal/triangle_drag.py` (pure: `DragState`, `DragSteps`, `begin_*_drag`, `drag`), the view only feeds points (≈700 lines) |
+| A11 | Architect | high | ui/editor_panels | 888 lines, six tabs; three list tabs repeating search box + table + count + guard | `ui/editor_value_tabs.py` with a `TableTab` base (`rows()` / `hide_row()` hooks); `editor_panels.py` keeps the geometry / colour tabs (≈530 lines) |
+| A12 | Architect | high | ui/animation_window | 658-line window with the settings form, the keyframe list and the playback clock inside | `ui/animation_panels.py` (`AnimationSettingsPanel`, `KeyframePanel`, signal-based), `ui/animation_playback.py` (`Playback`: wall-clock session); window ≈ 380 lines |
+| D7 | DRY | medium | ui/editor_panels, editor_window, animation_window | the `_updating = True / try / finally` guard written nine times | `widgets.silent.updating()` context manager |
+| D8 | DRY | low | ui/editor_value_tabs | Variations / Variables / Xaos each re-implementing refresh + filter + count | `TableTab.refresh / apply_filter` |
+| C2 | Comments | medium | 13 modules | 90 public members without docstrings (properties, accessors, Qt-facing setters) | docstrings added everywhere (AST scan: none missing on public names) |
+| T7 | Tester | medium | fractal/triangle_drag | drag maths had only end-to-end coverage through mouse events | `test_drag_maths_move_rotate_scale_and_snapping` (move / rotate / scale, Shift snapping, O with and without axis lock, refused zero scale) |
+
+Regression check: editor 27 → 28 passed, animation 17 → 17, render window 7, main window 19, image panel 20, info panel 6 — **improved**.
+Score after cycle 2: architecture 36 / 40, DRY 27 / 30, comments 18 / 20, tests 9 / 10 = **90**.
+
+### Cycle 3 — findings and repairs
+| # | Critic | Severity | Subsystem | Finding / root cause | Correction |
+|---|---|---|---|---|---|
+| A13 | Architect | medium | widgets/icons | the new glyphs were two 120- / 50-line `if / elif` painters inside the icon module; an unknown name silently gave a blank icon | `widgets/glyphs.py`: one small painter per glyph in a `GLYPHS` registry, `glyph_pixmap` raises `KeyError` for unknown names; `icons.editor_icon / animation_icon` are thin wrappers |
+| A14 | Architect | medium | animation/render_job | a 40-line frame loop doing sampler set-up, rendering, saving and bookkeeping | `_aim_sampler` + `_render_frame` (one frame each) |
+| A15 | Architect | low | ui/editor_panels | `TriangleTab._build` 90 lines with "# rotate row" style markers | `_corners_group / _operations_group / _pivot_group / _options_group` |
+| D9 | DRY | low | animation/interpolate | three hand-rolled "union in first-seen order" loops and a nested donor search in `_align_variations` | `_ordered_union`, `_default_parameter`, `_by_distance` reused for xforms |
+| D10 | DRY | low | widgets/value_table | modifier → step chain inline, a magic ×100 for integer rows | `drag_step()`, `INTEGER_DRAG_SCALE` |
+| C3 | Comments | low | README | layout table named modules that no longer exist (`editor_preview`) | updated for the split modules |
+| T8 | Tester | low | widgets/glyphs | glyph painters untested | every registered glyph paints something; unknown names raise (test) |
+
+Regression check: editor 28 → 29 passed, animation 17 → 17 — **improved**; full suite rerun below.
+Score after cycle 3: architecture 37 / 40, DRY 28 / 30, comments 18 / 20, tests 9 / 10 = **92**.
+
+### Cycle 4 — findings and repairs
+| # | Critic | Severity | Subsystem | Finding / root cause | Correction |
+|---|---|---|---|---|---|
+| A16 | Architect | low | animation/render, animation_render_panels | video formats were positional tuples read by index (`[2]`, `[4]`) | `VideoFormat` dataclass + `video_format(key)` |
+| D11 | DRY | low | ui/render_window, ui/animation_render_window | `RateHint` alias defined twice | once, in `render/estimate.py` |
+| D12 | DRY | low | widgets/timeline | tick candidates inline; the Shift-scroll amount an opaque expression | `TICK_STEPS`, `LABEL_SPACING_PX`, "a tenth of the view per notch" |
+| C4 | Comments | low | ui/editor_actions, animation_window | `lambda` action shorthands carrying `noqa` | small inner `act()` functions |
+| C5 | Comments | low | ui/editor_value_tabs, editor_panels, fractal_document | overriding hooks / structural edits without their own docstrings | added |
+| T9 | Tester | — | — | no new behaviour this cycle; regression run only | full suite: see below |
+
+Regression check: full suite (without `test_variations`) 344 → 346 passed, 1 skipped; `test_variations` 1135 passed — **improved / unchanged**, nothing regressed.
+Final score (self-assessed): architecture 37 / 40 (92 %), DRY 28 / 30 (93 %), comments 18 / 20 (90 %), tests 9 / 10 (90 %) = **92 / 100**; every gate ≥ 85 %, no critical failures, pyflakes clean.
+
+Known residue (not fixed, judged below the bar for this pass): the baseline modules the pass did not touch (`render/compiled.py`, `render/codegen.py`, `ui/fractal_viewport.py`, …) still have undocumented public one-liners; `widgets/triangle_view.py` (≈700 lines) mixes painting and hit-testing and could lose its painters to a helper; `AnimationWindow` and `EditorWindow` each re-implement `bring_to_front` (as the older Gradient Library does).
+
+### Last successful commands
+```
+python3 -m pyflakes fractalchemy tests main.py tools          # clean
+python3 -m pytest -q --ignore=tests/test_variations.py          # 346 passed, 1 skipped
+python3 -m pytest -q tests/test_variations.py                    # 1135 passed
 ```
 
 ## What was done (this task)
@@ -115,7 +196,7 @@ black before.
     UI: `widgets/triangle_view.py` (the canvas: modes, pivot, edges, helpers, keys, context menu),
     `widgets/value_table.py` (name / value table with Apophysis's drag-the-name editing), `ui/editor_context.py`
     (selection + affine mode `pre` / `coefs` / `post`), `ui/editor_panels.py` (Variations / Variables / Xaos /
-    Triangle / Transform / Colors tabs), `ui/editor_preview.py` (throttled mini preview at `PRIORITY_EDITOR`),
+    Triangle / Transform / Colors tabs), `ui/live_preview.py` (throttled mini preview at `PRIORITY_EDITOR`),
     `ui/editor_window.py` (toolbar, the three mode buttons styled with `config.HIGHLIGHT_COLOR`, menus, settings).
     The viewport debounces transform edits (`EDIT_RENDER_DELAY_MS`, cancels the running render) and now also
     re-renders on `flame_restored` (undo / redo / paste did not re-render before). `config`: `HIGHLIGHT_COLOR`,
@@ -124,7 +205,7 @@ black before.
     Round 2: Apophysis's **variation preview** (`render/xform_preview.py`: grid ±range at density·5 per unit
     through `apply_xform` `depth` times; `TriangleView.set_variation_preview` plots the dots through numpy into
     an image; toolbar `act_var_preview` / key `V`; sliders on the Colors tab; QSettings `editor/var_preview*`),
-    and the preview **quality levels** as `QualityLevel`s (`ui/editor_preview.py`: Low 2 spp, Medium 5 spp +
+    and the preview **quality levels** as `QualityLevel`s (`ui/live_preview.py`: Low 2 spp, Medium 5 spp +
     oversample 2 / filter 0.5, High 15 spp, 2 passes; `quality_level()` maps names / numbers; the box is 380×240).
 
 13. **Animation** (*Windows ▸ Animation*, `F9`, toolbar). `fractalchemy/animation/`: `model.py` (`Keyframe`,
@@ -139,7 +220,7 @@ black before.
     `GpuSampler.set_flame`; `FinalRenderer(sampler=…)` reuses it — frames saved with `output.save_image`, then
     ffmpeg via subprocess; progress / outcome dataclasses). UI: `ui/animation_document.py` (AnimationDocument),
     `widgets/timeline.py` (ruler, diamonds, playhead, scrub / drag / zoom), `ui/animation_window.py` (toolbar,
-    preview = `EditorPreview` with a `flame_provider`, wall-clock playback with frame dropping, keyframe list,
+    preview = `LivePreview` with a `flame_provider`, wall-clock playback with frame dropping, keyframe list,
     settings; clicking a keyframe calls `MainWindow.show_flame`), `ui/animation_render_window.py` (SizePanel +
     QualityPanel reused, `AnimationOutputPanel`, `VideoPanel`, `AnimationProgressPanel`; settings in QSettings
     `animation_render/settings` and in the `.faanim` `render` key). Icons: `animation_icon()`, `editor_icon("anim-*")`.

@@ -12,7 +12,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 
 from ..animation.format import load_animation, save_animation
-from ..animation.model import Animation, Keyframe
+from ..animation.model import EASINGS, INTERPOLATIONS, MAX_FPS, Animation, Keyframe
 from ..fractal.scene import Flame
 
 
@@ -45,26 +45,32 @@ class AnimationDocument(QObject):
     # --- state ------------------------------------------------------------------------------------------------
     @property
     def animation(self) -> Animation:
+        """The animation being edited."""
         return self._animation
 
     @property
     def path(self) -> Path | None:
+        """Its `.faanim` file, once saved or loaded."""
         return self._path
 
     @property
     def modified(self) -> bool:
+        """True once edited since loading / saving."""
         return self._modified
 
     @property
     def frame(self) -> int:
+        """The current frame (the playhead)."""
         return self._frame
 
     @property
     def selected(self) -> Keyframe | None:
+        """The selected keyframe, if any."""
         return self._selected
 
     @property
     def title(self) -> str:
+        """The file's stem, else the animation's name."""
         return self._path.stem if self._path is not None else self._animation.name
 
     def _set_modified(self, modified: bool) -> None:
@@ -117,12 +123,14 @@ class AnimationDocument(QObject):
 
     # --- frame / selection ------------------------------------------------------------------------------------
     def set_frame(self, frame: int) -> None:
+        """Move the playhead (clamped to the animation's length)."""
         frame = max(0, min(self._animation.last_frame, int(frame)))
         if frame != self._frame:
             self._frame = frame
             self.frame_changed.emit(frame)
 
     def select(self, keyframe: Keyframe | None) -> None:
+        """Select a keyframe (None, or one that is not in the animation, clears the selection)."""
         if keyframe is not None and keyframe not in self._animation.keyframes:
             keyframe = None
         if keyframe is not self._selected:
@@ -147,6 +155,7 @@ class AnimationDocument(QObject):
             self.keyframes_changed.emit()
 
     def remove_keyframe(self, keyframe: Keyframe) -> None:
+        """Drop a keyframe; the neighbour that takes its place gets selected."""
         if keyframe not in self._animation.keyframes:
             return
         index = self._animation.keyframes.index(keyframe)
@@ -167,6 +176,7 @@ class AnimationDocument(QObject):
         return got
 
     def rename_keyframe(self, keyframe: Keyframe, name: str) -> None:
+        """Give a keyframe a label."""
         if keyframe in self._animation.keyframes and keyframe.name != name:
             keyframe.name = name
             self._touch()
@@ -182,12 +192,17 @@ class AnimationDocument(QObject):
                 before = anim.total_frames
                 anim.set_total_frames(int(value))
                 changed |= anim.total_frames != before
-            elif key in ("name", "fps", "interpolation", "easing", "loop"):
-                if getattr(anim, key) != value:
-                    setattr(anim, key, value)
-                    changed = True
-            else:
+                continue
+            if key == "fps":
+                value = max(1, min(MAX_FPS, int(value)))
+            elif key in ("interpolation", "easing"):
+                if value not in dict(INTERPOLATIONS if key == "interpolation" else EASINGS):
+                    raise ValueError(f"unknown {key} {value!r}")
+            elif key not in ("name", "loop"):
                 raise ValueError(f"unknown animation setting {key!r}")
+            if getattr(anim, key) != value:
+                setattr(anim, key, value)
+                changed = True
         if changed:
             self._touch()
             self.settings_changed.emit()

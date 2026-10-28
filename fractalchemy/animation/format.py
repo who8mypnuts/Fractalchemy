@@ -52,7 +52,7 @@ def load_animation(path: str | Path) -> Animation:
     path = Path(path)
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise AnimationParseError(f"cannot read {path.name}: {exc}") from exc
     return animation_from_text(text)
 

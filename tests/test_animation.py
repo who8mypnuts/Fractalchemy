@@ -4,9 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QPointF
 
 from fractalchemy.animation import Animation, animation_from_text, animation_to_text, load_animation, save_animation
 from fractalchemy.animation.format import AnimationParseError
@@ -14,7 +12,7 @@ from fractalchemy.animation.interpolate import align_flames, blend_plan, catmull
 from fractalchemy.animation.render import AnimationRenderSettings, ffmpeg_command, ffmpeg_path, video_problems
 from fractalchemy.fractal.scene import Flame, XForm
 from fractalchemy.render.final_settings import FinalRenderSettings
-from tests.conftest import open_flame_and_wait, spin, wait_until
+from tests.conftest import mouse_move, mouse_press, mouse_release, open_flame_and_wait, spin, wait_until
 
 SAMPLES = Path(__file__).resolve().parents[1] / "samples" / "sample flames"
 
@@ -229,6 +227,77 @@ def test_render_job_encodes_a_video_with_ffmpeg(qapp, tmp_path):
     assert outcome.frames == [] and not (tmp_path / "vid_0000.png").exists() and any("removed" in n for n in outcome.notes)
 
 
+def test_render_job_reports_a_failure_when_nothing_can_be_written(qapp, tmp_path):
+    from fractalchemy.animation.render_job import AnimationRenderJob
+
+    a, b = two_flames()
+    anim = Animation(fps=5, total_frames=2)
+    anim.set_keyframe(0, a)
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("in the way")
+    settings = AnimationRenderSettings(FinalRenderSettings(width=8, height=8, quality=1, oversample=1, fuse=1), str(blocker / "frames"), "f")
+    results = []
+    job = AnimationRenderJob(anim, settings)
+    job.succeeded.connect(lambda o: results.append(("ok", o)))
+    job.failed.connect(lambda m: results.append(("failed", m)))
+    job.start()
+    wait_until(lambda: results, 60000)
+    job.wait(5000)
+    assert results[0][0] == "failed" and results[0][1]
+
+
+def test_timeline_hit_testing_zoom_and_ticks(qapp):
+    from fractalchemy.widgets.timeline import RULER_HEIGHT, TRACK_HEIGHT, Timeline
+    a, b = two_flames()
+    anim = Animation(fps=10, total_frames=100)
+    anim.set_keyframe(0, a)
+    anim.set_keyframe(50, b)
+    timeline = Timeline()
+    timeline.resize(620, RULER_HEIGHT + TRACK_HEIGHT + 8)
+    timeline.show()
+    timeline.set_data(anim.total_frames, anim.fps, anim.keyframes, anim.keyframes[1], 25)
+    y = RULER_HEIGHT + TRACK_HEIGHT / 2
+    assert timeline.keyframe_at(QPointF(timeline.x_of(50), y)) is anim.keyframes[1]
+    assert timeline.keyframe_at(QPointF(timeline.x_of(50), 5)) is None            # the ruler is not the track
+    assert timeline.keyframe_at(QPointF(timeline.x_of(25), y)) is None
+    assert timeline.frame_near(timeline.x_of(42.4)) == 42 and timeline.frame_near(-1000) == 0 and timeline.frame_near(10 ** 6) == 99
+    fit = timeline.pixels_per_frame
+    timeline.zoom_by(4.0, timeline.x_of(50))
+    assert timeline.pixels_per_frame == pytest.approx(fit * 4) and 0 < timeline.frame_at(timeline.width() / 2) < 100
+    timeline.zoom_by(1e-9)
+    assert timeline.pixels_per_frame == pytest.approx(fit)                        # never smaller than the fit
+    timeline.fit()
+    assert timeline.pixels_per_frame == pytest.approx(fit)
+    timeline.set_data(1, 1, [], None, 0)                                           # a one-frame, keyframe-less animation paints
+    timeline.grab()
+    timeline.set_data(10 ** 6, 240, [], None, 0)
+    assert timeline._tick_step() >= 1000
+    timeline.grab()
+
+
+def test_live_preview_survives_a_failing_flame_provider(qapp):
+    from fractalchemy.render.service import RenderService
+    from fractalchemy.ui.live_preview import LivePreview
+
+    def broken():
+        raise RuntimeError("no keyframes")
+
+    service = RenderService(prefer_gpu=False)
+    service.start()
+    try:
+        preview = LivePreview(flame_provider=broken, name="test")
+        preview.bind(None, service)
+        preview.show()
+        preview.request()
+        spin(50)
+        assert preview.image is None and not preview.busy
+        preview.grab()
+    finally:
+        service.stop()
+        preview.deleteLater()
+        spin(20)
+
+
 # --- the windows ------------------------------------------------------------------------------------------------
 @pytest.fixture
 def animation(main_window_factory):
@@ -241,21 +310,6 @@ def animation(main_window_factory):
     win.animation.document.mark_saved()
 
 
-def press(widget, pos: QPointF, button=Qt.MouseButton.LeftButton):
-    QApplication.sendEvent(widget, QMouseEvent(QEvent.Type.MouseButtonPress, pos, widget.mapToGlobal(pos.toPoint()), button, button,
-                                               Qt.KeyboardModifier.NoModifier))
-
-
-def move(widget, pos: QPointF, button=Qt.MouseButton.LeftButton):
-    QApplication.sendEvent(widget, QMouseEvent(QEvent.Type.MouseMove, pos, widget.mapToGlobal(pos.toPoint()), Qt.MouseButton.NoButton,
-                                               button, Qt.KeyboardModifier.NoModifier))
-
-
-def release(widget, pos: QPointF, button=Qt.MouseButton.LeftButton):
-    QApplication.sendEvent(widget, QMouseEvent(QEvent.Type.MouseButtonRelease, pos, widget.mapToGlobal(pos.toPoint()), button,
-                                               Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
-
-
 def test_animation_window_opens_from_the_main_window_and_captures_keyframes(animation):
     win = animation
     aw, doc = win.animation, win.animation.document
@@ -264,12 +318,12 @@ def test_animation_window_opens_from_the_main_window_and_captures_keyframes(anim
     assert aw.windowTitle() == "Animation — animation" and not doc.animation.keyframes and aw.act_capture.isEnabled()
     key = aw.capture_keyframe()
     assert key is not None and key.frame == 0 and key.flame.name == win.document.flame.name and doc.modified and doc.selected is key
-    assert aw.keyframe_list.count() == 1 and "*" in aw.windowTitle() and aw.act_render.isEnabled()
+    assert aw.keyframe_panel.list.count() == 1 and "*" in aw.windowTitle() and aw.act_render.isEnabled()
     doc.set_frame(60)
     open_flame_and_wait(win, SAMPLES / "candy.flame", 2)
     key2 = aw.capture_keyframe()
     assert key2.frame == 60 and [k.frame for k in doc.animation.keyframes] == [0, 60] and doc.animation.total_frames == 150
-    assert aw.keyframe_list.count() == 2 and aw.keyframe_list.currentRow() == 1 and aw.key_frame_box.value() == 60
+    assert aw.keyframe_panel.list.count() == 2 and aw.keyframe_panel.list.currentRow() == 1 and aw.keyframe_panel.frame_box.value() == 60
     doc.set_frame(30)
     assert "50 %" in aw.blend_label.text() and aw.frame_box.value() == 30
     wait_until(lambda: aw.preview.stats is not None, 60000)
@@ -279,7 +333,7 @@ def test_animation_window_opens_from_the_main_window_and_captures_keyframes(anim
     open_flame_and_wait(win, SAMPLES / "candy.flame", 1)
     aw.capture_keyframe()
     assert len(doc.animation.keyframes) == 2 and doc.animation.keyframe_at(60).flame.name == win.document.flame.name
-    aw.update_button.click()
+    aw.keyframe_panel.update_button.click()
     assert doc.animation.keyframe_at(60).flame.name == win.document.flame.name
 
 
@@ -293,12 +347,12 @@ def test_clicking_a_keyframe_shows_it_in_the_main_window_like_choosing_a_fractal
     second = win.document.flame
     aw.capture_keyframe()
     assert win.document.flame.name == second.name
-    aw.keyframe_list.itemClicked.emit(aw.keyframe_list.item(0))
+    aw.keyframe_panel.list.itemClicked.emit(aw.keyframe_panel.list.item(0))
     assert win.document.flame.name == first.name and win.document.source_path is None and doc.frame == 0 and doc.selected.frame == 0
     aw.timeline.keyframe_clicked.emit(doc.animation.keyframes[1])
     assert win.document.flame.name == second.name and doc.frame == 40
-    aw.keyframe_list.setCurrentRow(0)
-    aw.show_button.click()
+    aw.keyframe_panel.list.setCurrentRow(0)
+    aw.keyframe_panel.show_button.click()
     assert win.document.flame.name == first.name
     aw.act_delete.trigger()
     assert len(doc.animation.keyframes) == 1 and doc.selected.frame == 40
@@ -314,11 +368,11 @@ def test_animation_files_save_and_open_showing_the_first_keyframe(animation, tmp
     doc.set_frame(20)
     open_flame_and_wait(win, SAMPLES / "candy.flame", 2)
     aw.capture_keyframe()
-    aw.name_edit.setText("my anim")
-    aw.name_edit.editingFinished.emit()
-    aw.fps_box.setValue(24)
-    aw.interpolation_box.setCurrentIndex(aw.interpolation_box.findData("smooth"))
-    aw.loop_check.setChecked(True)
+    aw.settings_panel.name_edit.setText("my anim")
+    aw.settings_panel.name_edit.editingFinished.emit()
+    aw.settings_panel.fps_box.setValue(24)
+    aw.settings_panel.interpolation_box.setCurrentIndex(aw.settings_panel.interpolation_box.findData("smooth"))
+    aw.settings_panel.loop_check.setChecked(True)
     assert doc.animation.name == "my anim" and doc.animation.fps == 24 and doc.animation.interpolation == "smooth" and doc.animation.loop
     path = tmp_path / "my anim.faanim"
     assert aw._write(path) and path.exists() and not doc.modified and aw.windowTitle() == "Animation — my anim"
@@ -328,7 +382,7 @@ def test_animation_files_save_and_open_showing_the_first_keyframe(animation, tmp
     assert aw.open_animation(path)
     assert [k.frame for k in doc.animation.keyframes] == [0, 20] and doc.animation.fps == 24 and doc.path == path
     assert win.document.flame.name == doc.animation.keyframes[0].flame.name and doc.selected.frame == 0 and doc.frame == 0
-    assert aw.keyframe_list.count() == 2 and aw.fps_box.value() == 24 and aw.loop_check.isChecked()
+    assert aw.keyframe_panel.list.count() == 2 and aw.settings_panel.fps_box.value() == 24 and aw.settings_panel.loop_check.isChecked()
     assert not aw.open_animation(tmp_path / "missing.faanim") and warnings and "cannot read" in warnings[0]
 
 
@@ -343,18 +397,18 @@ def test_timeline_scrubs_drags_keyframes_and_playback_runs(animation):
     spin(20)
     # scrub
     x = timeline.x_of(50)
-    press(timeline, QPointF(x, 10))
+    mouse_press(timeline, QPointF(x, 10))
     assert doc.frame == 50
-    move(timeline, QPointF(timeline.x_of(75), 10))
-    release(timeline, QPointF(timeline.x_of(75), 10))
+    mouse_move(timeline, QPointF(timeline.x_of(75), 10))
+    mouse_release(timeline, QPointF(timeline.x_of(75), 10))
     assert doc.frame == 75
     # drag the second keyframe to frame 120
     key = doc.animation.keyframes[1]
     y = timeline.height() - 22
-    press(timeline, QPointF(timeline.x_of(100), y))
+    mouse_press(timeline, QPointF(timeline.x_of(100), y))
     assert doc.selected is key
-    move(timeline, QPointF(timeline.x_of(120), y))
-    release(timeline, QPointF(timeline.x_of(120), y))
+    mouse_move(timeline, QPointF(timeline.x_of(120), y))
+    mouse_release(timeline, QPointF(timeline.x_of(120), y))
     assert key.frame == 120 and doc.frame == 120
     assert timeline.keyframe_at(QPointF(timeline.x_of(120), y)) is key and timeline.keyframe_at(QPointF(timeline.x_of(60), y)) is None
     timeline.zoom_by(2.0)
@@ -362,17 +416,17 @@ def test_timeline_scrubs_drags_keyframes_and_playback_runs(animation):
     timeline.fit()
     # playback advances the playhead at the frame rate
     doc.set_frame(0)
-    aw.play()
-    assert aw.playing and aw.play_button.text() == "Pause"
+    aw.playback.play()
+    assert aw.playback.playing and aw.play_button.text() == "Pause"
     wait_until(lambda: doc.frame >= 5, 5000)
-    aw.pause()
+    aw.playback.pause()
     frame = doc.frame
     spin(100)
-    assert doc.frame == frame and not aw.playing
-    aw.stop()
+    assert doc.frame == frame and not aw.playback.playing
+    aw.playback.stop()
     assert doc.frame == 0
-    aw.play()
-    wait_until(lambda: not aw.playing, 15000)                 # 150 frames at 30 fps: ends after 5 s
+    aw.playback.play()
+    wait_until(lambda: not aw.playback.playing, 15000)                 # 150 frames at 30 fps: ends after 5 s
     assert doc.frame == doc.animation.last_frame
 
 

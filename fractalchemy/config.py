@@ -46,7 +46,7 @@ INTERACTION_SETTLE_MS = 250     # after the last interaction, re-render at full 
 EDIT_RENDER_DELAY_MS = 1000     # the main viewport re-renders this long after the last Transform Editor change
 
 # --- Transform Editor ---------------------------------------------------------
-# (the quality levels of the editor's own small preview — Low / Medium / High — are in ui/editor_preview.py)
+# (the quality levels of the live previews — Low / Medium / High — are in ui/live_preview.py)
 EDITOR_PREVIEW_POINTS = 1 << 14  # a small population: the warm-up (fuse) is most of a tiny render's cost
 EDITOR_PREVIEW_FUSE = 12
 EDITOR_PREVIEW_THROTTLE_MS = 80    # at most one preview render per this interval (and one in flight) while dragging

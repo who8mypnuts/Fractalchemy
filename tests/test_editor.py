@@ -6,9 +6,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QGuiApplication, QMouseEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QGuiApplication
 
 from fractalchemy import config
 from fractalchemy.fractal import triangles as T
@@ -22,10 +21,10 @@ from fractalchemy.render.cpu_engine import CpuEngine, apply_xform
 from fractalchemy.render.gpu_engine import gpu_available
 from fractalchemy.render.settings import RenderSettings
 from fractalchemy.ui.editor_context import MODE_NORMAL, MODE_POST, MODE_PRE
-from fractalchemy.ui.editor_window import parse_triangle_text
+from fractalchemy.ui.editor_operations import parse_triangle_text
 from fractalchemy.ui.fractal_document import FractalDocument
 from fractalchemy.widgets.triangle_view import MODE_MOVE, MODE_ROTATE, MODE_SCALE, PIVOT_WORLD
-from tests.conftest import open_flame_and_wait, spin, wait_for_render, wait_until
+from tests.conftest import mouse_drag, mouse_move, mouse_press, mouse_release, open_flame_and_wait, spin, wait_for_render, wait_until
 
 SAMPLE = Path(__file__).resolve().parents[1] / "samples" / "sample flames" / "candy.flame"
 
@@ -66,6 +65,38 @@ def test_triangle_operations_rotate_scale_flip_reset_and_hit_test():
     assert T.bounds([tri]) == (0.0, 0.0, 1.5, 0.5)
     assert math.isclose(T.area(tri), 0.125)
     assert np.allclose(T.local_point(tri, 1, 0), tri[T.CORNER_X]) and np.allclose(T.local_coords(tri, tri[T.CORNER_Y]), (0, 1))
+
+
+def test_drag_maths_move_rotate_scale_and_snapping():
+    from fractalchemy.fractal import triangle_drag as D
+    tri = T.affine_to_triangle((0.5, 0, 0, 0.5, 1.0, 0.0))           # O (1, 0), X (1.5, 0), Y (1, 0.5)
+    steps = D.DragSteps(rotate_degrees=90.0, move=0.25, scale=1.5)
+    # whole triangle: move (Shift snaps to an axis), rotate about the pivot (Shift snaps the angle), scale
+    state = D.begin_triangle_drag(D.MODE_MOVE, (1.1, 0.1), (1.0, 0.0), tri)
+    assert np.allclose(D.drag(state, (1.6, 0.3), False, steps, True)[0], T.translate(tri, 0.5, 0.2))
+    assert np.allclose(D.drag(state, (1.6, 0.3), True, steps, True)[0], T.translate(tri, 0.5, 0.0))
+    state = D.begin_triangle_drag(D.MODE_ROTATE, (2.0, 0.0), (1.0, 0.0), tri)
+    turned, text = D.drag(state, (1.0, 1.0), False, steps, True)
+    assert np.allclose(turned, T.rotate_about(tri, (1.0, 0.0), math.pi / 2)) and text.startswith("rotated 90.00")
+    assert np.allclose(D.drag(state, (1.0 + math.cos(1.3), math.sin(1.3)), True, steps, True)[0], turned)   # snapped to 90°
+    state = D.begin_triangle_drag(D.MODE_SCALE, (2.0, 0.0), (1.0, 0.0), tri)
+    assert np.allclose(D.drag(state, (3.0, 0.0), False, steps, True)[0], T.scale_about(tri, (1.0, 0.0), 2.0))
+    assert np.allclose(D.drag(state, (3.2, 0.0), True, steps, True)[0], T.scale_about(tri, (1.0, 0.0), 2.0))   # snapped to 0.5 steps
+    assert D.drag(state, (1.0, 0.0), False, steps, True) == (None, "")      # a zero factor is refused
+    # corners: X moves alone; O drags the others along with the axes locked, alone without
+    state = D.begin_corner_drag(D.MODE_MOVE, (1.5, 0.0), (1.0, 0.0), tri, T.CORNER_X, True)
+    assert np.allclose(D.drag(state, (2.0, 0.1), False, steps, True)[0], ((2.0, 0.1), (1.0, 0.0), (1.0, 0.5)))
+    state = D.begin_corner_drag(D.MODE_MOVE, (1.0, 0.0), (1.0, 0.0), tri, T.CORNER_O, True)
+    assert state.pivot == (0.0, 0.0) and state.lock_o                       # O turns about the world origin
+    assert np.allclose(D.drag(state, (0.0, 0.0), False, steps, True)[0], T.translate(tri, -1.0, 0.0))
+    assert np.allclose(D.drag(state, (0.0, 0.0), False, steps, False)[0], ((1.5, 0.0), (0.0, 0.0), (1.0, 0.5)))
+    state = D.begin_corner_drag(D.MODE_ROTATE, (1.5, 0.0), (1.0, 0.0), tri, T.CORNER_X, True)
+    assert np.allclose(D.drag(state, (1.0, 5.0), False, steps, True)[0][T.CORNER_X], (1.0, 0.5))   # keeps its distance
+    assert D.drag(state, (1.0, 0.0), False, steps, True) == (None, "")
+    state = D.begin_corner_drag(D.MODE_SCALE, (1.5, 0.0), (1.0, 0.0), tri, T.CORNER_X, True)
+    assert np.allclose(D.drag(state, (2.0, 3.0), False, steps, True)[0][T.CORNER_X], (2.0, 0.0))   # along the pivot ray
+    assert D.edge_drag_mode(2) == D.MODE_SCALE and D.edge_drag_mode(0) == D.MODE_ROTATE
+    assert D.wrap_degrees(270.0) == -90.0 and D.wrap_degrees(-190.0) == 170.0
 
 
 # --- transform operations ------------------------------------------------------------------------------------
@@ -205,25 +236,6 @@ def editor(main_window_factory, monkeypatch):
     return win
 
 
-def press(widget, pos: QPointF, button=Qt.MouseButton.LeftButton, modifiers=Qt.KeyboardModifier.NoModifier):
-    QApplication.sendEvent(widget, QMouseEvent(QEvent.Type.MouseButtonPress, pos, widget.mapToGlobal(pos.toPoint()), button, button, modifiers))
-
-
-def move(widget, pos: QPointF, button=Qt.MouseButton.LeftButton, modifiers=Qt.KeyboardModifier.NoModifier):
-    QApplication.sendEvent(widget, QMouseEvent(QEvent.Type.MouseMove, pos, widget.mapToGlobal(pos.toPoint()), Qt.MouseButton.NoButton, button, modifiers))
-
-
-def release(widget, pos: QPointF, button=Qt.MouseButton.LeftButton, modifiers=Qt.KeyboardModifier.NoModifier):
-    QApplication.sendEvent(widget, QMouseEvent(QEvent.Type.MouseButtonRelease, pos, widget.mapToGlobal(pos.toPoint()), button, Qt.MouseButton.NoButton, modifiers))
-
-
-def drag(widget, start: QPointF, end: QPointF, modifiers=Qt.KeyboardModifier.NoModifier, steps: int = 4):
-    press(widget, start, modifiers=modifiers)
-    for i in range(1, steps + 1):
-        move(widget, start + (end - start) * (i / steps), modifiers=modifiers)
-    release(widget, end, modifiers=modifiers)
-
-
 def test_editor_opens_from_the_main_window_and_follows_the_document(editor):
     win = editor
     ed = win.editor
@@ -274,13 +286,13 @@ def test_dragging_corners_and_triangles_with_the_mouse_edits_the_transform(edito
     # drag corner X one unit to the right (in editor space) in move mode
     start = view.to_screen(tri[T.CORNER_X])
     end = view.to_screen((tri[T.CORNER_X][0] + 1.0, tri[T.CORNER_X][1]))
-    drag(view, start, end)
+    mouse_drag(view, start, end)
     moved = doc.flame.xforms[0].coefs
     assert math.isclose(moved[0], original[0] + 1.0, abs_tol=1e-6) and moved[4:] == original[4:] and doc.modified
     assert doc.can_undo and len(doc._undo) == 1                    # the whole drag is one undo step
     # dragging O with the axes locked moves the whole triangle
     tri = view.triangle(0)
-    drag(view, view.to_screen(tri[T.CORNER_O]), view.to_screen((tri[T.CORNER_O][0] + 0.5, tri[T.CORNER_O][1] - 0.5)))
+    mouse_drag(view, view.to_screen(tri[T.CORNER_O]), view.to_screen((tri[T.CORNER_O][0] + 0.5, tri[T.CORNER_O][1] - 0.5)))
     after = doc.flame.xforms[0].coefs
     assert math.isclose(after[4], moved[4] + 0.5, abs_tol=1e-6) and math.isclose(after[5], moved[5] + 0.5, abs_tol=1e-6)
     assert after[:4] == pytest.approx(moved[:4]) and len(doc._undo) == 2
@@ -292,13 +304,13 @@ def test_dragging_corners_and_triangles_with_the_mouse_edits_the_transform(edito
     inside = (-0.2, 0.5)                                             # inside triangle 1 only (they share an edge)
     assert T.contains(tri1, inside) and not T.contains(view.triangle(0), inside)
     before = doc.flame.xforms[1].coefs
-    drag(view, view.to_screen(inside), view.to_screen((inside[0] + 0.25, inside[1])))
+    mouse_drag(view, view.to_screen(inside), view.to_screen((inside[0] + 0.25, inside[1])))
     assert ed.context.selected == 1 and math.isclose(doc.flame.xforms[1].coefs[4], before[4] + 0.25, abs_tol=1e-6)
     # Esc during a drag cancels it
     inside = (-0.2, 0.4)
     assert view.hit_at(inside).key == 1
-    press(view, view.to_screen(inside))
-    move(view, view.to_screen((inside[0] + 1.0, inside[1])))
+    mouse_press(view, view.to_screen(inside))
+    mouse_move(view, view.to_screen((inside[0] + 1.0, inside[1])))
     assert view.is_dragging() and doc.flame.xforms[1].coefs[4] != pytest.approx(before[4] + 0.25)
     view.cancel_drag()
     assert not view.is_dragging() and math.isclose(doc.flame.xforms[1].coefs[4], before[4] + 0.25, abs_tol=1e-6)
@@ -311,7 +323,7 @@ def test_rotate_and_scale_modes_and_modifier_overrides(editor):
     view.fit()
     spin(20)
     ed.context.select(0)
-    ed.act_rotate.setChecked(True)
+    ed.actions.rotate.setChecked(True)
     assert view.edit_mode == MODE_ROTATE
     tri = view.triangle(0)
     pivot = view.pivot()
@@ -319,23 +331,23 @@ def test_rotate_and_scale_modes_and_modifier_overrides(editor):
     start = (pivot[0] + 0.1, pivot[1] + 0.5)                         # inside this triangle only, off its corners and edges
     assert view.hit_at(start).key == 0 and view.hit_at(start).corner is None and view.hit_at(start).edge is None
     quarter = (pivot[0] - 0.5, pivot[1] + 0.1)                      # the start point turned 90° about O
-    drag(view, view.to_screen(start), view.to_screen(quarter))
+    mouse_drag(view, view.to_screen(start), view.to_screen(quarter))
     turned = T.affine_to_triangle(doc.flame.xforms[0].coefs)
     expected = T.rotate_about(tri, pivot, math.pi / 2)
     assert np.allclose(turned, expected, atol=1e-6)
     doc.undo()
-    ed.act_scale.setChecked(True)
+    ed.actions.scale.setChecked(True)
     assert view.edit_mode == MODE_SCALE
-    drag(view, view.to_screen(start), view.to_screen((pivot[0] + 0.2, pivot[1] + 1.0)))   # twice the distance from O
+    mouse_drag(view, view.to_screen(start), view.to_screen((pivot[0] + 0.2, pivot[1] + 1.0)))   # twice the distance from O
     assert np.allclose(T.affine_to_triangle(doc.flame.xforms[0].coefs), T.scale_about(tri, pivot, 2.0), atol=1e-6)
     doc.undo()
-    ed.act_move.setChecked(True)
-    drag(view, view.to_screen(start), view.to_screen(quarter), modifiers=Qt.KeyboardModifier.AltModifier)
+    ed.actions.move.setChecked(True)
+    mouse_drag(view, view.to_screen(start), view.to_screen(quarter), modifiers=Qt.KeyboardModifier.AltModifier)
     assert np.allclose(T.affine_to_triangle(doc.flame.xforms[0].coefs), expected, atol=1e-6)   # Alt rotates whatever the mode
     doc.undo()
-    ed.act_pivot.setChecked(True)
+    ed.actions.pivot.setChecked(True)
     assert view.pivot_mode == PIVOT_WORLD and view.pivot() == (0.0, 0.0)
-    ed.act_pivot.setChecked(False)
+    ed.actions.pivot.setChecked(False)
 
 
 def test_triangle_tab_buttons_rotate_move_scale_flip_and_reset(editor):
@@ -343,9 +355,9 @@ def test_triangle_tab_buttons_rotate_move_scale_flip_and_reset(editor):
     ed.context.select(0)
     tri = T.affine_to_triangle(doc.flame.xforms[0].coefs)
     pivot = ed.view.pivot()
-    ed.act_rot_ccw.trigger()
+    ed.actions.rot_ccw.trigger()
     assert np.allclose(T.affine_to_triangle(doc.flame.xforms[0].coefs), T.rotate_about(tri, pivot, math.pi / 2))
-    ed.act_rot_cw.trigger()
+    ed.actions.rot_cw.trigger()
     assert np.allclose(T.affine_to_triangle(doc.flame.xforms[0].coefs), tri)
     ed.triangle_tab.rotate_step.setCurrentText("30")
     ed.triangle_tab.rotate_left.click()
@@ -360,16 +372,16 @@ def test_triangle_tab_buttons_rotate_move_scale_flip_and_reset(editor):
     assert np.allclose(T.affine_to_triangle(doc.flame.xforms[0].coefs), T.scale_about(tri, pivot, 2.0))
     ed.triangle_tab.scale_down.click()
     assert np.allclose(T.affine_to_triangle(doc.flame.xforms[0].coefs), tri)
-    ed.act_flip_h.trigger()
+    ed.actions.flip_h.trigger()
     assert np.allclose(T.affine_to_triangle(doc.flame.xforms[0].coefs), T.flip_horizontal(tri, pivot))
-    ed.act_flip_v.trigger()
+    ed.actions.flip_v.trigger()
     assert np.allclose(T.affine_to_triangle(doc.flame.xforms[0].coefs), T.flip_vertical(T.flip_horizontal(tri, pivot), pivot))
-    ed.act_reset_triangle.trigger()
+    ed.actions.reset_triangle.trigger()
     assert doc.flame.xforms[0].coefs == identity_affine()
     # corner boxes edit the triangle directly
     ed.triangle_tab.corner_boxes[T.CORNER_X][0].setValue(2.0)
     assert doc.flame.xforms[0].coefs == (2.0, 0.0, 0.0, 1.0, 0.0, 0.0)
-    ed.act_reset_all.trigger()
+    ed.actions.reset_all.trigger()
     assert all(x.coefs == identity_affine() for x in doc.flame.xforms)
     assert doc.undo() and doc.flame.xforms[0].coefs == (2.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 
@@ -460,31 +472,31 @@ def test_transform_tab_edits_all_three_affines_and_auto_zscale(editor):
 def test_transforms_can_be_added_duplicated_linked_deleted_and_the_final_toggled(editor):
     ed, doc = editor.editor, editor.document
     n = len(doc.flame.xforms)
-    ed.act_add.trigger()
+    ed.actions.add.trigger()
     assert len(doc.flame.xforms) == n + 1 and ed.context.selected == n and ed.transform_combo.count() == n + 1 + (1 if doc.flame.final else 0)
-    ed.act_duplicate.trigger()
+    ed.actions.duplicate.trigger()
     assert len(doc.flame.xforms) == n + 2 and doc.flame.xforms[n + 1].coefs == doc.flame.xforms[n].coefs
-    ed.act_link.trigger()
+    ed.actions.link.trigger()
     assert len(doc.flame.xforms) == n + 3 and doc.flame.xforms[n + 1].opacity == 0.0 and ed.context.selected == n + 2
-    ed.act_delete.trigger()
+    ed.actions.delete.trigger()
     assert len(doc.flame.xforms) == n + 2 and ed.context.selected == n + 1
     had_final = doc.flame.final is not None
-    ed.act_final.setChecked(not had_final)
+    ed.actions.final.setChecked(not had_final)
     assert (doc.flame.final is not None) == (not had_final)
     if doc.flame.final is None:
-        ed.act_final.setChecked(True)
+        ed.actions.final.setChecked(True)
     assert doc.flame.final is not None and ed.context.selected is None and ed.context.is_final
-    assert not ed.weight_box.isEnabled() and not ed.act_duplicate.isEnabled() and not ed.act_link.isEnabled()
+    assert not ed.weight_box.isEnabled() and not ed.actions.duplicate.isEnabled() and not ed.actions.link.isEnabled()
     ed.set_mode(MODE_PRE)
     ed.triangle_tab.move_left.click()
     assert doc.flame.final.pre == (1, 0, 0, 1, -0.1, 0)             # pre / post affines work on the final transform too
     ed.set_mode(MODE_POST)
-    ed.act_rot_cw.trigger()
+    ed.actions.rot_cw.trigger()
     assert np.allclose(T.affine_to_triangle(doc.flame.final.post), T.rotate_about(T.REFERENCE, (0, 0), -math.pi / 2))
-    ed.act_delete.trigger()                                          # deleting the final transform disables it
+    ed.actions.delete.trigger()                                          # deleting the final transform disables it
     assert doc.flame.final is None and ed.context.selected is not None
     palette = list(doc.flame.palette)
-    ed.act_new_flame.trigger()
+    ed.actions.new_flame.trigger()
     assert len(doc.flame.xforms) == 1 and doc.flame.xforms[0].variations == {"linear": 1.0} and doc.flame.final is None
     assert doc.flame.camera.center == (0.0, 0.0) and doc.flame.palette == palette and ed.context.selected == 0
     while doc.undo():
@@ -495,18 +507,18 @@ def test_transforms_can_be_added_duplicated_linked_deleted_and_the_final_toggled
 def test_the_final_transform_can_be_grabbed_with_the_mouse(editor):
     ed, doc = editor.editor, editor.document
     view = ed.view
-    ed.act_final.setChecked(True)
+    ed.actions.final.setChecked(True)
     assert doc.flame.final is not None and ed.context.is_final
-    ed.act_reset_all.trigger()                                        # every triangle on the reference: the final is topmost
+    ed.actions.reset_all.trigger()                                        # every triangle on the reference: the final is topmost
     view.fit()
     spin(20)
     hit = view.hit_at((0.3, 0.3))
     assert hit is not None and hit.key is None and hit.corner is None
-    drag(view, view.to_screen((0.3, 0.3)), view.to_screen((0.8, 0.3)))
+    mouse_drag(view, view.to_screen((0.3, 0.3)), view.to_screen((0.8, 0.3)))
     assert ed.context.selected is None and doc.flame.final.coefs == pytest.approx((1, 0, 0, 1, 0.5, 0))
     corner = view.hit_at(T.affine_to_triangle(doc.flame.final.coefs)[T.CORNER_Y])
     assert corner is not None and corner.key is None and corner.corner == T.CORNER_Y
-    move(view, view.to_screen((0.8, 0.3)), button=Qt.MouseButton.NoButton)
+    mouse_move(view, view.to_screen((0.8, 0.3)), button=None)
     assert ed.info_label.text().startswith("Transform Final")
 
 
@@ -546,7 +558,7 @@ def test_keys_on_the_canvas_nudge_rotate_and_switch_modes(editor):
     QTest.keyClick(view, Qt.Key.Key_T)
     assert ed.mode == MODE_NORMAL
     QTest.keyClick(view, Qt.Key.Key_R)
-    assert view.edit_mode == MODE_ROTATE and ed.act_rotate.isChecked()
+    assert view.edit_mode == MODE_ROTATE and ed.actions.rotate.isChecked()
     QTest.keyClick(view, Qt.Key.Key_M)
     assert view.edit_mode == MODE_MOVE
     QTest.keyClick(view, Qt.Key.Key_A)
@@ -578,9 +590,9 @@ def test_variation_preview_points_follow_the_transform():
 def test_variation_preview_button_shows_the_selected_transforms_grid_on_the_canvas(editor):
     ed = editor.editor
     view = ed.view
-    assert ed.act_var_preview in ed.toolbar.actions() and not ed.act_var_preview.isChecked() and view.variation_preview_count == 0
+    assert ed.actions.var_preview in ed.toolbar.actions() and not ed.actions.var_preview.isChecked() and view.variation_preview_count == 0
     ed.context.select(0)
-    ed.act_var_preview.setChecked(True)
+    ed.actions.var_preview.setChecked(True)
     assert view.variation_preview_count == 41 * 41                      # range ±2, density 2: a 41 × 41 grid
     ed.colors_tab.var_preview_sliders["density"].setValue(1)
     assert view.variation_preview_count == 21 * 21 and ed.colors_tab.var_preview_labels["density"].text() == "5"
@@ -594,13 +606,13 @@ def test_variation_preview_button_shows_the_selected_transforms_grid_on_the_canv
     from PySide6.QtTest import QTest
     view.setFocus()
     QTest.keyClick(view, Qt.Key.Key_V)
-    assert not ed.act_var_preview.isChecked() and view.variation_preview_count == 0
+    assert not ed.actions.var_preview.isChecked() and view.variation_preview_count == 0
     view.set_variation_preview(np.array([[0.0, 0.0], [0.5, 0.5]]))
     view.grab()                                                          # paints the dots without error
 
 
 def test_preview_quality_levels():
-    from fractalchemy.ui.editor_preview import DEFAULT_QUALITY, QUALITIES, quality_level
+    from fractalchemy.ui.live_preview import DEFAULT_QUALITY, QUALITIES, quality_level
     assert [q.name for q in QUALITIES] == ["Low", "Medium", "High"] and DEFAULT_QUALITY.name == "Medium"
     assert QUALITIES[0].quality < QUALITIES[1].quality < QUALITIES[2].quality and QUALITIES[1].quality == 5.0
     assert quality_level("high") is QUALITIES[2] and quality_level(5.0) is QUALITIES[1] and quality_level("nope") is DEFAULT_QUALITY
@@ -618,14 +630,68 @@ def test_preview_quality_is_chosen_and_remembered(editor):
     wait_until(lambda: ed.preview.stats is not None and ed.preview.stats.passes_total == 2, 30000)
 
 
+def test_value_table_rejects_non_finite_input_and_supports_name_dragging(qapp):
+    from fractalchemy.widgets.value_table import ValueRow, ValueTable
+    table = ValueTable(None, ("Name", "Value", "Info"))
+    table.resize(400, 300)
+    table.show()
+    table.set_rows([ValueRow("linear", 1.0, "", bold=True), ValueRow("julian", 0.0, "x"), ValueRow("power", 2, "", integer=True)])
+    edits, finished = [], []
+    table.value_edited.connect(lambda n, v: edits.append((n, v)))
+    table.drag_finished.connect(finished.append)
+    table.item(0, 1).setText("0.5")
+    assert edits == [("linear", 0.5)] and table.value_of("linear") == 0.5
+    for bad in ("abc", "nan", "inf", "-inf", ""):
+        table.item(0, 1).setText(bad)
+        assert edits == [("linear", 0.5)] and table.item(0, 1).text() == "0.5", bad
+    table.item(2, 1).setText("3.7")
+    assert edits[-1] == ("power", 4.0) and table.item(2, 1).text() == "4"   # integer rows round
+    viewport = table.viewport()
+    centre = QPointF(table.visualItemRect(table.item(1, 0)).center())
+    mouse_press(viewport, centre)
+    mouse_move(viewport, centre + QPointF(100, 0), Qt.MouseButton.LeftButton)
+    mouse_release(viewport, centre + QPointF(100, 0))
+    assert edits[-1] == ("julian", 0.1) and finished == ["julian"]          # 0.001 per pixel
+    mouse_press(viewport, centre)
+    mouse_move(viewport, centre + QPointF(100, 0), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ShiftModifier)
+    mouse_release(viewport, centre + QPointF(100, 0))
+    assert edits[-1] == ("julian", 1.1)                                      # Shift: 0.01 per pixel
+    assert table.filter("jul") == 1 and table.isRowHidden(0) and not table.isRowHidden(1)
+    assert table.name_at(7) is None and table.value_of("nope") is None
+
+
+def test_operations_helpers_modifier_factor_auto_zscale_and_clipboard_parsing():
+    from fractalchemy.ui.editor_operations import auto_zscale_value, modifier_factor
+    assert modifier_factor(6.0, 1 / 6.0, Qt.KeyboardModifier.NoModifier) == 1.0
+    assert modifier_factor(6.0, 1 / 6.0, Qt.KeyboardModifier.ShiftModifier) == 6.0
+    assert modifier_factor(6.0, 1 / 6.0, Qt.KeyboardModifier.ControlModifier) == pytest.approx(1 / 6.0)
+    assert auto_zscale_value((1, 0, 0, 1, 0, 0)) == 0.0 and auto_zscale_value((2, 0, 0, 2, 0, 0)) == 2.0
+    assert auto_zscale_value((0, 1, 1, 0, 0, 0)) == -1.0                     # a reflection: negative determinant
+    assert parse_triangle_text("1 0 0 1 nan 0") is None and parse_triangle_text("1 0 0 1 inf 0") is None
+    assert parse_triangle_text("fractalchemy-triangle 1, 0, 0, 1, 0.5, 0") == (1, 0, 0, 1, 0.5, 0)
+
+
+def test_editor_and_animation_glyphs_paint_and_unknown_names_fail_loudly(qapp):
+    from fractalchemy.widgets.glyphs import GLYPHS, glyph_pixmap
+    from fractalchemy.widgets.icons import animation_icon, editor_icon
+    for name in GLYPHS:
+        image = glyph_pixmap(name, 24).toImage()
+        painted = any(image.pixelColor(x, y).alpha() for x in range(24) for y in range(24))
+        assert image.width() == 24 and painted, name
+        assert not editor_icon(name).isNull()
+    assert not animation_icon().isNull() and not editor_icon("rotate", use_theme=True).isNull()
+    with pytest.raises(KeyError):
+        editor_icon("no-such-glyph")
+
+
 def test_copy_and_paste_triangle_and_clipboard_parsing(editor):
     ed, doc = editor.editor, editor.document
     ed.context.select(0)
-    ed.act_copy.trigger()
+    ed.actions.copy.trigger()
     text = QGuiApplication.clipboard().text()
     assert text.startswith("fractalchemy-triangle") and parse_triangle_text(text) == doc.flame.xforms[0].coefs
     ed.context.select(1)
-    ed.act_paste.trigger()
+    ed.actions.paste.trigger()
     assert doc.flame.xforms[1].coefs == doc.flame.xforms[0].coefs
     assert parse_triangle_text("1 0 0 1 0.5 0.25") == (1, 0, 0, 1, 0.5, 0.25) and parse_triangle_text("nope") is None
 
@@ -635,7 +701,7 @@ def test_editor_context_menu_keys_and_view_commands(editor):
     view = ed.view
     ed.context.select(0)
     # hovering reports the transform's variations in the status bar
-    move(view, view.to_screen((-0.9, 0.5)), button=Qt.MouseButton.NoButton)   # inside transform 1's triangle only
+    mouse_move(view, view.to_screen((-0.9, 0.5)), button=None)   # inside transform 1's triangle only
     assert ed.info_label.text().startswith("Transform 1: linear 1")
     before = T.affine_to_triangle(doc.flame.xforms[0].coefs)
     view.triangle_command.emit(0, "move-up")
@@ -646,7 +712,7 @@ def test_editor_context_menu_keys_and_view_commands(editor):
     assert ed.context.selected == len(doc.flame.xforms) - 1
     view.triangle_command.emit(ed.context.selected, "delete")
     view.triangle_command.emit(0, "toggle-pivot")
-    assert ed.act_pivot.isChecked()
+    assert ed.actions.pivot.isChecked()
     zoom = view.pixels_per_unit
     view.zoom_by(2.0)
     assert view.pixels_per_unit == pytest.approx(zoom * 2)

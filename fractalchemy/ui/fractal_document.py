@@ -397,6 +397,7 @@ class FractalDocument(QObject):
         return self.edit_xform(index, f"chaos-all:{index}", lambda x: setattr(x, "chaos", None if value == 1.0 else [value] * n), "chaos")
 
     def _restructure(self, kind: str, action: Callable[[Flame], int | None]) -> int | None:
+        """Run a structural edit (transforms added / removed) as its own undo step; returns what the edit returns."""
         if self._flame is None:
             return None
         self._record(kind)
@@ -411,9 +412,11 @@ class FractalDocument(QObject):
         return self._restructure("add-xform", xform_ops.add_xform)
 
     def duplicate_xform(self, index: int) -> int | None:
+        """Append a copy of transform `index`; returns the copy's index."""
         return self._restructure("duplicate-xform", lambda f: xform_ops.duplicate_xform(f, index))
 
     def add_linked_xform(self, index: int) -> int | None:
+        """Append a transform linked by xaos to transform `index` (Apophysis's *Add linked*); returns its index."""
         return self._restructure("link-xform", lambda f: xform_ops.add_linked_xform(f, index))
 
     def delete_xform(self, index: int) -> int | None:

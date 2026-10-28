@@ -41,9 +41,10 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ..fractal import triangles as T
+from ..fractal.triangle_drag import (MODE_MOVE, MODE_ROTATE, MODE_SCALE, DragState, DragSteps, begin_corner_drag,
+                                     begin_triangle_drag, drag, edge_drag_mode)
 from ..fractal.triangles import CORNER_O, CORNER_X, CORNER_Y, Point, Triangle
 
-MODE_MOVE, MODE_ROTATE, MODE_SCALE = "move", "rotate", "scale"
 PIVOT_LOCAL, PIVOT_WORLD = "local", "world"
 CORNER_RADIUS_PX = 5.0
 CORNER_HIT_PX = 7.0
@@ -106,21 +107,6 @@ class Hit:
     edge: int | None = None
 
 
-class _Drag:
-    """State of a mouse drag (corner, edge or whole triangle)."""
-    __slots__ = ("key", "corner", "edge", "mode", "start", "pivot", "original", "old", "olddist", "changed", "lock_o")
-
-    def __init__(self, key, mode: str, start: Point, pivot: Point, original: Triangle, corner: int | None = None,
-                 edge: int | None = None):
-        self.key, self.mode, self.start, self.pivot, self.original = key, mode, start, pivot, original
-        self.corner, self.edge = corner, edge
-        anchor = original[corner] if corner is not None else start
-        self.old = (anchor[0] - pivot[0], anchor[1] - pivot[1])
-        self.olddist = math.hypot(*self.old)
-        self.changed = False
-        self.lock_o = False
-
-
 class TriangleView(QWidget):
     """The editable triangle canvas (see the module docstring for the gestures)."""
     selected = Signal(object)
@@ -152,11 +138,10 @@ class TriangleView(QWidget):
         self.pivot_mode = PIVOT_LOCAL
         self.local_pivot: Point = (0.0, 0.0)     # in the triangle's own (u, v) coordinates
         self.world_pivot: Point = (0.0, 0.0)
-        self.rotate_step_degrees = 15.0
-        self.move_step = 0.1
-        self.scale_step = 1.25
+        self.drag_steps = DragSteps()       # the snapping steps (the Triangle tab keeps them in step)
         self.mode_caption = ""
-        self._drag: _Drag | None = None
+        self._drag: DragState | None = None
+        self._drag_key: object = None
         self._pan: tuple[QPointF, Point] | None = None
         self._pan_moved = False
         self._hover: Hit | None = None
@@ -176,9 +161,11 @@ class TriangleView(QWidget):
         self.update()
 
     def entries(self) -> list[TriangleEntry]:
+        """The triangles shown (copies of the list; the entries themselves are shared)."""
         return list(self._entries)
 
     def entry(self, key: object) -> TriangleEntry | None:
+        """The entry for a transform key, if shown."""
         for e in self._entries:
             if e.key == key:
                 return e
@@ -186,6 +173,7 @@ class TriangleView(QWidget):
 
     @property
     def selected_key(self) -> object:
+        """The key of the selected triangle."""
         return self._selected_key
 
     def select(self, key: object) -> None:
@@ -195,10 +183,12 @@ class TriangleView(QWidget):
             self.update()
 
     def triangle(self, key: object) -> Triangle | None:
+        """The triangle of a transform key, if shown."""
         e = self.entry(key)
         return e.triangle if e else None
 
     def is_dragging(self) -> bool:
+        """True while a mouse drag is in progress."""
         return self._drag is not None
 
     def set_variation_preview(self, points: np.ndarray | None, color: QColor | None = None) -> None:
@@ -216,13 +206,16 @@ class TriangleView(QWidget):
     # --- view ---------------------------------------------------------------------------------------------
     @property
     def pixels_per_unit(self) -> float:
+        """The zoom: screen pixels per fractal unit."""
         return self._ppu
 
     @property
     def center(self) -> Point:
+        """The editor-space point at the widget's centre."""
         return self._center
 
     def set_view(self, center: Point, pixels_per_unit: float) -> None:
+        """Set the view's centre and zoom (the zoom is clamped)."""
         self._center = (float(center[0]), float(center[1]))
         self._ppu = max(MIN_PIXELS_PER_UNIT, min(MAX_PIXELS_PER_UNIT, float(pixels_per_unit)))
         self.view_changed.emit()
@@ -248,10 +241,12 @@ class TriangleView(QWidget):
         self.update()
 
     def to_screen(self, point: Point) -> QPointF:
+        """Editor-space point → widget coordinates."""
         return QPointF(self.width() / 2 + (point[0] - self._center[0]) * self._ppu,
                        self.height() / 2 - (point[1] - self._center[1]) * self._ppu)
 
     def to_editor(self, pos: QPointF) -> Point:
+        """Widget coordinates → editor-space point."""
         return ((pos.x() - self.width() / 2) / self._ppu + self._center[0],
                 -(pos.y() - self.height() / 2) / self._ppu + self._center[1])
 
@@ -266,17 +261,21 @@ class TriangleView(QWidget):
         return T.local_point(triangle, *self.local_pivot)
 
     def pivot(self) -> Point:
+        """The pivot point of the selected transform."""
         return self.pivot_of(self._selected_key)
 
     def set_pivot_mode(self, mode: str) -> None:
+        """`PIVOT_LOCAL` (the triangle's own coordinates) or `PIVOT_WORLD` (a fixed point)."""
         self.pivot_mode = PIVOT_WORLD if mode == PIVOT_WORLD else PIVOT_LOCAL
         self.update()
 
     def set_local_pivot(self, u: float, v: float) -> None:
+        """The local pivot in triangle coordinates: (0, 0) is O, (1, 0) is X, (0, 1) is Y."""
         self.local_pivot = (float(u), float(v))
         self.update()
 
     def set_world_pivot(self, x: float, y: float) -> None:
+        """The world pivot in editor space."""
         self.world_pivot = (float(x), float(y))
         self.update()
 
@@ -348,29 +347,20 @@ class TriangleView(QWidget):
         triangle = self.triangle(key)
         if triangle is None:
             return
-        mode = self._effective_mode(event.modifiers())
+        pivot = self.pivot_of(key)
         if corner is not None:
-            pivot = self.pivot_of(key)
-            drag = _Drag(key, mode, point, pivot, triangle, corner=corner)
-            if corner == CORNER_O:
-                # the local pivot is O itself: rotating / scaling O about it is meaningless, so Apophysis uses the
-                # origin and moves the whole triangle with O
-                if self.pivot_mode == PIVOT_LOCAL:
-                    drag.pivot = (0.0, 0.0)
-                    drag.old = (triangle[CORNER_O][0], triangle[CORNER_O][1])
-                    drag.olddist = math.hypot(*drag.old)
-                drag.lock_o = True
+            state = begin_corner_drag(self._effective_mode(event.modifiers()), point, pivot, triangle, corner,
+                                      self.pivot_mode == PIVOT_LOCAL)
         elif edge is not None:
-            pivot = self.pivot_of(key)
-            # the hypotenuse (Y→X) scales, the axis edges rotate
-            drag = _Drag(key, MODE_SCALE if edge == 2 else MODE_ROTATE, point, pivot, triangle, edge=edge)
+            state = begin_triangle_drag(edge_drag_mode(edge), point, pivot, triangle)
         else:
-            drag = _Drag(key, mode, point, self.pivot_of(key), triangle)
-        self._drag = drag
+            state = begin_triangle_drag(self._effective_mode(event.modifiers()), point, pivot, triangle)
+        self._drag = state
+        self._drag_key = key
         if hit != self._hover:
             self._hover = hit
             self.hover_changed.emit(hit)
-        self._update_cursor(drag.mode)
+        self._update_cursor(state.mode)
         self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -419,10 +409,10 @@ class TriangleView(QWidget):
                 self.context_menu.emit(event.position().toPoint(), hit)
             return
         if event.button() == Qt.MouseButton.LeftButton and self._drag is not None:
-            drag = self._drag
+            state = self._drag
             self._drag = None
             self._hover = None          # re-evaluated on the next move (the triangle moved under the mouse)
-            self.drag_finished.emit(drag.key, drag.changed)
+            self.drag_finished.emit(self._drag_key, state.changed)
             self.setCursor(Qt.CursorShape.ArrowCursor)
             self.update()
 
@@ -511,13 +501,13 @@ class TriangleView(QWidget):
     # --- dragging -----------------------------------------------------------------------------------------
     def cancel_drag(self) -> None:
         """Esc: put the triangle back where the drag started."""
-        drag = self._drag
-        if drag is None:
+        state = self._drag
+        if state is None:
             return
         self._drag = None
-        if drag.changed:
-            self.triangle_dragged.emit(drag.key, drag.original)
-        self.drag_finished.emit(drag.key, False)
+        if state.changed:
+            self.triangle_dragged.emit(self._drag_key, state.original)
+        self.drag_finished.emit(self._drag_key, False)
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self.update()
 
@@ -533,84 +523,19 @@ class TriangleView(QWidget):
             mode, Qt.CursorShape.SizeAllCursor))
 
     def _drag_to(self, point: Point, modifiers) -> None:
-        drag = self._drag
-        assert drag is not None
+        """Apply the drag in progress to the mouse point: update the entry, tell the owner, show what happened."""
+        state = self._drag
         shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
-        if drag.corner is not None:
-            triangle, text = self._drag_corner(drag, point, shift)
-        else:
-            triangle, text = self._drag_triangle(drag, point, shift)
+        triangle, text = drag(state, point, shift, self.drag_steps, self.axis_lock)
         if triangle is None:
             return
-        drag.changed = True
-        entry = self.entry(drag.key)
+        state.changed = True
+        entry = self.entry(self._drag_key)
         if entry is not None:
             entry.triangle = triangle
         self.status.emit(f"X: {point[0]:.4f}   Y: {point[1]:.4f}   {text}")
-        self.triangle_dragged.emit(drag.key, triangle)
+        self.triangle_dragged.emit(self._drag_key, triangle)
         self.update()
-
-    def _drag_corner(self, drag: _Drag, point: Point, shift: bool) -> tuple[Triangle | None, str]:
-        px, py = drag.pivot
-        corner = drag.corner
-        original = drag.original
-        if drag.mode == MODE_ROTATE:
-            d = math.hypot(point[0] - px, point[1] - py)
-            if d == 0:
-                return None, ""
-            if shift and self.rotate_step_degrees:
-                step = math.radians(self.rotate_step_degrees)
-                a = round(math.atan2(point[1] - py, point[0] - px) / step) * step
-                vx, vy = drag.olddist * math.cos(a), drag.olddist * math.sin(a)
-            else:
-                vx, vy = (point[0] - px) * drag.olddist / d, (point[1] - py) * drag.olddist / d
-            angle = math.degrees(math.atan2(vy, vx) - math.atan2(drag.old[1], drag.old[0]))
-            target = (px + vx, py + vy)
-            text = f"rotated {_wrap_degrees(angle):.2f}°"
-        elif drag.mode == MODE_SCALE:
-            if drag.olddist == 0:
-                return None, ""
-            d = (drag.old[0] * (point[0] - px) + drag.old[1] * (point[1] - py)) / drag.olddist
-            if shift and self.move_step:
-                d = math.trunc(d / self.move_step) * self.move_step
-            vx, vy = drag.old[0] * d / drag.olddist, drag.old[1] * d / drag.olddist
-            target = (px + vx, py + vy)
-            text = f"axis length {math.hypot(vx, vy):.4f}  ({d * 100 / drag.olddist:.1f} %)"
-        else:
-            if shift:
-                target = (point[0], py) if abs(point[0] - px) > abs(point[1] - py) else (px, point[1])
-            else:
-                target = point
-            anchor = original[corner]
-            text = f"moved {target[0] - anchor[0]:+.4f}, {target[1] - anchor[1]:+.4f}"
-        lock = drag.lock_o and (self.axis_lock or drag.mode != MODE_MOVE)
-        return T.move_corner(original, corner, target, lock_axes=lock), text
-
-    def _drag_triangle(self, drag: _Drag, point: Point, shift: bool) -> tuple[Triangle | None, str]:
-        px, py = drag.pivot
-        if drag.mode == MODE_ROTATE:
-            angle = math.atan2(point[1] - py, point[0] - px) - math.atan2(drag.old[1], drag.old[0])
-            if shift and self.rotate_step_degrees:
-                step = math.radians(self.rotate_step_degrees)
-                angle = round(angle / step) * step
-            return T.rotate_about(drag.original, drag.pivot, angle), f"rotated {_wrap_degrees(math.degrees(angle)):.2f}°"
-        if drag.mode == MODE_SCALE:
-            if drag.olddist == 0:
-                return None, ""
-            factor = (drag.old[0] * (point[0] - px) + drag.old[1] * (point[1] - py)) / (drag.olddist ** 2)
-            if shift and self.scale_step != 1.0:
-                step = abs(self.scale_step - 1.0)
-                factor = math.trunc(factor / step) * step
-            if factor == 0:
-                return None, ""
-            return T.scale_about(drag.original, drag.pivot, factor), f"scaled {factor * 100:.1f} %"
-        dx, dy = point[0] - drag.start[0], point[1] - drag.start[1]
-        if shift:
-            if abs(dx) > abs(dy):
-                dy = 0.0
-            else:
-                dx = 0.0
-        return T.translate(drag.original, dx, dy), f"moved {dx:+.4f}, {dy:+.4f}"
 
     # --- painting -----------------------------------------------------------------------------------------
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -766,30 +691,30 @@ class TriangleView(QWidget):
                 y -= metrics.height()
 
     def _paint_helpers(self, painter: QPainter) -> None:
-        drag = self._drag
-        if drag is None or not self.show_helpers:
+        state = self._drag
+        if state is None or not self.show_helpers:
             return
         painter.setPen(QPen(HELPER_COLOR, 1, Qt.PenStyle.DotLine))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        pv = self.to_screen(drag.pivot)
+        pv = self.to_screen(state.pivot)
         painter.drawLine(QPointF(pv.x(), 0), QPointF(pv.x(), self.height()))
         painter.drawLine(QPointF(0, pv.y()), QPointF(self.width(), pv.y()))
-        triangle = self.triangle(drag.key)
+        triangle = self.triangle(self._drag_key)
         if triangle is None:
             return
-        if drag.mode == MODE_ROTATE:
-            r = drag.olddist * self._ppu
+        if state.mode == MODE_ROTATE:
+            r = state.olddist * self._ppu
             if r > 4:
                 painter.drawEllipse(pv, r, r)
-        elif drag.mode == MODE_SCALE:
-            corners = [triangle[drag.corner]] if drag.corner is not None else list(triangle)
+        elif state.mode == MODE_SCALE:
+            corners = [triangle[state.corner]] if state.corner is not None else list(triangle)
             for corner in corners:
-                dx, dy = corner[0] - drag.pivot[0], corner[1] - drag.pivot[1]
+                dx, dy = corner[0] - state.pivot[0], corner[1] - state.pivot[1]
                 if dx or dy:
                     far = 1e4 / max(self._ppu, 1e-9)
                     n = math.hypot(dx, dy)
-                    p0 = self.to_screen((drag.pivot[0] - dx / n * far, drag.pivot[1] - dy / n * far))
-                    p1 = self.to_screen((drag.pivot[0] + dx / n * far, drag.pivot[1] + dy / n * far))
+                    p0 = self.to_screen((state.pivot[0] - dx / n * far, state.pivot[1] - dy / n * far))
+                    p1 = self.to_screen((state.pivot[0] + dx / n * far, state.pivot[1] + dy / n * far))
                     painter.drawLine(p0, p1)
 
     def _paint_pivot(self, painter: QPainter) -> None:
@@ -819,11 +744,6 @@ class TriangleView(QWidget):
     def _caption(self, key: object) -> str:
         e = self.entry(key)
         return f"Transform {e.label}" if e is not None and e.label else ""
-
-
-def _wrap_degrees(angle: float) -> float:
-    angle = (angle + 180.0) % 360.0 - 180.0
-    return angle
 
 
 __all__ = ["TriangleView", "TriangleEntry", "Hit", "transform_color", "MODE_MOVE", "MODE_ROTATE", "MODE_SCALE", "PIVOT_LOCAL",

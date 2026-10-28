@@ -42,17 +42,22 @@ class Keyframe:
 
     @property
     def label(self) -> str:
+        """The name to show: the keyframe's own, else its flame's."""
         return self.name or self.flame.name
 
     def copy(self) -> "Keyframe":
+        """An independent copy (the flame duplicated)."""
         return Keyframe(self.frame, self.flame.copy(), self.name)
 
     def to_dict(self) -> dict:
+        """Plain data for the `.faanim` file."""
         return {"frame": self.frame, "name": self.name, "flame": self.flame.to_dict()}
 
     @classmethod
     def from_dict(cls, data: dict) -> "Keyframe":
-        return cls(int(data.get("frame", 0)), Flame.from_dict(data.get("flame", {})), str(data.get("name", "")))
+        """Inverse of `to_dict`; a missing or malformed flame becomes the default flame."""
+        flame = data.get("flame")
+        return cls(max(0, int(data.get("frame", 0))), Flame.from_dict(flame if isinstance(flame, dict) else {}), str(data.get("name", "")))
 
 
 @dataclass
@@ -86,9 +91,11 @@ class Animation:
 
     @property
     def last_frame(self) -> int:
+        """The number of the last frame."""
         return max(0, self.total_frames - 1)
 
     def frame_to_seconds(self, frame: int) -> float:
+        """The time of `frame` in seconds."""
         return frame / max(1, self.fps)
 
     def keyframe_at(self, frame: int) -> Keyframe | None:
@@ -96,6 +103,7 @@ class Animation:
         return next((k for k in self.keyframes if k.frame == frame), None)
 
     def index_at(self, frame: int) -> int | None:
+        """The position in `keyframes` of the keyframe at `frame`, if any."""
         return next((i for i, k in enumerate(self.keyframes) if k.frame == frame), None)
 
     def segment(self, frame: int) -> tuple[Keyframe | None, Keyframe | None]:
@@ -105,9 +113,11 @@ class Animation:
         return before, after
 
     def next_keyframe(self, frame: int) -> Keyframe | None:
+        """The first keyframe after `frame`, if any."""
         return next((k for k in self.keyframes if k.frame > frame), None)
 
     def previous_keyframe(self, frame: int) -> Keyframe | None:
+        """The last keyframe before `frame`, if any."""
         return next((k for k in reversed(self.keyframes) if k.frame < frame), None)
 
     def is_valid(self) -> bool:
@@ -133,6 +143,7 @@ class Animation:
         return keyframe
 
     def remove_keyframe(self, keyframe: Keyframe) -> None:
+        """Drop a keyframe (no-op if it is not in the animation)."""
         if keyframe in self.keyframes:
             self.keyframes.remove(keyframe)
 
@@ -157,18 +168,26 @@ class Animation:
         return flame_at(self, frame)
 
     def copy(self) -> "Animation":
+        """An independent copy (keyframes and their flames duplicated)."""
         return Animation(self.name, self.fps, self.total_frames, self.interpolation, self.easing, self.loop,
                          [k.copy() for k in self.keyframes], dict(self.render))
 
     # --- serialisation ----------------------------------------------------------------------------------------
     def to_dict(self) -> dict:
+        """Plain data for the `.faanim` file (inverse of `from_dict`)."""
         return {"name": self.name, "fps": self.fps, "total_frames": self.total_frames, "interpolation": self.interpolation,
                 "easing": self.easing, "loop": self.loop, "keyframes": [k.to_dict() for k in self.keyframes],
                 "render": dict(self.render)}
 
     @classmethod
     def from_dict(cls, data: dict) -> "Animation":
-        keyframes = sorted((Keyframe.from_dict(k) for k in data.get("keyframes", [])), key=lambda k: k.frame)
+        """Inverse of `to_dict`; unknown modes fall back to the defaults, keyframes are sorted and de-duplicated by frame."""
+        keyframes: list[Keyframe] = []
+        for entry in data.get("keyframes", []):
+            if isinstance(entry, dict):
+                keyframe = Keyframe.from_dict(entry)
+                keyframes = [k for k in keyframes if k.frame != keyframe.frame] + [keyframe]
+        keyframes.sort(key=lambda k: k.frame)
         interpolation = data.get("interpolation", "linear")
         easing = data.get("easing", "none")
         anim = cls(

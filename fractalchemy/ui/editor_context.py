@@ -44,6 +44,7 @@ class EditorContext(QObject):
     # --- flame / selection -----------------------------------------------------------------------------------
     @property
     def flame(self) -> Flame | None:
+        """The flame being edited (None when nothing is loaded)."""
         return self.document.flame
 
     @property
@@ -62,6 +63,7 @@ class EditorContext(QObject):
         return keys
 
     def select(self, key: object) -> None:
+        """Select a transform by key (an unknown key selects the first transform)."""
         if key not in self.keys():
             key = self.keys()[0] if self.keys() else 0
         if key != self._selected:
@@ -80,18 +82,26 @@ class EditorContext(QObject):
             self.selection_changed.emit(self._selected)
 
     def xform(self, key: object = "selected") -> XForm | None:
+        """The selected transform (or the one with `key`); None if there is no such transform."""
         return self.document.xform(self._selected if key == "selected" else key)
 
     @property
     def is_final(self) -> bool:
+        """True when the final transform is selected."""
         return self._selected is FINAL_KEY
 
     # --- mode --------------------------------------------------------------------------------------------------
     @property
     def mode(self) -> str:
+        """Which affine is being edited: `pre`, `coefs` or `post`."""
         return self._mode
 
     def set_mode(self, mode: str) -> None:
+        """Switch the affine being edited (announced with `mode_changed`).
+
+        Raises:
+            ValueError: For a name that is not one of `MODES`.
+        """
         if mode not in MODES:
             raise ValueError(f"unknown mode {mode!r}")
         if mode != self._mode:
@@ -104,6 +114,7 @@ class EditorContext(QObject):
         return None if xform is None else tuple(getattr(xform, mode or self._mode))
 
     def triangle(self, key: object = "selected", mode: str | None = None) -> Triangle | None:
+        """The triangle of the affine the mode edits (editor space), or None without a transform."""
         affine = self.affine(key, mode)
         return None if affine is None else affine_to_triangle(affine)
 
@@ -115,6 +126,7 @@ class EditorContext(QObject):
         return self.document.set_affine(key, which, triangle_to_affine(triangle), kind or f"affine:{which}:{key}", sticky)
 
     def set_affine(self, key: object, coefs: Affine, kind: str | None = None, mode: str | None = None) -> bool:
+        """Store an affine for the mode on a transform (undoable); False if there is no such transform."""
         which = mode or self._mode
         return self.document.set_affine(key, which, coefs, kind or f"affine:{which}:{key}")
 

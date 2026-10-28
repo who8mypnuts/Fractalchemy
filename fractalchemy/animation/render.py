@@ -18,15 +18,40 @@ from typing import Any
 from ..render.final_settings import FinalRenderSettings
 from ..render.output import output_format, size_problem
 
+
+
+@dataclass(frozen=True)
+class VideoFormat:
+    """One container / codec choice for ffmpeg.
+
+    Attributes:
+        key: Identifier stored in settings.
+        label: Name shown in the UI.
+        suffix: The video file's extension.
+        codec: ffmpeg arguments choosing the codec and pixel format.
+        has_crf: Whether the codec takes a constant-rate-factor quality.
+    """
+    key: str
+    label: str
+    suffix: str
+    codec: tuple[str, ...] = ()
+    has_crf: bool = False
+
+
 VIDEO_FORMATS = (
-    # key, label, container suffix, codec arguments, quality kind ("crf" / "q" / None)
-    ("mp4", "MP4 — H.264 (plays everywhere)", ".mp4", ("-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart"), "crf"),
-    ("mp4-hevc", "MP4 — H.265 / HEVC (smaller)", ".mp4", ("-c:v", "libx265", "-pix_fmt", "yuv420p", "-tag:v", "hvc1", "-movflags", "+faststart"), "crf"),
-    ("webm", "WebM — VP9", ".webm", ("-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", "-b:v", "0"), "crf"),
-    ("mov", "QuickTime — ProRes 422 (editing)", ".mov", ("-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"), None),
-    ("gif", "GIF (animated)", ".gif", (), None),
+    VideoFormat("mp4", "MP4 — H.264 (plays everywhere)", ".mp4", ("-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart"), True),
+    VideoFormat("mp4-hevc", "MP4 — H.265 / HEVC (smaller)", ".mp4",
+                ("-c:v", "libx265", "-pix_fmt", "yuv420p", "-tag:v", "hvc1", "-movflags", "+faststart"), True),
+    VideoFormat("webm", "WebM — VP9", ".webm", ("-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", "-b:v", "0"), True),
+    VideoFormat("mov", "QuickTime — ProRes 422 (editing)", ".mov", ("-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le")),
+    VideoFormat("gif", "GIF (animated)", ".gif"),
 )
-VIDEO_FORMAT_BY_KEY = {v[0]: v for v in VIDEO_FORMATS}
+VIDEO_FORMAT_BY_KEY = {v.key: v for v in VIDEO_FORMATS}
+
+
+def video_format(key: str) -> VideoFormat:
+    """The video format for a settings key (unknown keys mean MP4 / H.264)."""
+    return VIDEO_FORMAT_BY_KEY.get(key, VIDEO_FORMATS[0])
 FFMPEG_READABLE = ("png", "jpeg", "tiff", "webp", "bmp")   # frame formats ffmpeg's image2 demuxer reads
 DEFAULT_CRF = 18
 FRAME_DIGITS = 4
@@ -72,9 +97,11 @@ class AnimationRenderSettings:
 
     @property
     def extension(self) -> str:
+        """The frames' file suffix (with the dot)."""
         return output_format(self.image.output_format).extension
 
     def digits(self, total_frames: int) -> int:
+        """How many digits the frame number is padded to (at least `FRAME_DIGITS`)."""
         return max(FRAME_DIGITS, len(str(max(0, total_frames - 1))))
 
     def frame_path(self, frame: int, total_frames: int) -> Path:
@@ -86,10 +113,11 @@ class AnimationRenderSettings:
         return str(Path(self.folder) / f"{safe_stem(self.base_name)}_%0{self.digits(total_frames)}d{self.extension}")
 
     def video_path(self) -> Path:
-        suffix = VIDEO_FORMAT_BY_KEY.get(self.video_format, VIDEO_FORMATS[0])[2]
-        return Path(self.folder) / (safe_stem(self.video_name or self.base_name) + suffix)
+        """Where the video is written."""
+        return Path(self.folder) / (safe_stem(self.video_name or self.base_name) + video_format(self.video_format).suffix)
 
     def with_image(self, image: FinalRenderSettings) -> "AnimationRenderSettings":
+        """The same batch with other image settings (their `output_path` is dropped)."""
         return replace(self, image=replace(image, output_path=""))
 
     def problems(self, total_frames: int) -> list[str]:
@@ -111,6 +139,7 @@ class AnimationRenderSettings:
 
     # --- persistence --------------------------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
+        """Plain data for persistence (inverse of `from_dict`)."""
         data = {k: v for k, v in self.__dict__.items() if k != "image"}
         data["image"] = self.image.to_dict()
         return data
@@ -163,21 +192,21 @@ def video_problems(settings: AnimationRenderSettings) -> list[str]:
 def ffmpeg_command(settings: AnimationRenderSettings, fps: int, total_frames: int, first_frame: int,
                    executable: str | None = None) -> list[str]:
     """The ffmpeg command line encoding the rendered frames into `settings.video_path()`."""
-    key, _label, _suffix, codec, quality_kind = VIDEO_FORMAT_BY_KEY.get(settings.video_format, VIDEO_FORMATS[0])
+    fmt = video_format(settings.video_format)
     cmd = [executable or ffmpeg_path() or "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
            "-framerate", str(max(1, fps)), "-start_number", str(first_frame), "-i", settings.frame_pattern(total_frames)]
-    if key == "gif":
+    if fmt.key == "gif":
         # a palette pass makes a far better GIF than the default 256-colour dither
         cmd += ["-vf", "split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5",
                 "-loop", "0"]
     else:
         cmd += ["-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"]    # yuv420p needs even dimensions
-        cmd += list(codec)
-        if quality_kind == "crf":
+        cmd += list(fmt.codec)
+        if fmt.has_crf:
             cmd += ["-crf", str(settings.video_quality)]
     cmd.append(str(settings.video_path()))
     return cmd
 
 
-__all__ = ["AnimationRenderSettings", "VIDEO_FORMATS", "VIDEO_FORMAT_BY_KEY", "FFMPEG_READABLE", "DEFAULT_CRF", "safe_stem",
-           "ffmpeg_path", "ffmpeg_command", "video_problems"]
+__all__ = ["AnimationRenderSettings", "VideoFormat", "VIDEO_FORMATS", "VIDEO_FORMAT_BY_KEY", "video_format", "FFMPEG_READABLE",
+           "DEFAULT_CRF", "DEFAULT_FRAME_QUALITY", "safe_stem", "ffmpeg_path", "ffmpeg_command", "video_problems"]

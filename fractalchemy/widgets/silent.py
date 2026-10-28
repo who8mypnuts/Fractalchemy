@@ -18,6 +18,17 @@ def blocked(*objects: QObject) -> Iterator[None]:
         yield
 
 
+@contextmanager
+def updating(owner, attribute: str = "_updating") -> Iterator[None]:
+    """Set `owner.<attribute>` True for the duration of a block — the re-entrancy guard of model → control updates,
+    so the controls' change signals are ignored while they are being filled."""
+    setattr(owner, attribute, True)
+    try:
+        yield
+    finally:
+        setattr(owner, attribute, False)
+
+
 def set_value_silently(widget: QWidget, value: int, minimum: int | None = None, maximum: int | None = None) -> None:
     """Set a spin box / slider value (and optionally its range) with signals blocked.
 

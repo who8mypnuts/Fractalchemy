@@ -43,11 +43,11 @@ class FractalPreview(QWidget):
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._placeholder)
         else:
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            painter.drawImage(_fitted(self._image.size(), self.rect()), self._image)
+            painter.drawImage(fitted_rect(self._image.size(), self.rect()), self._image)
         painter.end()
 
 
-def _fitted(image: QSize, box: QRect) -> QRect:
+def fitted_rect(image: QSize, box: QRect) -> QRect:
     """The largest rectangle of `image`'s aspect ratio centred inside `box`."""
     scaled = image.scaled(box.size(), Qt.AspectRatioMode.KeepAspectRatio)
     return QRect(box.x() + (box.width() - scaled.width()) // 2, box.y() + (box.height() - scaled.height()) // 2,

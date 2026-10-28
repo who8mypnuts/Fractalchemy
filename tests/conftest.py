@@ -120,3 +120,50 @@ def wait_for_render(win, timeout_ms: int = 60000) -> None:
     """Wait until the viewport has a finished render of what it currently shows."""
     wait_until(lambda: win.viewport.stats is not None and win.viewport.stats.finished
                and win.viewport.stats.width == win.viewport.image_rect.width(), timeout_ms=timeout_ms)
+
+
+# --- synthetic mouse input for widget tests -------------------------------------------------------------------
+def mouse_press(widget, pos, button=None, modifiers=None) -> None:
+    """Send a mouse-press event to `widget` at `pos` (widget coordinates)."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+
+    button = Qt.MouseButton.LeftButton if button is None else button
+    modifiers = Qt.KeyboardModifier.NoModifier if modifiers is None else modifiers
+    QApplication.sendEvent(widget, QMouseEvent(QEvent.Type.MouseButtonPress, pos, widget.mapToGlobal(pos.toPoint()), button, button, modifiers))
+
+
+def mouse_move(widget, pos, button=None, modifiers=None) -> None:
+    """Send a mouse-move event (with `button` held; None = no button, a hover)."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+
+    held = Qt.MouseButton.NoButton if button is None else button
+    modifiers = Qt.KeyboardModifier.NoModifier if modifiers is None else modifiers
+    QApplication.sendEvent(widget, QMouseEvent(QEvent.Type.MouseMove, pos, widget.mapToGlobal(pos.toPoint()), Qt.MouseButton.NoButton,
+                                               held, modifiers))
+
+
+def mouse_release(widget, pos, button=None, modifiers=None) -> None:
+    """Send a mouse-release event."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+
+    button = Qt.MouseButton.LeftButton if button is None else button
+    modifiers = Qt.KeyboardModifier.NoModifier if modifiers is None else modifiers
+    QApplication.sendEvent(widget, QMouseEvent(QEvent.Type.MouseButtonRelease, pos, widget.mapToGlobal(pos.toPoint()), button,
+                                               Qt.MouseButton.NoButton, modifiers))
+
+
+def mouse_drag(widget, start, end, modifiers=None, steps: int = 4) -> None:
+    """Press at `start`, move to `end` in `steps`, release (left button)."""
+    from PySide6.QtCore import Qt
+
+    button = Qt.MouseButton.LeftButton
+    mouse_press(widget, start, button, modifiers)
+    for i in range(1, steps + 1):
+        mouse_move(widget, start + (end - start) * (i / steps), button, modifiers)
+    mouse_release(widget, end, button, modifiers)

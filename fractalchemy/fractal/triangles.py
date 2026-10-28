@@ -67,6 +67,7 @@ def is_reference(triangle: Triangle, tolerance: float = 1e-12) -> bool:
 
 # --- geometry --------------------------------------------------------------------------------------------
 def centroid(triangle: Triangle) -> Point:
+    """The triangle's centre of mass."""
     return (sum(p[0] for p in triangle) / 3.0, sum(p[1] for p in triangle) / 3.0)
 
 
@@ -94,6 +95,7 @@ def local_coords(triangle: Triangle, point: Point) -> Point | None:
 
 
 def translate(triangle: Triangle, dx: float, dy: float) -> Triangle:
+    """The triangle moved by (dx, dy)."""
     return tuple((x + dx, y + dy) for x, y in triangle)   # type: ignore[return-value]
 
 
@@ -106,6 +108,7 @@ def rotate_about(triangle: Triangle, pivot: Point, radians: float) -> Triangle:
 
 
 def scale_about(triangle: Triangle, pivot: Point, factor: float) -> Triangle:
+    """Scale about `pivot` (a zero factor is nudged so the triangle never collapses to a point)."""
     if factor == 0:
         factor = 1e-12
     px, py = pivot
@@ -222,6 +225,7 @@ def axis_angle(triangle: Triangle, corner: int) -> float:
 
 
 def axis_length(triangle: Triangle, corner: int) -> float:
+    """Length of the O→corner axis."""
     ox, oy = triangle[CORNER_O]
     x, y = triangle[corner]
     return math.hypot(x - ox, y - oy)
@@ -295,6 +299,7 @@ def bounds(triangles) -> tuple[float, float, float, float]:
 
 
 def identity_triangle() -> Triangle:
+    """The identity affine's triangle (the reference triangle)."""
     return affine_to_triangle(identity_affine())
 
 
