@@ -3,6 +3,8 @@
 Conventions follow flam3 / Apophysis so files round-trip faithfully:
 
 * Affine `coefs = (a, b, c, d, e, f)` map `(x, y)` to `(a·x + c·y + e, b·x + d·y + f)`.
+* A transform applies `pre` (Fractalchemy's pre-affine) → `coefs` (the normal triangle) → its variations →
+  `post` (Apophysis's post-transform). `pre` and `post` default to the identity.
 * Fractal-space y points *down* on screen, as in flam3.
 * `color_speed` is flam3's: `c' = c·(1 − speed) + xform.color·speed`
   (Apophysis stores `symmetry = 1 − 2·speed` instead).
@@ -32,6 +34,15 @@ def apply_affine(coefs: Affine, x: float, y: float) -> tuple[float, float]:
     return a * x + c * y + e, b * x + d * y + f
 
 
+def compose_affine(outer: Affine, inner: Affine) -> Affine:
+    """The affine mapping `p` to `outer(inner(p))`."""
+    a1, b1, c1, d1, e1, f1 = outer
+    a2, b2, c2, d2, e2, f2 = inner
+    return (a1 * a2 + c1 * b2, b1 * a2 + d1 * b2,
+            a1 * c2 + c1 * d2, b1 * c2 + d1 * d2,
+            a1 * e2 + c1 * f2 + e1, b1 * e2 + d1 * f2 + f1)
+
+
 @dataclass
 class XForm:
     """One transform of the iterated function system.
@@ -41,8 +52,11 @@ class XForm:
         color: Palette position (0..1) this transform pulls the point colour towards.
         color_speed: How strongly it pulls (flam3 semantics, 0..1).
         opacity: Plot weight of points leaving this transform (0 = invisible).
-        coefs: Pre-variation affine.
-        post: Post-variation affine.
+        coefs: The normal affine (Apophysis's triangle), applied before the variations.
+        post: Post affine, applied after the variations (Apophysis's post-transform).
+        pre: Pre affine, applied to the incoming point before `coefs` (a Fractalchemy addition: Apophysis has no
+            such triangle). It composes with `coefs`, so it is an editing convenience — a second triangle acting in
+            the transform's own coordinate frame — and writers for formats without it fold it into `coefs`.
         variations: Variation name → weight (only non-zero ones are kept).
         params: Variation parameters, keyed `variation_param` as in flame files (`julian_power`).
         chaos: Xaos row — relative weights of choosing each xform *after* this one; None = all equal.
@@ -60,6 +74,7 @@ class XForm:
     chaos: list[float] | None = None
     name: str = ""
     var_color: float = 1.0
+    pre: Affine = field(default_factory=identity_affine)
 
     @property
     def symmetry(self) -> float:
@@ -78,6 +93,14 @@ class XForm:
     def has_post(self) -> bool:
         """True if the post affine does anything."""
         return tuple(self.post) != identity_affine()
+
+    def has_pre(self) -> bool:
+        """True if the pre affine does anything."""
+        return tuple(self.pre) != identity_affine()
+
+    def combined_coefs(self) -> Affine:
+        """`coefs ∘ pre` as one affine — what the point goes through before the variations."""
+        return compose_affine(self.coefs, self.pre)
 
     def copy(self) -> "XForm":
         """Deep enough copy: dicts and the chaos row are duplicated."""
@@ -296,13 +319,16 @@ class Flame:
 
 
 def _xform_to_dict(x: XForm) -> dict:
-    return {"weight": x.weight, "color": x.color, "color_speed": x.color_speed, "opacity": x.opacity,
+    data = {"weight": x.weight, "color": x.color, "color_speed": x.color_speed, "opacity": x.opacity,
             "coefs": list(x.coefs), "post": list(x.post), "variations": dict(x.variations), "params": dict(x.params),
             "chaos": x.chaos, "name": x.name, "var_color": x.var_color}
+    if x.has_pre():
+        data["pre"] = list(x.pre)
+    return data
 
 
 def _xform_from_dict(d: dict) -> XForm:
     return XForm(d.get("weight", 0.5), d.get("color", 0.0), d.get("color_speed", 0.5), d.get("opacity", 1.0),
                  tuple(d.get("coefs", identity_affine())), tuple(d.get("post", identity_affine())),
                  dict(d.get("variations", {"linear": 1.0})), dict(d.get("params", {})), d.get("chaos"), d.get("name", ""),
-                 d.get("var_color", 1.0))
+                 d.get("var_color", 1.0), tuple(d.get("pre", identity_affine())))

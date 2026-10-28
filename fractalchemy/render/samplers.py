@@ -71,6 +71,9 @@ class Sampler(Protocol):
     def end_tile(self) -> None:
         """Release the tile's histogram."""
 
+    def set_flame(self, flame: Flame, compiled: CompiledFlame) -> None:
+        """Switch to another flame, keeping the engine (frame sequences)."""
+
     def close(self) -> None:
         """Release everything."""
 
@@ -87,6 +90,7 @@ class CpuSampler:
     max_side = 1 << 30
 
     def __init__(self, flame: Flame, threads: int = 0, seed: int = 1, fuse: int = 30):
+        self.seed, self.fuse = seed, fuse
         self.threads = max(1, threads or thread_count())
         self.workers = self.threads
         self.device = platform.processor() or platform.machine() or "CPU"
@@ -104,6 +108,13 @@ class CpuSampler:
         for proc in self._processes:
             proc.start()
         self._histogram: cpu_workers.SharedHistogram | None = None
+
+    def set_flame(self, flame: Flame, compiled: CompiledFlame | None = None) -> None:
+        """Switch the workers to another flame (they rebuild and re-fuse their populations) — for frame sequences."""
+        data = flame.to_dict()
+        for queue in self._commands:
+            queue.put(("flame", data, self.seed, self.fuse))
+        self._collect("ready")
 
     def begin_tile(self, affine, width: int, height: int) -> None:
         """Allocate the tile's shared histogram and aim every worker at it."""
@@ -187,6 +198,7 @@ class GpuSampler:
                  owns_engine: bool = False, camera=None):
         from .gpu_engine import GpuPopulation
 
+        self.GpuPopulation = GpuPopulation
         self.engine = engine
         self._owns_engine = owns_engine
         self.ctx = engine.ctx
@@ -202,6 +214,13 @@ class GpuSampler:
         self._width = self._height = 0
         self._since_readback = 0
         self._last_readback = 0.0
+
+    def set_flame(self, flame: Flame, compiled: CompiledFlame) -> None:
+        """Switch to another flame on the same context (a new population; the programs are cached) — for frame sequences."""
+        seed = self.population.seed
+        self.population.release()
+        self.population = self.GpuPopulation(self.engine, compiled, self.points, seed, flame.camera)
+        self._fused = False
 
     def begin_tile(self, affine, width: int, height: int) -> None:
         """Create the tile's texture and master histogram."""

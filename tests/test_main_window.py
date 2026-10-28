@@ -1,14 +1,13 @@
-"""Main window shell: menus, toolbar, the Gradient Library tool window, and settings migration."""
+"""Main window shell: menus, toolbar, and the tool windows."""
 
 import pytest
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QMessageBox, QToolButton
 
 from fractalchemy import config
-from fractalchemy.library.roots import KEY as ROOTS_KEY, LibraryRoots
+from fractalchemy.library.roots import LibraryRoots
 from fractalchemy.model import Gradient
 from fractalchemy.fractal.formats import load_flame
-from fractalchemy.settings import migrate_legacy_settings
 from fractalchemy.ui.gradient_library_window import GradientLibraryWindow
 from fractalchemy.ui.main_window import MainWindow
 from tests.conftest import spin, wait_until
@@ -22,6 +21,7 @@ def window(qapp, tmp_path):
     win.show()
     yield win
     win.gradient_library.document.modified = False  # never prompt on teardown
+    win.animation.document.mark_saved()
     win.close()
 
 
@@ -38,7 +38,8 @@ def test_application_is_named_fractalchemy(window):
 
 def test_menu_bar_has_windows_and_help_menus(window):
     assert menu_titles(window) == ["File", "Edit", "View", "Windows", "Help"]
-    assert [a.text() for a in window.menuWindows.actions()] == ["Gradient Library", "Random Batch…", "Script Editor", "Render Image…"]
+    assert [a.text() for a in window.menuWindows.actions()] == [
+        "Transform Editor", "Gradient Library", "Animation", "Random Batch…", "Script Editor", "Render Image…"]
     assert [a.text() for a in window.menuHelp.actions()] == ["Formulas…", "", "About Fractalchemy…", "About Qt…"]
     assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
     assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save Fractal", "Save Fractal As", "Exit"]
@@ -75,8 +76,17 @@ def test_gradient_library_is_a_hidden_child_window_until_requested(window):
 
 
 def test_windows_menu_opens_the_gradient_library(window):
-    window.menuWindows.actions()[0].trigger()
+    window.menuWindows.actions()[1].trigger()
     assert window.gradient_library.isVisible()
+
+
+def test_windows_menu_and_toolbar_open_the_transform_editor(window):
+    window.menuWindows.actions()[0].trigger()
+    assert window.editor.isVisible() and window.editor.windowTitle() == "Transform Editor"
+    window.editor.close()
+    assert not window.editor.isVisible()
+    window.toolBar.widgetForAction(window.actionEditor).click()
+    assert window.editor.isVisible()
 
 
 def test_toolbar_button_opens_the_gradient_library_and_closing_only_hides_it(window):
@@ -137,25 +147,6 @@ def test_quitting_with_unsaved_edits_asks_first(window, monkeypatch):
     assert window.close()
     spin(50)
     assert not window.isVisible() and not library.isVisible()
-
-
-# --- settings migration -------------------------------------------------------
-def test_legacy_hueclid_settings_are_migrated_once(tmp_path):
-    old = QSettings(str(tmp_path / "hueclid.ini"), QSettings.Format.IniFormat)
-    new = QSettings(str(tmp_path / "fractalchemy.ini"), QSettings.Format.IniFormat)
-    old.setValue(ROOTS_KEY, [str(tmp_path)])
-    assert migrate_legacy_settings(old, new) == [ROOTS_KEY]
-    assert LibraryRoots(new).paths() == [tmp_path.resolve()]
-    new.setValue(ROOTS_KEY, [])
-    assert migrate_legacy_settings(old, new) == []  # the user's newer value wins
-    assert LibraryRoots(new).paths() == []
-
-
-def test_migration_is_a_no_op_without_legacy_settings(tmp_path):
-    old = QSettings(str(tmp_path / "hueclid.ini"), QSettings.Format.IniFormat)
-    new = QSettings(str(tmp_path / "fractalchemy.ini"), QSettings.Format.IniFormat)
-    assert migrate_legacy_settings(old, new) == []
-    assert not new.contains(ROOTS_KEY)
 
 
 # --- fractal library, viewport and status bar ----------------------------------

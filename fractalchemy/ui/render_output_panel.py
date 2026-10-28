@@ -3,6 +3,7 @@
 The format combo and the file suffix are kept in step both ways: typing `picture.jpg` selects
 JPEG, choosing TIFF renames to `.tif`. Options a format cannot use (16-bit, alpha, quality) are
 greyed out, and formats whose encoder is not installed are listed but disabled with a hint.
+The format / depth combo helpers are shared with the Render Animation window's output panel.
 """
 
 from __future__ import annotations
@@ -11,13 +12,49 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLineEdit, QPushButton,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QLineEdit, QPushButton,
                                QSpinBox, QWidget)
 
 from ..render.final_settings import FinalRenderSettings
 from ..render.output import DEPTH_LABELS, FLOAT_DEPTH_LABELS, FORMATS, format_for_path, output_format, with_extension
 from ..render.report import REPORT_FORMATS
+from ..widgets.layouts import row
 from ..widgets.silent import blocked
+
+
+EMBEDDABLE_FORMATS = ("png", "jpeg", "tiff", "svg", "webp", "avif", "heif", "jxl", "exr")   # can hold the parameters
+
+
+def fill_format_combo(combo: QComboBox) -> None:
+    """List every output format (unavailable encoders disabled, with their install hint in the label)."""
+    for f in FORMATS:
+        combo.addItem(f.label if f.available else f"{f.label} — not installed", f.key)
+        if not f.available:
+            combo.model().item(combo.count() - 1).setEnabled(False)
+
+
+def fill_depth_combo(combo: QComboBox, labels: dict[int, str]) -> None:
+    """Offer the depths a format family has, keeping the current choice when it still exists."""
+    current = combo.currentData()
+    with blocked(combo):
+        combo.clear()
+        for depth, label in labels.items():
+            combo.addItem(label, depth)
+        index = combo.findData(current)
+        combo.setCurrentIndex(index if index >= 0 else (combo.count() - 1 if current and current > max(labels) else 0))
+
+
+def sync_format_controls(fmt, depth: QComboBox, quality: QSpinBox, lossless: QCheckBox, transparent: QCheckBox,
+                         embed_parameters: QCheckBox) -> None:
+    """Enable / disable the encoding controls for what `fmt` can do (and list its depths)."""
+    labels = FLOAT_DEPTH_LABELS if fmt.float_channels else DEPTH_LABELS
+    if [depth.itemData(i) for i in range(depth.count())] != list(labels):
+        fill_depth_combo(depth, labels)
+    depth.setEnabled(fmt.depth16)
+    quality.setEnabled(fmt.lossy and not (fmt.lossless_option and lossless.isChecked()))
+    lossless.setEnabled(fmt.lossless_option)
+    transparent.setEnabled(fmt.alpha)
+    embed_parameters.setEnabled(fmt.key in EMBEDDABLE_FORMATS)
 
 
 class OutputPanel(QGroupBox):
@@ -52,11 +89,8 @@ class OutputPanel(QGroupBox):
 
     def _build_controls(self) -> None:
         self.path.setPlaceholderText("Where to save the image")
-        for f in FORMATS:
-            self.format_box.addItem(f.label if f.available else f"{f.label} — not installed", f.key)
-            if not f.available:
-                self.format_box.model().item(self.format_box.count() - 1).setEnabled(False)
-        self._fill_depths(DEPTH_LABELS)
+        fill_format_combo(self.format_box)
+        fill_depth_combo(self.depth, DEPTH_LABELS)
         self.depth.setToolTip("16-bit PNG / TIFF keep smooth gradients for later editing; OpenEXR stores half or full floats")
         self.quality.setRange(1, 100)
         self.quality.setSuffix(" %")
@@ -74,13 +108,13 @@ class OutputPanel(QGroupBox):
     def _layout(self) -> None:
         form = QFormLayout(self)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.addRow("File", _row(self.path, self.browse, stretch_first=True))
-        form.addRow("Format", _row(self.format_box, self.depth, stretch_all=True))
-        form.addRow("Encoding", _row(self.quality, self.lossless, self.transparent, trailing_stretch=True))
+        form.addRow("File", row(self.path, self.browse, stretch_first=True))
+        form.addRow("Format", row(self.format_box, self.depth, stretch_all=True))
+        form.addRow("Encoding", row(self.quality, self.lossless, self.transparent, trailing_stretch=True))
         form.addRow(self.save_parameters)
         form.addRow(self.embed_parameters)
         form.addRow(self.save_incomplete)
-        form.addRow(_row(self.save_details, self.details_format, stretch_first=True))
+        form.addRow(row(self.save_details, self.details_format, stretch_first=True))
 
     def _connect(self) -> None:
         self.browse.clicked.connect(self._browse)
@@ -157,26 +191,9 @@ class OutputPanel(QGroupBox):
             self.path.setText(with_extension(self.path.text().strip(), fmt))
         self._emit()
 
-    def _fill_depths(self, labels: dict[int, str]) -> None:
-        """Offer the depths a format family has, keeping the current choice when it still exists."""
-        current = self.depth.currentData()
-        with blocked(self.depth):
-            self.depth.clear()
-            for depth, label in labels.items():
-                self.depth.addItem(label, depth)
-            index = self.depth.findData(current)
-            self.depth.setCurrentIndex(index if index >= 0 else (self.depth.count() - 1 if current and current > max(labels) else 0))
-
     def _refresh_dependent(self) -> None:
-        fmt = output_format(self.format_box.currentData())
-        labels = FLOAT_DEPTH_LABELS if fmt.float_channels else DEPTH_LABELS
-        if [self.depth.itemData(i) for i in range(self.depth.count())] != list(labels):
-            self._fill_depths(labels)
-        self.depth.setEnabled(fmt.depth16)
-        self.quality.setEnabled(fmt.lossy and not (fmt.lossless_option and self.lossless.isChecked()))
-        self.lossless.setEnabled(fmt.lossless_option)
-        self.transparent.setEnabled(fmt.alpha)
-        self.embed_parameters.setEnabled(fmt.key in ("png", "jpeg", "tiff", "svg", "webp", "avif", "heif", "jxl", "exr"))
+        sync_format_controls(output_format(self.format_box.currentData()), self.depth, self.quality, self.lossless, self.transparent,
+                             self.embed_parameters)
         self.details_format.setEnabled(self.save_details.isChecked())
 
     def _emit(self, *_args) -> None:
@@ -184,14 +201,5 @@ class OutputPanel(QGroupBox):
         self.changed.emit()
 
 
-def _row(*widgets: QWidget, stretch_first: bool = False, stretch_all: bool = False, trailing_stretch: bool = False) -> QHBoxLayout:
-    """Widgets side by side: optionally the first (or every one) takes the spare width, or the spare width trails."""
-    row = QHBoxLayout()
-    for i, widget in enumerate(widgets):
-        row.addWidget(widget, 1 if stretch_all or (stretch_first and i == 0) else 0)
-    if trailing_stretch:
-        row.addStretch(1)
-    return row
 
-
-__all__ = ["OutputPanel"]
+__all__ = ["OutputPanel", "fill_format_combo", "fill_depth_combo", "sync_format_controls", "EMBEDDABLE_FORMATS"]

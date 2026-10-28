@@ -205,11 +205,20 @@ class _Clock:
 class FinalRenderer:
     """Runs one final render on the calling thread (the GPU context, if any, is created here)."""
 
-    def __init__(self, flame: Flame, settings: FinalRenderSettings, control: RenderControl | None = None):
+    def __init__(self, flame: Flame, settings: FinalRenderSettings, control: RenderControl | None = None,
+                 sampler: Sampler | None = None):
+        """Args:
+            flame: What to render (copied).
+            settings: How.
+            control: Pause / cancel flags shared with the caller.
+            sampler: A sampler to reuse (an animation renders frame after frame on one): it must already be set to
+                this flame (`set_flame`), and it is *not* closed afterwards. None = create one for this render.
+        """
         self.flame = flame.copy()
         self.settings = settings
         self.control = control or RenderControl()
         self.compiled = CompiledFlame.build(self.flame)
+        self._shared_sampler = sampler
         self.notes = list(self.compiled.notes)
         self.camera = self.flame.camera.at_size(settings.width, settings.height)
         self.ppu = self.camera.pixels_per_unit(settings.width, settings.height)
@@ -226,8 +235,11 @@ class FinalRenderer:
     def run(self, progress: ProgressCallback = lambda p: None) -> FinalResult:
         """Render to completion (or cancellation); always closes the sampler."""
         started = time.perf_counter()
-        self.sampler, note = create_sampler(self.flame, self.compiled, self.settings.engine, self.settings.cpu_threads,
-                                            self.settings.seed, self.settings.fuse)
+        if self._shared_sampler is not None:
+            self.sampler, note = self._shared_sampler, ""
+        else:
+            self.sampler, note = create_sampler(self.flame, self.compiled, self.settings.engine, self.settings.cpu_threads,
+                                                self.settings.seed, self.settings.fuse)
         if note:
             self.notes.append(note)
         try:
@@ -235,7 +247,8 @@ class FinalRenderer:
             self.clock = _Clock(self.control, self.settings.samples_per_tile * self.plan.count, self.plan.count, started)
             return self._render(progress)
         finally:
-            self.sampler.close()
+            if self._shared_sampler is None:
+                self.sampler.close()
 
     def _render(self, progress: ProgressCallback) -> FinalResult:
         image = self._blank_image()

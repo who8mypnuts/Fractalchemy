@@ -17,6 +17,10 @@ the composition. Interaction renders at `INTERACTIVE_SCALE`; full resolution fol
 
 Composition guides (`set_guides`): rule-of-thirds, golden-ratio and centre lines drawn over the whole
 image (not just the visible part), as Apophysis's guidelines do.
+
+Transform edits (the Transform Editor) are debounced: the running render is cancelled at once, and a
+fresh full render starts `EDIT_RENDER_DELAY_MS` after the last change, so a drag in the editor does not
+keep the engine churning — the editor's own small preview follows the drag instead.
 """
 
 from __future__ import annotations
@@ -87,6 +91,8 @@ class FractalViewport(QWidget):
         self._settle.timeout.connect(self._render_full)
         self._resize_timer = QTimer(self, singleShot=True, interval=150)
         self._resize_timer.timeout.connect(self._on_resized)
+        self._edit_timer = QTimer(self, singleShot=True, interval=config.EDIT_RENDER_DELAY_MS)
+        self._edit_timer.timeout.connect(self._render_full)
         self.settings = RenderSettings()
         self._guides_shown = False
         self._guide_kinds: tuple[str, ...] = ("thirds",)
@@ -101,6 +107,8 @@ class FractalViewport(QWidget):
         document.palette_changed.connect(self._render_interactive)
         document.coloring_changed.connect(self._render_interactive)
         document.image_size_changed.connect(self._on_image_size_changed)
+        document.xform_changed.connect(self._render_after_edit)
+        document.transforms_changed.connect(self._render_after_edit)
         document.flame_restored.connect(self._on_flame_restored)
         service.pass_done.connect(self._on_pass)
         service.job_failed.connect(self._on_failed)
@@ -271,6 +279,7 @@ class FractalViewport(QWidget):
 
     # --- rendering ----------------------------------------------------------
     def _on_flame_replaced(self) -> None:
+        self._edit_timer.stop()
         self._clear_image()
         self._zoom = None
         self._layout()
@@ -301,11 +310,24 @@ class FractalViewport(QWidget):
 
     def _render_full(self) -> None:
         self._settle.stop()
+        self._edit_timer.stop()
         self._submit(1.0)
 
     def _render_interactive(self) -> None:
         self._submit(config.INTERACTIVE_SCALE)
         self._settle.start()
+
+    def _render_after_edit(self, *_args) -> None:
+        """A transform was edited: stop rendering the old flame and re-render once the edits pause."""
+        self._settle.stop()
+        if self._service is not None and self._current_key is not None:
+            self._service.cancel(self._current_key)
+        self._edit_timer.start()
+
+    @property
+    def edit_render_pending(self) -> bool:
+        """True while a render is being held back after a transform edit (tests)."""
+        return self._edit_timer.isActive()
 
     def _submit(self, scale: float) -> None:
         if self._document is None or self._service is None or self._document.flame is None:

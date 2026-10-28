@@ -5,7 +5,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from fractalchemy.settings import configure_application, migrate_legacy_settings
+from fractalchemy.settings import configure_application
 
 
 def main() -> int:
@@ -18,7 +18,6 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     configure_application(app)
-    migrate_legacy_settings()  # carry HueClid's library folders over on the first run
     window = MainWindow()
     window.show()
     return app.exec()

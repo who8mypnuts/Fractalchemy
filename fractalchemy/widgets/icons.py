@@ -11,6 +11,8 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPen, QPixmap
 
+from .. import config
+
 ICON_SIZES = (16, 24, 32, 48, 64)
 RAINBOW = ((0.0, "#e53935"), (0.2, "#ffb300"), (0.4, "#43a047"), (0.6, "#1e88e5"), (0.8, "#8e24aa"), (1.0, "#e53935"))
 NODE_POSITIONS = (0.15, 0.5, 0.85)
@@ -52,7 +54,7 @@ THEME_NAMES = {"undo": "edit-undo", "redo": "edit-redo", "copy": "edit-copy", "p
                "run": "media-playback-start", "stop": "media-playback-stop", "find": "edit-find", "indent": "format-indent-more",
                "outdent": "format-indent-less", "clear": "edit-clear", "revert": "document-revert"}
 GLYPH_COLOR = QColor("#3b3b3b")
-GLYPH_ACCENT = QColor("#1e88e5")
+GLYPH_ACCENT = QColor(config.HIGHLIGHT_COLOR)
 
 
 def render_icon() -> QIcon:
@@ -187,7 +189,7 @@ def _glyph_pixmap(name: str, size: int) -> QPixmap:
     painter.setPen(pen)
     painter.setBrush(Qt.BrushStyle.NoBrush)
     if name in ("undo", "redo"):
-        _curved_arrow(painter, u, mirrored=name == "redo")
+        curved_arrow(painter, u, mirrored=name == "redo")
     elif name == "copy":
         painter.setBrush(QColor("#fafafa"))
         painter.drawRoundedRect(QRectF(2 * u, 2 * u, 8 * u, 9.5 * u), u, u)
@@ -268,7 +270,7 @@ def _script_glyph(painter: QPainter, name: str, u: float) -> None:
         painter.drawLine(QPointF(9 * u, 9 * u), QPointF(14 * u, 9 * u))
         painter.drawLine(QPointF(9 * u, 12 * u), QPointF(13 * u, 12 * u))
     elif name == "revert":
-        _curved_arrow(painter, u, mirrored=False)
+            curved_arrow(painter, u, mirrored=False)
     elif name == "template":
         painter.setBrush(white)
         painter.drawRect(QRectF(2 * u, 2 * u, 12 * u, 12 * u))
@@ -307,7 +309,7 @@ def _pencil(painter: QPainter, u: float) -> None:
     painter.restore()
 
 
-def _curved_arrow(painter: QPainter, u: float, mirrored: bool) -> None:
+def curved_arrow(painter: QPainter, u: float, mirrored: bool) -> None:
     """An undo-style arrow: an arc from the right over the top to the left, ending in a head that points down
     (mirrored for redo)."""
     import math
@@ -322,3 +324,34 @@ def _curved_arrow(painter: QPainter, u: float, mirrored: bool) -> None:
     head = [QPointF(end.x(), end.y() + 2.6 * u), QPointF(end.x() - 2.4 * u, end.y() - 1.2 * u), QPointF(end.x() + 2.6 * u, end.y() - 1.2 * u)]
     painter.setPen(Qt.PenStyle.NoPen)
     painter.drawPolygon(head)
+
+
+# --- the Transform Editor's and the Animation window's glyphs (painters in `glyphs.py`) ----------------------
+EDITOR_THEME_NAMES = {
+    "add-transform": "list-add", "delete-transform": "edit-delete", "duplicate-transform": "edit-copy",
+    "select": "edit-select", "move": "transform-move", "rotate": "transform-rotate", "scale": "transform-scale",
+    "rotate-ccw": "object-rotate-left", "rotate-cw": "object-rotate-right", "flip-h": "object-flip-horizontal",
+    "flip-v": "object-flip-vertical", "fit": "zoom-fit-best", "reload": "view-refresh",
+}
+
+
+def editor_icon(name: str, use_theme: bool = False) -> QIcon:
+    """A glyph for one of the editor / animation actions (painted; the platform theme's icon if `use_theme`).
+
+    Raises:
+        KeyError: For a name no glyph is registered under (see `glyphs.GLYPHS`).
+    """
+    from .glyphs import glyph_pixmap
+    if use_theme:
+        themed = QIcon.fromTheme(EDITOR_THEME_NAMES.get(name, ""))
+        if not themed.isNull():
+            return themed
+    icon = QIcon()
+    for size in ICON_SIZES:
+        icon.addPixmap(glyph_pixmap(name, size))
+    return icon
+
+
+def animation_icon() -> QIcon:
+    """A film strip — the Animation window / toolbar glyph."""
+    return editor_icon("animation")

@@ -2,15 +2,15 @@
 
 Menus (File / Edit / View / Windows / Help), a toolbar, and a status bar showing the
 loaded fractal, render facts, the progressive pass counter and a progress bar. The
-Gradient Library, the Script Editor and the Render Image window are separate tool windows opened
-from *Windows* or the toolbar.
+Transform Editor, the Gradient Library, the Animation window, the Script Editor and the Render Image
+window are separate tool windows opened from *Windows* or the toolbar.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, QTimer
 from PySide6.QtGui import QCloseEvent, QGuiApplication
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QToolButton
 
@@ -25,8 +25,10 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import action_icon, gradient_icon, render_icon, script_icon
+from ..widgets.icons import action_icon, animation_icon, editor_icon, gradient_icon, render_icon, script_icon
+from .animation_window import AnimationWindow
 from .background import run_in_background
+from .editor_window import EditorWindow
 from .fractal_document import FractalDocument
 from .fractal_file_actions import FractalFileActions
 from .fractal_library_panel import LIST_ICON_SIZE, FractalLibraryPanel
@@ -63,7 +65,7 @@ ABOUT_TEXT = (
 
 
 class MainWindow(QMainWindow):
-    """Application shell: fractal library + viewport, menus, toolbar, status bar, and the Gradient Library window."""
+    """Application shell: fractal library + viewport, menus, toolbar, status bar, and the tool windows."""
     def __init__(self, roots: LibraryRoots | None = None, fractal_roots: LibraryRoots | None = None,
                  prefer_gpu: bool = True, settings: QSettings | None = None):
         """Args:
@@ -93,6 +95,10 @@ class MainWindow(QMainWindow):
         self.gradient_link = GradientLink(self.document, self.gradient_library, self.viewport, self)
         self.render_window = RenderWindow(self.document, self, settings if settings is not None else QSettings(),
                                           rate_hint=self._preview_rate)
+        self.editor = EditorWindow(self.document, self.render_service, self, settings if settings is not None else QSettings())
+        self.animation = AnimationWindow(self.document, self.render_service, self.show_flame, self,
+                                         settings if settings is not None else QSettings())
+        self.animation.rate_hint = self._preview_rate
         self.splitter.first_label, self.splitter.last_label = "fractal library", "settings panel"
         self.splitter.set_first_width(LIBRARY_PANE_WIDTH)
         self.splitter.set_last_width(SETTINGS_PANE_WIDTH)
@@ -115,6 +121,10 @@ class MainWindow(QMainWindow):
         self.actionGradientLibrary.triggered.connect(self.show_gradient_library)
         self.actionRenderImage.setIcon(render_icon())
         self.actionRenderImage.triggered.connect(self.show_render_window)
+        self.actionEditor.setIcon(editor_icon("editor"))
+        self.actionEditor.triggered.connect(self.show_editor)
+        self.actionAnimation.setIcon(animation_icon())
+        self.actionAnimation.triggered.connect(self.show_animation)
         self.actionOpenFractal.setIcon(self.style().standardIcon(self.style().StandardPixmap.SP_DialogOpenButton))
         self.actionOpenFractal.triggered.connect(self.open_file)
         self.actionSaveFractal.setIcon(action_icon("save"))
@@ -168,6 +178,10 @@ class MainWindow(QMainWindow):
         self.document.modified_changed.connect(self._on_modified_changed)
         self.document.undo_changed.connect(self._on_undo_changed)
         self.document.flame_restored.connect(self._on_flame_restored)
+        self.document.xform_changed.connect(self._on_xform_changed)
+        self.document.transforms_changed.connect(self._on_xform_changed)
+        self._info_timer = QTimer(self, singleShot=True, interval=config.EDIT_RENDER_DELAY_MS)
+        self._info_timer.timeout.connect(self._on_flame_restored)
         self.settingsPanel.info.formula_activated.connect(self.show_formulas)
 
     def _connect_library(self) -> None:
@@ -355,6 +369,11 @@ class MainWindow(QMainWindow):
         self.actionUndo.setEnabled(can_undo)
         self.actionRedo.setEnabled(can_redo)
 
+    def _on_xform_changed(self, *_args) -> None:
+        """A transform was edited: refresh the status bar / Info tab once the edits pause (not on every drag step)."""
+        self._update_title()
+        self._info_timer.start()
+
     def _on_flame_restored(self) -> None:
         """Undo / redo / paste: everything may have changed."""
         flame = self.document.flame
@@ -403,6 +422,14 @@ class MainWindow(QMainWindow):
     def show_render_window(self) -> None:
         """Open the Render Image window (a render in progress keeps its progress view)."""
         self.render_window.bring_to_front()
+
+    def show_editor(self) -> None:
+        """Open the Transform Editor (or bring it to the front); it edits the fractal shown here."""
+        self.editor.bring_to_front()
+
+    def show_animation(self) -> None:
+        """Open the Animation window (or bring it to the front); keyframes are captured from the fractal shown here."""
+        self.animation.bring_to_front()
 
     def _preview_rate(self) -> tuple[str, float] | None:
         """(engine, samples/s) of the last viewport render, for the Render window's time estimate."""
@@ -467,6 +494,12 @@ class MainWindow(QMainWindow):
         if not self.render_window.confirm_quit():
             event.ignore()
             return
+        if not self.animation.confirm_discard():
+            event.ignore()
+            return
+        if self.animation.render_window is not None and not self.animation.render_window.confirm_quit():
+            event.ignore()
+            return
         if self._script_editor is not None:
             if self._script_editor.runner.running:
                 self._script_editor.stop()
@@ -474,5 +507,7 @@ class MainWindow(QMainWindow):
             self._script_editor.hide()
         self.gradient_library.close()
         self.render_window.hide()
+        self.editor.close()
+        self.animation.close()
         self.render_service.stop()
         super().closeEvent(event)

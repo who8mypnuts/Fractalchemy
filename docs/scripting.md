@@ -3,7 +3,7 @@
 Scripts are **Python**. The names below are available without any import; everything else is ordinary
 Python (loops, functions, `math`, `random`, list comprehensions …). A script works on a *copy* of the
 fractal shown in the main window; when it finishes, the result replaces it as one undo step (*Revert
-flame* on the toolbar goes back too). Press **Ctrl+Enter** or **F9** (or ▶) to run.
+flame* on the toolbar goes back too). Press **Ctrl+Enter** (or ▶) to run.
 
 ## 1. The basics
 

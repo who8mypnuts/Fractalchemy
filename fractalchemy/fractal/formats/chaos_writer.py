@@ -92,7 +92,7 @@ def flames_to_world(flames: list[Flame], name: str = "World") -> str:
 
 def _transform_body(xform: XForm, indent: str) -> list[str]:
     """Affines plus one `<transform>` per variation (with that variation's parameters)."""
-    lines = _affine_lines("Pre affine", xform.coefs, indent)
+    lines = _affine_lines("Pre affine", xform.combined_coefs(), indent)   # Chaotica has one affine before the variations
     if xform.has_post():
         lines += _affine_lines("Post affine", xform.post, indent)
     lines.append(f'{indent}<node name="transforms">')

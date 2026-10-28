@@ -11,22 +11,20 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from pathlib import Path
-from typing import Callable
 
-from PySide6.QtCore import QSettings, QStandardPaths, Qt, QTimer
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSplitter,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import QSettings, QStandardPaths
+from PySide6.QtWidgets import QLabel, QMessageBox, QWidget
 
 from ..render.final_engine import PHASE_CANCELLED, PHASE_DONE, FinalProgress
 from ..render.final_service import FinalOutcome, FinalRenderJob
-from ..render.estimate import RenderEstimate, engine_kind
+from ..render.estimate import RateHint, RenderEstimate, engine_kind
 from ..render.final_settings import FinalRenderSettings, describe_plan, plan_tiles
 from ..render.gpu_engine import gpu_available
 from ..render.output import output_format, size_problem
 from ..widgets.icons import render_icon
 from .fractal_document import FractalDocument
+from .job_window import JobWindowBase
 from .render_output_panel import OutputPanel
 from .render_progress import RenderProgressPanel
 from .render_quality_panel import QualityPanel
@@ -35,11 +33,12 @@ from .render_size_panel import SizePanel
 WINDOW_TITLE = "Render Image"
 SETTINGS_KEY = "final_render/settings"
 FOLDER_KEY = "final_render/folder"
-RateHint = Callable[[], tuple[str, float] | None]
 
 
-class RenderWindow(QMainWindow):
+class RenderWindow(JobWindowBase):
     """Non-modal render dialog bound to the main window's document."""
+    title = WINDOW_TITLE
+    quit_question = "A render is still running. Stop it and quit?"
 
     def __init__(self, document: FractalDocument, parent: QWidget | None = None, settings: QSettings | None = None,
                  rate_hint: RateHint | None = None):
@@ -49,70 +48,32 @@ class RenderWindow(QMainWindow):
             settings: Where options persist (the application's store by default).
             rate_hint: Returns (engine name, samples per second) of the preview engine, for the time estimate.
         """
-        super().__init__(parent, Qt.WindowType.Window)
-        self.setWindowTitle(WINDOW_TITLE)
+        super().__init__(parent, settings)
         self.setWindowIcon(render_icon())
         self.document = document
-        self._settings = settings if settings is not None else QSettings()
         self._rate_hint = rate_hint
         self._estimate = RenderEstimate()
         self.job: FinalRenderJob | None = None
         self.last_outcome: FinalOutcome | None = None
-        self._showing_result = False
-        self._job_started = 0.0
-        self._clock = QTimer(self, interval=1000)
-        self._clock.timeout.connect(self._tick)
         self.size_panel = SizePanel(self)
         self.quality_panel = QualityPanel(self)
         self.output_panel = OutputPanel(self)
         self.plan_label = QLabel(self)
         self.estimate_label = QLabel(self)
         self.progress_panel = RenderProgressPanel(self)
-        self.start_button = QPushButton("Start render", self)
-        self.pause_button = QPushButton("Pause", self)
-        self.stop_button = QPushButton("Stop", self)
-        self.close_button = QPushButton("Close", self)
-        self._build()
+        for label in (self.plan_label, self.estimate_label):
+            label.setWordWrap(True)
+        self._build_layout(self.progress_panel, (1100, 720))
         self._load()
         self._connect()
         self._on_flame_replaced()
 
     # --- construction -------------------------------------------------------------------
-    def _build(self) -> None:
-        for label in (self.plan_label, self.estimate_label):
-            label.setWordWrap(True)
-        options = QWidget(self)
-        column = QVBoxLayout(options)
-        column.addWidget(self.size_panel)
-        column.addWidget(self.quality_panel)
-        column.addWidget(self.output_panel)
-        column.addWidget(self.plan_label)
-        column.addWidget(self.estimate_label)
-        column.addStretch(1)
-        scroll = QScrollArea(self)
-        scroll.setWidget(options)
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setMinimumWidth(520)
-        splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        splitter.addWidget(scroll)
-        splitter.addWidget(self.progress_panel)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        self.start_button.setDefault(True)
-        self.pause_button.setEnabled(False)
-        self.stop_button.setEnabled(False)
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        for button in (self.start_button, self.pause_button, self.stop_button, self.close_button):
-            buttons.addWidget(button)
-        central = QWidget(self)
-        layout = QVBoxLayout(central)
-        layout.addWidget(splitter, 1)
-        layout.addLayout(buttons)
-        self.setCentralWidget(central)
-        self.resize(1100, 720)
+    def _option_widgets(self) -> list[QWidget]:
+        return [self.size_panel, self.quality_panel, self.output_panel, self.plan_label, self.estimate_label]
+
+    def _option_panels(self) -> list[QWidget]:
+        return [self.size_panel, self.quality_panel, self.output_panel]
 
     def _connect(self) -> None:
         self.size_panel.size_changed.connect(self._on_options_changed)
@@ -121,10 +82,6 @@ class RenderWindow(QMainWindow):
         self.document.flame_replaced.connect(self._on_flame_replaced)
         self.document.flame_renamed.connect(self._on_flame_replaced)
         self.document.image_size_changed.connect(self._on_image_size_changed)
-        self.start_button.clicked.connect(lambda: self.start())
-        self.pause_button.clicked.connect(self.toggle_pause)
-        self.stop_button.clicked.connect(self.stop)
-        self.close_button.clicked.connect(self.close)
 
     def _load(self) -> None:
         stored = self._settings.value(SETTINGS_KEY, "")
@@ -204,11 +161,6 @@ class RenderWindow(QMainWindow):
             self.progress_panel.show_idle(self._estimate.short(s, plan.count, kind, hint))
 
     # --- rendering ------------------------------------------------------------------------
-    @property
-    def rendering(self) -> bool:
-        """True while a job runs."""
-        return self.job is not None
-
     def start(self, ask_overwrite: bool = True) -> None:
         """Snapshot the flame and settings and start the render thread.
 
@@ -229,58 +181,12 @@ class RenderWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
         self._persist()
-        self.last_outcome = None
-        self.job = FinalRenderJob(flame, s, self, source=self._source_text())
-        self.job.progressed.connect(self._on_progress)
-        self.job.succeeded.connect(self._on_succeeded)
-        self.job.failed.connect(self._on_failed)
-        self.job.finished.connect(self._on_thread_finished)
-        self._set_running(True)
-        self._showing_result = False
-        self.progress_panel.clear_result()
-        self.progress_panel.show_progress(FinalProgress(phase="Starting the engine", tiles=0, engine=""))
-        self._job_started = time.perf_counter()
-        self._clock.start()
-        self.job.start()
-
-    def _tick(self) -> None:
-        """Keep the elapsed time moving between engine reports (engine start-up, long batches)."""
-        if self.job is not None and not self.job.paused:
-            self.progress_panel.show_elapsed(time.perf_counter() - self._job_started - self.job.control.paused_seconds)
+        self._launch(FinalRenderJob(flame, s, self, source=self._source_text()),
+                     FinalProgress(phase="Starting the engine", tiles=0, engine=""))
 
     def _source_text(self) -> str:
         path = self.document.source_path
         return f"{path} (entry {self.document.source_index + 1})" if path else ""
-
-    def toggle_pause(self) -> None:
-        """Pause / resume the running render."""
-        if self.job is None:
-            return
-        if self.job.paused:
-            self.job.resume()
-        else:
-            self.job.pause()
-        self.pause_button.setText("Resume" if self.job.paused else "Pause")
-        self.progress_panel.show_paused(self.job.paused)
-
-    def stop(self) -> None:
-        """Stop the running render (what is done is saved if 'Save incomplete renders' is on)."""
-        if self.job is not None:
-            self.job.cancel()
-            self.stop_button.setEnabled(False)
-
-    def wait_for_job(self, timeout_ms: int = 30000) -> None:
-        """Block until the job's thread has exited (used on quit and by tests)."""
-        if self.job is not None:
-            self.job.wait(timeout_ms)
-
-    def _set_running(self, running: bool) -> None:
-        for panel in (self.size_panel, self.quality_panel, self.output_panel):
-            panel.setEnabled(not running)
-        self.start_button.setEnabled(not running)
-        self.pause_button.setEnabled(running)
-        self.pause_button.setText("Pause")
-        self.stop_button.setEnabled(running)
 
     def _on_progress(self, progress: FinalProgress) -> None:
         if progress.phase in (PHASE_DONE, PHASE_CANCELLED):
@@ -292,48 +198,6 @@ class RenderWindow(QMainWindow):
         self._showing_result = True
         self.progress_panel.show_outcome(outcome)
 
-    def _on_failed(self, message: str) -> None:
-        self._showing_result = True
-        self.progress_panel.show_failure(message)
-
-    def _on_thread_finished(self) -> None:
-        job = self.job
-        self.job = None
-        self._clock.stop()
-        if job is not None:
-            job.deleteLater()
-        self._set_running(False)
-        self._on_options_changed()
-
-    # --- window ---------------------------------------------------------------------------
-    def bring_to_front(self) -> None:
-        """Show, raise and focus the window."""
-        self.show()
-        self.raise_()
-        self.activateWindow()
-
-    def confirm_quit(self) -> bool:
-        """Ask before quitting with a render running; stops it if the user agrees. False = keep running."""
-        if self.job is None:
-            return True
-        answer = QMessageBox.question(self, WINDOW_TITLE, "A render is still running. Stop it and quit?",
-                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if answer != QMessageBox.StandardButton.Yes:
-            return False
-        self.job.cancel()
-        self.wait_for_job()
-        return True
-
-    def closeEvent(self, event) -> None:
-        """Closing hides the window; a running render carries on (a standalone window stops it first)."""
-        if self.parent() is not None:
-            event.ignore()
-            self.hide()
-            return
-        if self.job is not None:
-            self.job.cancel()
-            self.wait_for_job()
-        super().closeEvent(event)
 
 
 __all__ = ["RenderWindow"]

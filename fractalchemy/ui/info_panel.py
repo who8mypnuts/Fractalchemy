@@ -16,12 +16,13 @@ import math
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPixmap
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QLabel, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from ..fractal import variations as V
 from ..fractal.scene import Flame, XForm, identity_affine
 from ..render.settings import RenderStats
+from ..widgets.images import palette_pixmap
 from .formula_browser import KIND_LABELS, formula_description, origin_group
 
 FORMULA_ROLE = Qt.ItemDataRole.UserRole
@@ -74,15 +75,6 @@ def formula_uses(flame: Flame) -> dict[str, int]:
         for name in xform.variations:
             uses[name] = uses.get(name, 0) + 1
     return uses
-
-
-def palette_pixmap(palette, width: int, height: int = PALETTE_STRIP_HEIGHT) -> QPixmap:
-    """The 256-entry palette as a horizontal strip."""
-    image = QImage(max(1, len(palette)), 1, QImage.Format.Format_RGB32)
-    for i, (r, g, b) in enumerate(palette):
-        image.setPixelColor(i, 0, QColor(int(r), int(g), int(b)))
-    return QPixmap.fromImage(image.scaled(max(1, width), height, Qt.AspectRatioMode.IgnoreAspectRatio,
-                                          Qt.TransformationMode.FastTransformation))
 
 
 def swatch_pixmap(rgb, size: int = SWATCH_SIZE) -> QPixmap:
@@ -166,7 +158,7 @@ class InfoPanel(QWidget):
         """Refresh the palette strip (after a gradient was applied)."""
         if self._flame is None or self.palette_label is None:
             return
-        self.palette_label.setPixmap(palette_pixmap(self._flame.palette, self._strip_width()))
+        self.palette_label.setPixmap(palette_pixmap(self._flame.palette, self._strip_width(), PALETTE_STRIP_HEIGHT))
 
     def show_coloring(self) -> None:
         """Refresh the colouring rows (after brightness / gamma / background edits)."""
@@ -250,6 +242,8 @@ class InfoPanel(QWidget):
                 child.setText(1, f"{fmt(weight)}  ·  {NOT_AVAILABLE}")
                 child.setForeground(1, QColor(200, 60, 60))
         variations.setExpanded(True)
+        if xform.has_pre():
+            _row(item, "Pre affine", affine_text(xform.pre), tooltip="Applied to the point before the affine (Fractalchemy's pre affine)")
         _row(item, "Affine", affine_text(xform.coefs), tooltip="a b c d e f  —  (x, y) → (a·x + c·y + e, b·x + d·y + f)")
         if tuple(xform.post) != identity_affine():
             _row(item, "Post affine", affine_text(xform.post))

@@ -394,7 +394,8 @@ def finish(editor) -> None:
 
 def test_script_editor_opens_from_the_windows_menu_and_the_toolbar_and_hides_on_close(main):
     assert main._script_editor is None
-    main.menuWindows.actions()[2].trigger()
+    assert main.actionScriptEditor in main.menuWindows.actions()
+    main.actionScriptEditor.trigger()
     editor = main.script_editor
     assert editor.isVisible() and editor.parent() is main and editor.isWindow() and editor.windowTitle().startswith("Script Editor")
     assert [editor.drawer.tabText(i) for i in range(editor.drawer.count())] == ["Context", "Reference", "Info", "Templates"]

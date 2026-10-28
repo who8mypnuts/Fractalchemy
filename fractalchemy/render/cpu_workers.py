@@ -123,9 +123,10 @@ class SharedHistogram:
 
 
 def worker_main(index: int, flame_data: dict, seed: int, fuse: int, commands: mp.Queue, results: mp.Queue, flags, locks) -> None:
-    """Entry point of a worker process: serve "tile" / "run" / "stop" commands until told to stop.
+    """Entry point of a worker process: serve "flame" / "tile" / "run" / "stop" commands until told to stop.
 
-    Replies on `results`: ("ready", index) after a tile is set up, ("progress", samples) per chunk,
+    Replies on `results`: ("ready", index) after a tile is set up or a new flame ("flame", data, seed, fuse)
+    was taken on (animation renders reuse the workers frame after frame), ("progress", samples) per chunk,
     ("done", index, samples) after a run, ("error", index, message) if anything raised — the parent
     turns that into a render failure instead of waiting forever.
     """
@@ -139,7 +140,13 @@ def worker_main(index: int, flame_data: dict, seed: int, fuse: int, commands: mp
             command, *args = commands.get()
             if command == "stop":
                 break
-            if command == "tile":
+            if command == "flame":
+                flame = Flame.from_dict(args[0])
+                compiled = CompiledFlame.build(flame)
+                population = TilePopulation(compiled, POINTS_PER_WORKER, int(args[1]), flame.camera)
+                population.fuse(int(args[2]))     # the next "tile" command aims it again
+                results.put(("ready", index))
+            elif command == "tile":
                 if histogram is not None:
                     histogram.close()
                 name, width, height, affine = args

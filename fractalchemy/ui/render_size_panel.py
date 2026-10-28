@@ -90,10 +90,12 @@ class SizePanel(QGroupBox):
         if self.size() != before:
             self.size_changed.emit(*self.size())
 
+    preview_label = "Preview size"   # the first preset's caption (the Render Animation window calls it "Keyframe size")
+
     def set_preview_size(self, width: int, height: int) -> None:
         """Tell the panel the viewer's current image size; applies it if that preset is selected."""
         self._preview_size = (max(1, int(width)), max(1, int(height)))
-        self.presets.setItemText(0, f"Preview size  —  {width} × {height}")
+        self.presets.setItemText(0, f"{self.preview_label}  —  {width} × {height}")
         if self.presets.currentData() == PREVIEW_SIZE:
             self.set_size(*self._preview_size)
         else:

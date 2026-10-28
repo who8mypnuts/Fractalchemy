@@ -215,13 +215,16 @@ def apply_xform(xform: CompiledXForm, x: np.ndarray, y: np.ndarray, z: np.ndarra
                 rng: np.random.Generator):
     """Map arrays of points through one xform, exactly in Apophysis's order.
 
-    Colour blend → pre-affine → `pre_` variations (rewrite the input point) → normal variations
-    (accumulate) → `post_` variations (rewrite the accumulator) → post affine → direct colour.
+    Colour blend → pre affine → normal affine → `pre_` variations (rewrite the input point) → normal
+    variations (accumulate) → `post_` variations (rewrite the accumulator) → post affine → direct colour.
     Returns the new (x, y, z, colour) arrays.
     """
     speed = xform.color_speed
     c = c * (1.0 - speed) + xform.color * speed
     col = c
+    if xform.has_pre:
+        a, b, cc, d, e, f = xform.pre_affine
+        x, y = a * x + cc * y + e, b * x + d * y + f
     a, b, cc, d, e, f = xform.coefs
     tx = a * x + cc * y + e
     ty = b * x + d * y + f

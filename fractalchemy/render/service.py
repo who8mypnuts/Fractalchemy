@@ -27,6 +27,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 from ..fractal.scene import Flame
 from .settings import RenderSettings, RenderStats
 
+PRIORITY_EDITOR = -1     # the Transform Editor's small preview: it follows the mouse, so it goes first
 PRIORITY_VIEWPORT = 0
 PRIORITY_THUMBNAIL = 1
 PRIORITY_REFINE = 2      # a paused job past its configured passes resumes behind everything else

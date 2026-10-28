@@ -284,7 +284,7 @@ class CodeEditor(QPlainTextEdit):
     """Script editor widget.
 
     Signals:
-        run_requested(): Ctrl+Enter / F9.
+        run_requested(): Ctrl+Enter.
         find_requested(bool): Ctrl+F (False) / Ctrl+H (True: replace).
         goto_requested(): Ctrl+G.
         save_requested(bool): Ctrl+S (False) / Ctrl+Shift+S (True: save as).
@@ -691,9 +691,6 @@ class CodeEditor(QPlainTextEdit):
             if key in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Home, Qt.Key.Key_End):
                 self.close_completion()
         if ctrl and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.run_requested.emit()
-            return
-        if key == Qt.Key.Key_F9:
             self.run_requested.emit()
             return
         if ctrl and key == Qt.Key.Key_Space:

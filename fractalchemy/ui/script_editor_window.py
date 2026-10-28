@@ -284,7 +284,6 @@ class ScriptEditorWindow(QMainWindow):
         self.actionSave = action("Save Script", lambda: self.save_script(False), "Ctrl+S", "save", "Save the script")
         self.actionSaveAs = action("Save Script As…", lambda: self.save_script(True), "Ctrl+Shift+S", "save-as", "Save the script under a new name")
         self.actionRun = action("Run", self.run, "Ctrl+Return", "run", "Run the script on the fractal")
-        self.actionRun.setShortcuts([QKeySequence("Ctrl+Return"), QKeySequence("F9")])
         self.actionStop = action("Stop", self.stop, "Shift+Esc", "stop", "Stop the running script")
         self.actionStop.setEnabled(False)
         self.actionUndo = action("Undo", self.editor.undo, "", "undo", "Undo the last edit in the script")

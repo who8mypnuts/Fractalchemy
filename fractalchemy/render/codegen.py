@@ -15,7 +15,8 @@ Two vertex shaders are produced:
 Per point the state is `(x, y, z, colour)` plus the index of the last xform and an RNG seed.
 Formula-style variations (compiled from the plugin dialect) become one GLSL function per
 use; legacy snippets are inlined. Within an xform the order is Apophysis's: `pre_`
-variations, then the precalculated angles/lengths, then the rest, then `post_` ones.
+variations, then the precalculated angles/lengths, then the rest, then `post_` ones — after the
+pre affine and the normal affine, before the post affine.
 """
 
 from __future__ import annotations
@@ -210,6 +211,12 @@ def _xform_function(name: str, xform: CompiledXForm, params: _Params) -> str:
         "    float c00 = P(%d), c01 = P(%d), c10 = P(%d), c11 = P(%d), c20 = P(%d), c21 = P(%d);" % tuple(coefs + i for i in range(6)),
         f"    c = c * (1.0 - P({speed})) + P({color}) * P({speed});",
         "    float col = c;",
+    ]
+    if xform.has_pre:
+        pre = params.block(xform.pre_affine)
+        lines.append("    { float q00 = P(%d), q01 = P(%d), q10 = P(%d), q11 = P(%d), q20 = P(%d), q21 = P(%d);" % tuple(pre + i for i in range(6)))
+        lines.append("      p = vec3(q00 * p.x + q10 * p.y + q20, q01 * p.x + q11 * p.y + q21, p.z); }")
+    lines += [
         "    vec2 t = vec2(c00 * p.x + c10 * p.y + c20, c01 * p.x + c11 * p.y + c21);",
         "    float tz = p.z;",
     ]
