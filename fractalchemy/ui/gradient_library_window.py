@@ -28,6 +28,7 @@ from ..widgets.node_panel import NodePanel
 from ..widgets.whole_gradient_panel import WholeGradientPanel
 from .document import GradientDocument
 from .file_actions import FileActions
+from .gradient_batch import BatchImages
 from .loader import load_ui
 
 WINDOW_TITLE = "Gradient Library"
@@ -63,6 +64,7 @@ class GradientLibraryWindow(QMainWindow):
         self.wholeGradientPanel.bind(self.document)
         self.nodePanel.bind(self.document)
         self.files = FileActions(self.document, self)
+        self.batch = BatchImages(self.files, self)
         self.library = LibraryController(self.libraryPanel.model, roots or LibraryRoots(parent=self), self)
         self.library_menu = LibraryContextMenu(self.library, self.open_item, self)
         self._connect_actions()
@@ -84,10 +86,12 @@ class GradientLibraryWindow(QMainWindow):
         self.actionToggleLibrary.toggled.connect(lambda shown: self.splitter.set_collapsed(not shown))
         self.actionRefreshLibrary.triggered.connect(self.library.rescan_all)
         self.btnOpen.clicked.connect(self.files.open)
+        self.btnBatchOpen.clicked.connect(self.batch.run)
         self.btnSave.clicked.connect(self.files.save)
         self.btnSaveAs.setMenu(self.menuSaveAs)
         self.splitter.collapsed_changed.connect(lambda collapsed: self.actionToggleLibrary.setChecked(not collapsed))
         self.files.status.connect(self.statusBar().showMessage)
+        self.batch.status.connect(self.statusBar().showMessage)
         self.wholeGradientPanel.status.connect(self.statusBar().showMessage)
         self.files.file_written.connect(self.library.rescan_containing)
 
