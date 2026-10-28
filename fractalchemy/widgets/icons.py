@@ -48,7 +48,9 @@ def _gradient_pixmap(size: int) -> QPixmap:
 
 # --- the standard editing glyphs -----------------------------------------------------------------------------
 THEME_NAMES = {"undo": "edit-undo", "redo": "edit-redo", "copy": "edit-copy", "paste": "edit-paste", "save": "document-save",
-               "save-as": "document-save-as", "random": "roll"}
+               "save-as": "document-save-as", "random": "roll", "new": "document-new", "open": "document-open",
+               "run": "media-playback-start", "stop": "media-playback-stop", "find": "edit-find", "indent": "format-indent-more",
+               "outdent": "format-indent-less", "clear": "edit-clear", "revert": "document-revert"}
 GLYPH_COLOR = QColor("#3b3b3b")
 GLYPH_ACCENT = QColor("#1e88e5")
 
@@ -85,6 +87,40 @@ def _render_pixmap(size: int) -> QPixmap:
     painter.setBrush(QColor("#22c55e"))
     painter.drawPolygon(QPolygonF([QPointF(7 * u, 13 * u), QPointF(11 * u, 8.5 * u), QPointF(15 * u, 13 * u)]))
     painter.setClipping(False)
+    badge = QPointF(12 * u, 12 * u)
+    painter.setBrush(QColor("#15803d"))
+    painter.setPen(QPen(QColor(255, 255, 255), max(1.0, 0.8 * u)))
+    painter.drawEllipse(badge, 3.2 * u, 3.2 * u)
+    painter.setBrush(QColor(255, 255, 255))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawPolygon(QPolygonF([QPointF(10.9 * u, 10.2 * u), QPointF(10.9 * u, 13.8 * u), QPointF(14 * u, 12 * u)]))
+    painter.end()
+    return pixmap
+
+
+def script_icon() -> QIcon:
+    """A sheet of code lines with a green 'run' badge — the Script Editor glyph."""
+    icon = QIcon()
+    for size in ICON_SIZES:
+        icon.addPixmap(_script_pixmap(size))
+    return icon
+
+
+def _script_pixmap(size: int) -> QPixmap:
+    from PySide6.QtGui import QPolygonF
+
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    u = size / 16.0
+    painter.setPen(QPen(QColor(60, 60, 60), max(1.0, 0.9 * u)))
+    painter.setBrush(QColor("#fbfbf6"))
+    painter.drawRoundedRect(QRectF(2 * u, 1.5 * u, 11 * u, 13 * u), u, u)            # the sheet
+    painter.setPen(Qt.PenStyle.NoPen)
+    for i, (x, w, colour) in enumerate(((4, 3, "#7b2fa0"), (4.8, 5, "#1565c0"), (5.6, 4, "#2e7d32"), (4, 6, "#1565c0"), (4.8, 3, "#c45200"))):
+        painter.setBrush(QColor(colour))
+        painter.drawRect(QRectF(x * u, (3.4 + i * 1.9) * u, w * u, 1.1 * u))          # code lines, indented
     badge = QPointF(12 * u, 12 * u)
     painter.setBrush(QColor("#15803d"))
     painter.setPen(QPen(QColor(255, 255, 255), max(1.0, 0.8 * u)))
@@ -179,8 +215,76 @@ def _glyph_pixmap(name: str, size: int) -> QPixmap:
         painter.setPen(Qt.PenStyle.NoPen)
         for cx, cy in ((5, 5), (11, 5), (8, 8), (5, 11), (11, 11)):
             painter.drawEllipse(QPointF(cx * u, cy * u), 1.3 * u, 1.3 * u)
+    else:
+        _script_glyph(painter, name, u)
     painter.end()
     return pixmap
+
+
+def _script_glyph(painter: QPainter, name: str, u: float) -> None:
+    """The Script Editor's toolbar glyphs (new, open, run, stop, find, comment, indent, outdent, check, flame-script, revert,
+    template, clear, drawer)."""
+    from PySide6.QtGui import QPolygonF
+    white = QColor("#fafafa")
+    if name == "new":
+        painter.setBrush(white)
+        painter.drawPolygon(QPolygonF([QPointF(3 * u, 2 * u), QPointF(9.5 * u, 2 * u), QPointF(13 * u, 5.5 * u), QPointF(13 * u, 14 * u), QPointF(3 * u, 14 * u)]))
+        painter.drawPolyline(QPolygonF([QPointF(9.5 * u, 2 * u), QPointF(9.5 * u, 5.5 * u), QPointF(13 * u, 5.5 * u)]))
+    elif name == "open":
+        painter.setBrush(QColor("#f4c36a"))
+        painter.drawPolygon(QPolygonF([QPointF(2 * u, 4 * u), QPointF(6 * u, 4 * u), QPointF(7.5 * u, 5.5 * u), QPointF(14 * u, 5.5 * u),
+                                       QPointF(14 * u, 13 * u), QPointF(2 * u, 13 * u)]))
+    elif name == "run":
+        painter.setBrush(QColor("#2e7d32"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPolygon(QPolygonF([QPointF(4 * u, 2.5 * u), QPointF(13.5 * u, 8 * u), QPointF(4 * u, 13.5 * u)]))
+    elif name == "stop":
+        painter.setBrush(QColor("#c62828"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(QRectF(3.5 * u, 3.5 * u, 9 * u, 9 * u), u, u)
+    elif name == "find":
+        painter.drawEllipse(QPointF(7 * u, 7 * u), 4 * u, 4 * u)
+        painter.drawLine(QPointF(10 * u, 10 * u), QPointF(13.5 * u, 13.5 * u))
+    elif name == "comment":
+        painter.drawText(QRectF(1 * u, 1 * u, 14 * u, 14 * u), Qt.AlignmentFlag.AlignCenter, "#")
+    elif name in ("indent", "outdent"):
+        for y in (4, 8, 12):
+            painter.drawLine(QPointF((7 if y == 8 else 3) * u, y * u), QPointF(13 * u, y * u))
+        tip = QPointF((5.5 if name == "indent" else 2.5) * u, 8 * u)
+        base = (2.5 if name == "indent" else 5.5) * u
+        painter.setBrush(painter.pen().color())
+        painter.drawPolygon(QPolygonF([QPointF(base, 6 * u), QPointF(base, 10 * u), tip]))
+    elif name == "check":
+        painter.setPen(QPen(QColor("#2e7d32"), max(1.0, 2.2 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        painter.drawPolyline(QPolygonF([QPointF(3 * u, 8.5 * u), QPointF(6.5 * u, 12 * u), QPointF(13 * u, 4.5 * u)]))
+    elif name == "flame-script":
+        painter.setBrush(QColor("#ff8f00"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(QPointF(5 * u, 9 * u), 3.5 * u, 4.5 * u)             # a flame blob
+        painter.setBrush(QColor("#ffd54f"))
+        painter.drawEllipse(QPointF(5 * u, 10.5 * u), 1.8 * u, 2.5 * u)
+        painter.setPen(QPen(GLYPH_COLOR, max(1.0, 1.6 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(9 * u, 6 * u), QPointF(12.5 * u, 6 * u))
+        painter.drawLine(QPointF(9 * u, 9 * u), QPointF(14 * u, 9 * u))
+        painter.drawLine(QPointF(9 * u, 12 * u), QPointF(13 * u, 12 * u))
+    elif name == "revert":
+        _curved_arrow(painter, u, mirrored=False)
+    elif name == "template":
+        painter.setBrush(white)
+        painter.drawRect(QRectF(2 * u, 2 * u, 12 * u, 12 * u))
+        painter.drawLine(QPointF(2 * u, 6.5 * u), QPointF(14 * u, 6.5 * u))
+        painter.drawLine(QPointF(7 * u, 6.5 * u), QPointF(7 * u, 14 * u))
+    elif name == "clear":
+        painter.drawRoundedRect(QRectF(4 * u, 5 * u, 8 * u, 9 * u), u, u)
+        painter.drawLine(QPointF(3 * u, 5 * u), QPointF(13 * u, 5 * u))
+        painter.drawLine(QPointF(6.5 * u, 3 * u), QPointF(9.5 * u, 3 * u))
+        painter.drawLine(QPointF(6.5 * u, 7.5 * u), QPointF(6.5 * u, 12 * u))
+        painter.drawLine(QPointF(9.5 * u, 7.5 * u), QPointF(9.5 * u, 12 * u))
+    elif name == "drawer":
+        painter.setBrush(white)
+        painter.drawRect(QRectF(2 * u, 3 * u, 12 * u, 10 * u))
+        painter.setBrush(GLYPH_ACCENT)
+        painter.drawRect(QRectF(9 * u, 3 * u, 5 * u, 10 * u))
 
 
 def _pencil(painter: QPainter, u: float) -> None:

@@ -2,8 +2,8 @@
 
 Menus (File / Edit / View / Windows / Help), a toolbar, and a status bar showing the
 loaded fractal, render facts, the progressive pass counter and a progress bar. The
-Gradient Library and the Render Image window are separate tool windows opened from *Windows*
-or the toolbar.
+Gradient Library, the Script Editor and the Render Image window are separate tool windows opened
+from *Windows* or the toolbar.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import action_icon, gradient_icon, render_icon
+from ..widgets.icons import action_icon, gradient_icon, render_icon, script_icon
 from .background import run_in_background
 from .fractal_document import FractalDocument
 from .fractal_file_actions import FractalFileActions
@@ -52,6 +52,8 @@ SCANNING_MESSAGE = "Scanning fractal library…"
 LIBRARY_PANE_WIDTH = 300
 SETTINGS_PANE_WIDTH = 320
 MESSAGE_MS = 6000
+GUIDES_KEY = "viewer/guides"
+GUIDE_KINDS_KEY = "viewer/guide_kinds"
 ABOUT_TEXT = (
     f"<h3>{config.APP_NAME} {config.APP_VERSION}</h3>"
     "<p>A fractal flame viewer, gradient editor and library, growing into a full fractal editor.</p>"
@@ -83,6 +85,7 @@ class MainWindow(QMainWindow):
         self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
         self._formula_browser = None
         self._random_window = None
+        self._script_editor = None
         self._batch: list[Flame] = []          # generated fractals shown in the library's temporary area
         self._batch_showing: int | None = None
         self.files = FractalFileActions(self.document, self)
@@ -146,6 +149,8 @@ class MainWindow(QMainWindow):
         self.actionFormulas.triggered.connect(lambda: self.show_formulas())
         self.actionRandomBatch.setIcon(action_icon("random"))
         self.actionRandomBatch.triggered.connect(self.show_random_batch_window)
+        self.actionScriptEditor.setIcon(script_icon())
+        self.actionScriptEditor.triggered.connect(lambda: self.show_script_editor())
         self.actionAboutQt.triggered.connect(lambda: QMessageBox.aboutQt(self, f"About Qt — {config.APP_NAME}"))
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
@@ -187,12 +192,29 @@ class MainWindow(QMainWindow):
         bar, panel, view = self.viewerBar, self.settingsPanel, self.viewport
         bar.zoom_requested.connect(view.set_zoom)
         bar.resolution_chosen.connect(self.document.set_image_size)
-        bar.detail_chosen.connect(view.set_render_scale)
+        bar.guides_changed.connect(self._on_guides_changed)
+        self.actionShowGuides.toggled.connect(lambda shown: bar.set_guides(shown) if shown != bar.guides_shown else None)
         view.view_changed.connect(bar.show_zoom)
+        self._load_guides()
         panel.render_settings_changed.connect(self._apply_render_settings)
         panel.render_options_changed.connect(self._apply_render_options)
         self._apply_render_settings(panel.passes, panel.quality, render=False)
         self._apply_render_options(panel.oversample, panel.filter_radius, panel.refine_to, render=False)
+
+    def _load_guides(self) -> None:
+        """Restore the guides overlay (shown / which lines) from the settings."""
+        kinds = self._settings.value(GUIDE_KINDS_KEY, None)
+        shown = self._settings.value(GUIDES_KEY, "false") in ("true", True, "True")
+        if isinstance(kinds, str):
+            kinds = [k for k in kinds.split(",") if k]
+        self.viewerBar.set_guides(shown, None if kinds is None else tuple(kinds))
+
+    def _on_guides_changed(self, shown: bool, kinds) -> None:
+        self.viewport.set_guides(shown, kinds)
+        if self.actionShowGuides.isChecked() != shown:
+            self.actionShowGuides.setChecked(shown)
+        self._settings.setValue(GUIDES_KEY, shown)
+        self._settings.setValue(GUIDE_KINDS_KEY, ",".join(kinds))
 
     def _apply_render_settings(self, passes: int, quality: float, render: bool = True) -> None:
         self._set_render_settings(self.viewport.settings.with_effort(passes, quality), render)
@@ -258,6 +280,23 @@ class MainWindow(QMainWindow):
         self._random_window.raise_()
         self._random_window.activateWindow()
 
+    # --- script editor ------------------------------------------------------
+    @property
+    def script_editor(self):
+        """The Script Editor window (created on first use; hidden rather than destroyed when closed)."""
+        if self._script_editor is None:
+            from .script_editor_window import ScriptEditorWindow
+            self._script_editor = ScriptEditorWindow(self.document, self, self._settings)
+            self._script_editor.bind_viewport(self.viewport)
+        return self._script_editor
+
+    def show_script_editor(self, tab: str | None = None) -> None:
+        """Open (or raise) the Script Editor, optionally on one of its drawer tabs."""
+        editor = self.script_editor
+        editor.bring_to_front()
+        if tab:
+            editor.show_tab(tab)
+
     def show_random_batch(self, flames: list) -> None:
         """Put generated flames in the library's temporary area (under 'Randomly Generated') and show the first."""
         from .random_batch_window import BATCH_NAME
@@ -320,6 +359,7 @@ class MainWindow(QMainWindow):
         """Undo / redo / paste: everything may have changed."""
         flame = self.document.flame
         self.status.show_fractal(flame, self.document.source_path.name if self.document.source_path else "")
+        self.viewerBar.show_flame(flame)
         self.settingsPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
         self._update_title()
 
@@ -427,6 +467,11 @@ class MainWindow(QMainWindow):
         if not self.render_window.confirm_quit():
             event.ignore()
             return
+        if self._script_editor is not None:
+            if self._script_editor.runner.running:
+                self._script_editor.stop()
+            self._script_editor.save_state()
+            self._script_editor.hide()
         self.gradient_library.close()
         self.render_window.hide()
         self.render_service.stop()

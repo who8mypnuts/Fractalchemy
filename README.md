@@ -24,11 +24,11 @@ python -m pytest
   Into Existing File, Exit), *Edit* (Undo `Ctrl+Z`, Redo `Ctrl+Shift+Z`, Copy Parameters `Ctrl+Shift+C`, Paste
   Parameters `Ctrl+Shift+V`, Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
   Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
-  *Windows* (Gradient Library `F6`, Random Batch `F7`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
+  *Windows* (Gradient Library `F6`, Random Batch `F7`, Script Editor `F8`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
 * Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
   **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
   (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Gradient Library**,
-  **Random Batch** (`F7`), **Render Image** (`Ctrl+R`).
+  **Random Batch** (`F7`), **Script Editor** (`F8`), **Render Image** (`Ctrl+R`).
   Nothing is ever written unless you save: edits only change the preview, the title shows `*`, and Save / Save As
   let you keep as many versions as you like.
 * **Open Fractal…** shows the file's first flame and lists *all* of the file's flames in a temporary section at the
@@ -53,12 +53,12 @@ python -m pytest
   (rendered on demand by the preview engine, at low priority so the viewport always comes first).
   Folders are watched, and the right-click menu / drag-and-drop file operations are the same as in the
   Gradient Library. It has its own folder list (*Edit ▸ Edit Fractal Library…*, or **+** / ✎ in the pane).
-* **Viewport** (the centre): click a flame and it renders progressively in passes. The **Detail** box under it
-  (Full / ½ / ¼) renders the preview at a fraction of the screen resolution — 4× / 16× faster while editing —
-  and scales it up; the saved image size is untouched. The flame is framed as an
+* **Viewport** (the centre): click a flame and it renders progressively in passes. The flame is framed as an
   *image* of the chosen **Image size** (dropdown under the viewer, far right: the flame's own size, common
   screen and print sizes, or Custom… with width × height). Changing it only changes the image's aspect and
-  framing inside the viewer — never the window.
+  framing inside the viewer — never the window. **Guides** (button under the viewer, *View ▸ Show Guides*
+  `Ctrl+G`) overlays composition lines on the whole image like Apophysis's guidelines — the rule of thirds,
+  the golden ratio (38.2 % / 61.8 %) and the centre lines, each switchable from the button's menu; the choice persists.
   * **Look around without changing the fractal**: left-drag pans, the wheel zooms about the cursor, and the
     **Zoom** box (bottom left) lists Fit / 25–200 % or takes any typed value up to 300 %; zooming out stops once
     the whole image is visible (*View ▸ Zoom to Fit* `Ctrl+0`, *Zoom 100%* `Ctrl+1`). Only the visible part of
@@ -80,11 +80,10 @@ python -m pytest
     supersampling and Gaussian filter radius, 2 / 0.5 = plain 2×2 anti-aliasing; all persist between runs);
     **Camera** (zoom slider + box, Apophysis log2 zoom around the image centre; pan arrows moving the view
     by 0.1 fractal units along the screen axes — **Shift** 1.0, **Ctrl** 0.01 — rotation respected; centre x / y
-    and rotation boxes); **3D camera** (**X pitch** tilts about the horizontal axis, **Y pitch** about the vertical
-    one, **yaw** spins the plane, plus perspective, z position, depth blur — Apophysis's `cam_*` attributes, so a
+    and rotation boxes); **3D camera** (**pitch** tilts about the horizontal axis, **yaw** spins the plane, plus
+    perspective, z position, depth blur — Apophysis's `cam_*` attributes, so a
     2D flame becomes a tilted plane and variations with depth — `julia3D`, `curl3D`, `ztranslate`, `zcone`,
-    `blur3D`, `zblur`, `zscale`, `pre_`/`post_rotate_x/y`, `linear3D`, … — show real 3D; Y pitch is saved as
-    `cam_pitch_y`, which Apophysis ignores); **Coloring** (brightness, gamma, gamma threshold, vibrancy,
+    `blur3D`, `zblur`, `zscale`, `pre_`/`post_rotate_x/y`, `linear3D`, … — show real 3D); **Coloring** (brightness, gamma, gamma threshold, vibrancy,
     contrast, background colour via the live picker); **Curves** (Chaotica-style tone curves — overall, R, G, B
     and alpha/coverage — click to add points, drag, right-click to remove, *Reset* per channel and *Reset all*;
     Apophysis 7X `curves` are read, ours are saved as `fa_curves`).
@@ -143,6 +142,55 @@ saved**: it appears in the library's temporary area under the heading **Randomly
 opened file there), browsable with thumbnails like any file. Open one, adjust it, and *Save* / *Save As* put it
 in a file of your choosing — the batch stays on show so you can keep the others too. Your checks, count and
 range persist; a formula you add later starts out checked.
+
+### Script Editor window
+*Windows ▸ Script Editor* (`F8`, the script-sheet button on the toolbar) opens a tool window for **scripting the
+fractal in Python** — the Apophysis script editor, but with Python and everything Fractalchemy can edit: transforms
+(affines, weights, colours, the active transform), variations and their parameters (every loaded formula, plugins
+included), the gradient and palette, the chaos / xaos matrix, the camera (2D and 3D), the tone mapping, plus
+prompts, random numbers and live previews. Closing the window hides it; the script, the drawer state and the
+window layout are remembered between runs. See [docs/scripting.md](docs/scripting.md) for the full reference.
+
+* **Toolbar**: New / Open / Save / Save As (`.py` files) · **Run** (`Ctrl+Enter` / `F9`) / **Stop** (`Shift+Esc`) ·
+  Undo / Redo · Find & replace (`Ctrl+F` / `Ctrl+H`), toggle comment (`Ctrl+/`), outdent / indent · **Check syntax** ·
+  **Flame → Script** (a script that rebuilds the current fractal — the quickest way to start editing one) ·
+  **Revert flame** (back to before the last run) · **Save as template** · clear output · show / hide the drawer (`Ctrl+L`).
+  The *File*, *Edit*, *Script* and *View* menus hold the same actions plus go-to-line and the drawer's tabs.
+* **Editor** (left): Python syntax highlighting with the API's names picked out, line numbers, the current and any
+  error line highlighted, **tab completion** with inline documentation — type `transform.`, `gradient.`, a local
+  variable or the start of a name and press `Tab` (or `Ctrl+Space`); inside `set_variation('…')`, `variations['…']`
+  and `params['…']` the list holds the valid names; inside a call the keyword arguments are offered. Local variables
+  are type-inferred (`t = add_transform(); t.` knows `t` is a transform, as do `for t in transforms:` loops and
+  `for_each_transform` callbacks). Auto-indent, Backspace un-indents, `Ctrl+D` duplicates, `Ctrl+Shift+K` deletes and
+  `Alt+↑/↓` moves lines. The **output panel** beneath it shows `print()` text, results and errors — an error names
+  its line and clicking it jumps there.
+* **Drawer** (right, sliding like the main window's panels): **Context** — dynamic documentation that follows the
+  cursor: the members of the object being typed, or the call the cursor is in with its current argument highlighted
+  and, for arguments that take a known set of values, that list (e.g. every variation name); click anything to insert
+  it. **Reference** — the scripting guide, the searchable API reference and the catalogue of loaded variations.
+  **Info** — the script's name, file, `# @name` / `# @author` / `# @description` metadata, size, the API it uses,
+  whether it prompts or animates, and the last run (time, result, transforms before → after). **Templates** — 35
+  built-in templates by category (*Random rotate all transforms*, *Normalize weights*, *Add random transform*,
+  *Julia mutation*, *Make rotational symmetry*, *Spiral*, *Tile the plane*, *Gnarl*, gradient, xaos and camera
+  helpers, *Random flame explorer*, *Flame report*, *Build a flame from scratch*, …) plus *My templates*: save the
+  current script as one, overwrite, rename, delete; load, insert at the cursor, or load-and-run. User templates are
+  plain `.py` files in the per-user scripts folder (*Open folder*), so they can be shared.
+* **Running**: a script runs on a worker thread against a copy of the fractal; `print()` streams into the output
+  panel, `input_text()` / `input_number()` / `confirm()` pop up dialogs, `message()` shows a box, `update()` pushes
+  the current state into the main window and re-renders (with `sleep()` that makes animation previews), `progress()`
+  feeds the status bar, `stop()` ends the script keeping its changes. When it finishes the fractal takes the result
+  as **one undo step**; an error leaves the fractal untouched (intermediate updates are rolled back). **Stop** ends
+  any script — `while True:` loops, sleeps and open prompts included.
+* **The API** (Python, no imports needed): `flame`; `transforms` / `transform` (the active one) with `a`–`f`,
+  `coefs`, `post`, `weight`, `color`, `color_speed`, `opacity`, `variations[…]`, `params[…]`, `xaos`, and
+  `rotate()`, `scale()`, `translate()`, `rotate_around()`, `multiply()`, `flip_*()`, `set_variation()`, …;
+  `add_transform()`, `add_random_transform()`, `remove_transform()`, `copy_transform()`, `set_active_transform()`,
+  `set_final_transform()`, `normalize_weights()`, …; `camera` (`x`, `y`, `scale`, `zoom`, `rotate`, size, the 3D
+  camera, `fit()`, `zoom_by()`, `pan()`); `gradient` (`colors`, `stops`, `set_stops()`, `random()`, the Gradient
+  Library's node operations and sliders, `load()` from any gradient file); `xaos` (`set()`, `matrix`, `chain()`,
+  `isolate()`, `from_function()`, `randomize()`); `coloring`; `new_flame()`, `random_flame()`, `load_flame()`,
+  `save_flame()`, `flame_xml()`, `snapshot()` / `restore()`; random helpers; and Apophysis-style aliases
+  (`Transform`, `AddTransform`, `Rotate`, `Scale`, `Translate`, `Multiply`, `RotateFlame`, `UpdateFlame`, `Print`, …).
 
 ### Render Image window (the final renderer)
 *Windows ▸ Render Image…* (`Ctrl+R`) or the toolbar button opens a non-modal tool window; a render runs on its
@@ -264,6 +312,7 @@ ui/main_window.ui       Qt Designer layout of the main window: fractal library +
 ui/gradient_library_window.ui
                         Qt Designer layout of the Gradient Library window (GradientEditor etc. are promoted custom widgets)
 docs/rendering.md       the dual-engine rendering design
+docs/scripting.md       the scripting guide and API reference (generated by tools/scripting_reference.py)
 fractalchemy/
   config.py             tunables: app name/version, node counts, simplify tolerance, sizes, preview quality
   settings.py           QSettings identity + one-time migration of HueClid settings
@@ -285,15 +334,22 @@ fractalchemy/
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,
                         model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
-  widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons
+  widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons, CodeEditor
+                        (the script editor widget: highlighting, completion popup, line numbers)
+  scripting/            the scripting engine (Qt-free): api (the objects and functions scripts see), runner (stoppable
+                        execution with line-numbered errors), docs (the reference database behind completion and the
+                        help tabs), completion (type-aware completion / context help), generate (Flame → Script),
+                        templates (+ builtin_templates/*.py)
   ui/                   .ui loader, background tasks, MainWindow, FractalDocument (undo history), FractalViewport +
                         ViewGeometry (image framing, view vs. camera pan/zoom), ViewerBar (zoom + image size),
                         SettingsPanel, FractalLibraryPanel, ThumbnailProvider, RenderStatus (status bar),
                         GradientLink, FormulaBrowser, LibraryHost (shared library-pane wiring),
                         FileActionsBase + the fractal / gradient file actions, GradientDocument,
                         GradientLibraryWindow, RenderWindow (+ render_size_panel, render_quality_panel,
-                        render_output_panel, render_progress)
-tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas)
+                        render_output_panel, render_progress), ScriptEditorWindow (+ script_drawer: the Context /
+                        Reference / Info / Templates tabs, script_runner: the worker thread)
+tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
+                        scripting_reference.py (docs/scripting.md from the scripting documentation database)
 tests/                  pytest suite
 samples/                sample flames / gradients / images used by the tests, plus
 samples/aposource/      the Apophysis 7x source and plugin code, kept for reference (not scanned by the tests)

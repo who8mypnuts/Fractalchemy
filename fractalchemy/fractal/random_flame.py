@@ -161,11 +161,11 @@ def random_gradient(rng: random.Random) -> Gradient:
 def sample_points(flame: Flame, points: int = FRAME_POINTS, steps: int = FRAME_STEPS, seed: int = 7) -> tuple[np.ndarray, np.ndarray]:
     """(x, y) of `points` orbits after `steps` plotted iterations (the camera projection included)."""
     from ..render.compiled import CompiledFlame
-    from ..render.cpu_engine import _Worker
+    from ..render.cpu_engine import PointPopulation
     from ..render.projection import project
 
     compiled = CompiledFlame.build(flame)
-    worker = _Worker(compiled, points, seed, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0), 1, 1, flame.camera)
+    worker = PointPopulation(compiled, points, seed, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0), 1, 1, flame.camera)
     worker.fuse(FRAME_FUSE)
     xs, ys = [], []
     rng = np.random.default_rng(seed)

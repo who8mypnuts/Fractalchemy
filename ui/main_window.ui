@@ -92,6 +92,7 @@
     <addaction name="separator"/>
     <addaction name="actionZoomFit"/>
     <addaction name="actionZoomActual"/>
+    <addaction name="actionShowGuides"/>
     <addaction name="separator"/>
     <addaction name="actionShowStatusBar"/>
    </widget>
@@ -101,6 +102,7 @@
     </property>
     <addaction name="actionGradientLibrary"/>
     <addaction name="actionRandomBatch"/>
+    <addaction name="actionScriptEditor"/>
     <addaction name="actionRenderImage"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
@@ -152,6 +154,7 @@
    <addaction name="separator"/>
    <addaction name="actionGradientLibrary"/>
    <addaction name="actionRandomBatch"/>
+   <addaction name="actionScriptEditor"/>
    <addaction name="actionRenderImage"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -215,6 +218,12 @@
    <property name="toolTip"><string>Replace the fractal with parameters from the clipboard: .fa, Apophysis &lt;flame&gt; XML or a Chaotica world (Ctrl+Shift+V)</string></property>
    <property name="shortcut"><string>Ctrl+Shift+V</string></property>
   </action>
+  <action name="actionScriptEditor">
+   <property name="text"><string>Script Editor</string></property>
+   <property name="toolTip"><string>Script Editor: edit the fractal with Python scripts — transforms, variations, colours, xaos, camera (F8)</string></property>
+   <property name="shortcut"><string>F8</string></property>
+   <property name="statusTip"><string>Open the Script Editor window</string></property>
+  </action>
   <action name="actionRenderImage">
    <property name="text"><string>Render Image…</string></property>
    <property name="toolTip"><string>Render Image</string></property>
@@ -261,6 +270,13 @@
    <property name="text"><string>Zoom 100%</string></property>
    <property name="shortcut"><string>Ctrl+1</string></property>
    <property name="statusTip"><string>One image pixel per screen pixel</string></property>
+  </action>
+  <action name="actionShowGuides">
+   <property name="checkable"><bool>true</bool></property>
+   <property name="checked"><bool>false</bool></property>
+   <property name="text"><string>Show Guides</string></property>
+   <property name="shortcut"><string>Ctrl+G</string></property>
+   <property name="statusTip"><string>Overlay composition guides on the image: rule of thirds, golden ratio, centre lines (choose which under the viewer)</string></property>
   </action>
   <action name="actionShowStatusBar">
    <property name="checkable"><bool>true</bool></property>

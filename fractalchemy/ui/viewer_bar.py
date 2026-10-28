@@ -1,9 +1,9 @@
-"""The strip under the viewport: view zoom and preview detail on the left, output resolution on the right.
+"""The strip under the viewport: view zoom and the composition guides on the left, output resolution on the right.
 
 Zoom: an editable combo listing Fit and common percentages up to 200 %; anything typed is
-accepted and capped at 300 % (or the fit value when zooming out). Detail: the fraction of the
-screen resolution the preview is rendered at (½ and ¼ render 4× / 16× faster and are scaled up).
-Resolution: common screen and print sizes, the flame's own size, and Custom… with width/height boxes.
+accepted and capped at 300 % (or the fit value when zooming out). Guides: a toggle button that overlays
+composition lines on the image (rule of thirds, golden ratio, centre — each chosen from its menu, as in
+Apophysis). Resolution: common screen and print sizes, the flame's own size, and Custom… with width/height boxes.
 """
 
 from __future__ import annotations
@@ -11,7 +11,8 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QSize, Signal
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QSpinBox, QToolButton, QWidget
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QMenu, QSpinBox, QToolButton, QWidget
 
 from ..fractal.scene import Flame
 
@@ -36,27 +37,34 @@ RESOLUTIONS: tuple[tuple[str, int, int], ...] = (
 )
 FLAME_SIZE = "flame"
 CUSTOM = "custom"
-DETAIL_PRESETS: tuple[tuple[str, float], ...] = (("Full", 1.0), ("½", 0.5), ("¼", 0.25))
 MAX_DIMENSION = 32768
+GUIDE_KINDS: tuple[tuple[str, str, str], ...] = (
+    ("thirds", "Rule of thirds", "Lines at 1/3 and 2/3 of the width and height"),
+    ("golden", "Golden ratio", "Lines at 38.2 % and 61.8 % of the width and height (the golden section)"),
+    ("center", "Centre lines", "The horizontal and vertical centre"),
+)
+DEFAULT_GUIDES = ("thirds",)
 
 
 class ViewerBar(QWidget):
-    """Zoom and resolution controls for the viewport.
+    """Zoom, guides and resolution controls for the viewport.
 
     Signals:
         zoom_requested(object): A zoom factor (float), or None for Fit.
         resolution_chosen(object): (width, height), or None to follow the flame's own size.
-        detail_chosen(float): Render-resolution fraction for the preview (1, 0.5, 0.25).
+        guides_changed(bool, object): (overlay shown, the set of guide kinds to draw) whenever either changes.
     """
     zoom_requested = Signal(object)
     resolution_chosen = Signal(object)
-    detail_chosen = Signal(float)
+    guides_changed = Signal(bool, object)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.zoom_box = QComboBox(self)
         self.fit_button = QToolButton(self)
-        self.detail_box = QComboBox(self)
+        self.guides_button = QToolButton(self)
+        self.guides_menu = QMenu(self.guides_button)
+        self.guide_actions: dict[str, QAction] = {}
         self.resolution_box = QComboBox(self)
         self.width_box = QSpinBox(self)
         self.height_box = QSpinBox(self)
@@ -75,6 +83,21 @@ class ViewerBar(QWidget):
         self.fit_button.setText("Fit")
         self.fit_button.setToolTip("Show the whole image")
         self.fit_button.setAutoRaise(True)
+        self.guides_button.setText("Guides")
+        self.guides_button.setCheckable(True)
+        self.guides_button.setAutoRaise(True)
+        self.guides_button.setToolTip("Overlay composition guides on the image (rule of thirds, golden ratio, centre lines); "
+                                      "the arrow picks which")
+        self.guides_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        for key, label, tip in GUIDE_KINDS:
+            action = QAction(label, self.guides_menu)
+            action.setCheckable(True)
+            action.setChecked(key in DEFAULT_GUIDES)
+            action.setToolTip(tip)
+            action.setStatusTip(tip)
+            self.guides_menu.addAction(action)
+            self.guide_actions[key] = action
+        self.guides_button.setMenu(self.guides_menu)
 
         self.resolution_box.addItem("Flame size", FLAME_SIZE)
         for label, w, h in RESOLUTIONS:
@@ -98,13 +121,8 @@ class ViewerBar(QWidget):
         layout.addWidget(QLabel("Zoom", self))
         layout.addWidget(self.zoom_box)
         layout.addWidget(self.fit_button)
-        for label, fraction in DETAIL_PRESETS:
-            self.detail_box.addItem(label, fraction)
-        self.detail_box.setToolTip("Preview detail: render at this fraction of the screen resolution and scale up — "
-                                   "½ is 4× faster, ¼ is 16× faster; the saved image size is not affected")
         layout.addSpacing(12)
-        layout.addWidget(QLabel("Detail", self))
-        layout.addWidget(self.detail_box)
+        layout.addWidget(self.guides_button)
         layout.addStretch(1)
         layout.addWidget(QLabel("Image size", self))
         layout.addWidget(self.resolution_box)
@@ -117,19 +135,45 @@ class ViewerBar(QWidget):
         self.zoom_box.lineEdit().editingFinished.connect(self._on_zoom_typed)
         self.fit_button.clicked.connect(lambda: self.zoom_requested.emit(None))
         self.resolution_box.activated.connect(self._on_resolution_activated)
-        self.detail_box.activated.connect(lambda index: self.detail_chosen.emit(float(self.detail_box.itemData(index))))
+        self.guides_button.toggled.connect(lambda _on: self._emit_guides())
+        for action in self.guide_actions.values():
+            action.toggled.connect(lambda _on: self._on_guide_kind_toggled())
         self.width_box.valueChanged.connect(self._on_custom_changed)
         self.height_box.valueChanged.connect(self._on_custom_changed)
 
-    # --- detail ---------------------------------------------------------------------
-    def detail(self) -> float:
-        return float(self.detail_box.currentData())
+    # --- guides ---------------------------------------------------------------------
+    @property
+    def guides_shown(self) -> bool:
+        return self.guides_button.isChecked()
 
-    def select_detail(self, fraction: float) -> None:
-        """Programmatically pick a detail fraction; emits like a user choice."""
-        index = max(0, self.detail_box.findData(fraction))
-        self.detail_box.setCurrentIndex(index)
-        self.detail_chosen.emit(float(self.detail_box.itemData(index)))
+    def guide_kinds(self) -> tuple[str, ...]:
+        """The guide kinds ticked in the menu, in GUIDE_KINDS order."""
+        return tuple(key for key, _label, _tip in GUIDE_KINDS if self.guide_actions[key].isChecked())
+
+    def set_guides(self, shown: bool, kinds=None) -> None:
+        """Show / hide the overlay and (optionally) choose its lines; emits `guides_changed` once."""
+        self.guides_button.blockSignals(True)
+        for a in self.guide_actions.values():
+            a.blockSignals(True)
+        try:
+            if kinds is not None:
+                for key, action in self.guide_actions.items():
+                    action.setChecked(key in kinds)
+            self.guides_button.setChecked(bool(shown))
+        finally:
+            self.guides_button.blockSignals(False)
+            for a in self.guide_actions.values():
+                a.blockSignals(False)
+        self._emit_guides()
+
+    def _on_guide_kind_toggled(self) -> None:
+        if not self.guides_button.isChecked() and self.guide_kinds():
+            self.guides_button.setChecked(True)   # picking a guide shows the overlay (emits through toggled)
+        else:
+            self._emit_guides()
+
+    def _emit_guides(self) -> None:
+        self.guides_changed.emit(self.guides_shown, self.guide_kinds())
 
     # --- zoom -------------------------------------------------------------------
     def show_zoom(self, zoom: float, fit_zoom: float) -> None:
