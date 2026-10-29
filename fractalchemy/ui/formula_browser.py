@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QBrush
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
 from .. import config
 from ..formulas import last_report, user_formula_dir
 from ..fractal import variations as V
+from .formula_origins import ORIGINS, origin_of
 
 KIND_LABELS = {V.PRE: "pre", V.NORMAL: "normal", V.POST: "post"}
 
@@ -66,7 +68,7 @@ def origin_group(var: V.Variation) -> str:
     parts = Path(var.origin).parts
     if "library" in parts:
         return {"apophysis7x": "Apophysis 7X sources", "plugins": "Community plugin sources", "ports": "Hand-ported sources",
-                "reconstructed": "Reconstructed from DLLs"}.get(parts[parts.index("library") + 1], "Library")
+                "reconstructed": "Reconstructed from DLLs", "jwildfire": "Translated from JWildfire"}.get(parts[parts.index("library") + 1], "Library")
     return "User formulas"
 
 
@@ -111,6 +113,10 @@ class FormulaBrowser(QWidget):
                 groups[group].setExpanded(True)
             item = QTreeWidgetItem(groups[group], [name, KIND_LABELS.get(var.kind, var.kind), ", ".join(var.params)])
             item.setData(0, Qt.ItemDataRole.UserRole, name)
+            origin = ORIGINS[origin_of(var)]
+            for column in range(3):
+                item.setBackground(column, QBrush(origin.background_color))
+                item.setForeground(column, QBrush(origin.text_color))
         report = last_report()
         if report is not None and report.errors:
             failed = QTreeWidgetItem(self.tree, [f"Not loaded ({len(report.errors)})"])

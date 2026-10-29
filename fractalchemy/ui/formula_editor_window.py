@@ -48,6 +48,7 @@ from ..model import Gradient
 from ..render.service import RenderService
 from ..render.settings import RenderStats
 from ..render.xform_preview import preview_grid, variation_preview
+from ..widgets.collapsible_section import CollapsibleSection
 from ..widgets.collapsible_splitter import CollapsibleSplitter
 from ..widgets.find_bar import FindBar
 from ..widgets.formula_code_editor import FormulaCodeEditor
@@ -223,8 +224,9 @@ class FormulaEditorWindow(QMainWindow):
         gradient_row.addWidget(self.gradient_bar, 1)
         gradient_row.addWidget(self.gradient_presets, 0, Qt.AlignmentFlag.AlignBottom)
         layout.addLayout(gradient_row)
-        layout.addWidget(QLabel("Variation preview", panel))
-        layout.addWidget(self.preview_options)
+        self.preview_section = CollapsibleSection("Variation preview options", self.preview_options, panel, expanded=False)
+        self.preview_section.setToolTip("Range, depth and density of the grid of points drawn on the canvas")
+        layout.addWidget(self.preview_section)
         lists = QSplitter(Qt.Orientation.Vertical, panel)
         variables = QWidget(lists)
         variables_layout = QVBoxLayout(variables)
@@ -322,6 +324,7 @@ class FormulaEditorWindow(QMainWindow):
             if flag("drawer_collapsed", "true"):
                 QTimer.singleShot(0, lambda: self.outer_splitter.set_last_collapsed(True))
             self.actions.drawer.setChecked(not flag("drawer_collapsed", "true"))
+            self.preview_section.set_expanded(flag("preview_options_open", "false"))
             recent = s.value(f"{SETTINGS_GROUP}/recent", [])
             self._recent = [r for r in (recent if isinstance(recent, list) else [recent]) if isinstance(r, str) and r][:RECENT_LIMIT]
             favourites = s.value(f"{SETTINGS_GROUP}/favourites", [])
@@ -358,6 +361,7 @@ class FormulaEditorWindow(QMainWindow):
         s.setValue(f"{SETTINGS_GROUP}/vsplit", self.vertical_splitter.saveState())
         s.setValue(f"{SETTINGS_GROUP}/lsplit", self.lists_splitter.saveState())
         s.setValue(f"{SETTINGS_GROUP}/drawer_collapsed", self.outer_splitter.is_last_collapsed())
+        s.setValue(f"{SETTINGS_GROUP}/preview_options_open", self.preview_section.expanded)
         for action, key in ((a.var_preview, "var_preview"), (a.helpers, "helpers"), (a.compare, "compare"), (a.side_panel, "side_panel")):
             s.setValue(f"{SETTINGS_GROUP}/{key}", action.isChecked())
         range_units, depth, density, inputs = self.preview_options.settings()

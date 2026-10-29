@@ -13,6 +13,7 @@ fractalchemy/formulas/
         plugins/        community plugins whose source was available
         ports/          hand-ported sources (structs written out, noise libraries shared as .h files)
         reconstructed/  plugins that only existed as DLLs, recovered from the machine code
+        jwildfire/      variations translated from JWildfire's Java sources (tools/import_jwf_variations.py)
     lang/           the compiler for the dialect (preprocess → parse → analyse → numpy + GLSL)
     loader.py       discovery, caching, user folders
     apophysis_depth.py   Apophysis's depth rule for its built-ins
@@ -23,6 +24,7 @@ fractalchemy/formulas/
 tools/
     import_apo_plugins.py   bulk-imports plugin sources into the library (with verification)
     apo_decompile.py        reconstructs a formula from a plugin DLL (no source needed)
+    import_jwf_variations.py + jwf_translate.py   translate JWildfire `*Func.java` variations (with verification)
 ```
 
 At start-up `formulas.load_all()` fills the registry (`fractal.variations.REGISTRY`):
@@ -147,6 +149,22 @@ allow one such point in twelve.
   assembles, patches (`PATCHES` in the tool), compiles and verifies each source and writes
   the survivors into `library/`. `python tools/apo_decompile.py --batch <folder of DLLs>`
   does the same for DLLs without source.
+
+## Translating JWildfire variations
+
+`tools/import_jwf_variations.py --source ../JWildfire` reads every `*Func.java` under
+`src/org/jwildfire/create/tina/variation/`, and `tools/jwf_translate.py` turns the regular shape of a
+JWildfire variation class into the dialect: `transform()` → `PluginVarCalc` (`pAffineTP.x` → `FTx`,
+`pVarTP.x +=` → `FPx +=`, `pAmount` → `VVAR`, `pContext.random()` → `random01()`, the precalc getters →
+their expressions, `MathLib` / `Math` → the math functions), `init()` / `initOnce()` → `PluginVarPrepare`,
+parameter fields → `APO_VARIABLES` (prefixed with the formula name, as JWildfire writes them in flames),
+other fields → derived struct members, private helper methods → dialect functions, `static final`
+constants → `#define`s and constant tables, `sinAndCos` → `fsincos`. The `isPreserveZCoordinate()` blocks are
+dropped (plugins leave the depth alone unless they are 3D). Each translation is compiled and checked on
+both engines before it is written; names already in the library are never shadowed. The report
+(`docs/jwildfire_import.md`) groups what could not be translated by reason — the `vec2` / `vec3` shader
+helper classes, the `Complex` class, `Random` objects and state kept between points, resources and
+images, code compiled at run time, sub-flames — which is the hand-porting queue.
 
 ## Reconstructing plugins from DLLs
 

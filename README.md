@@ -116,9 +116,11 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
   Apophysis's transform semantics (`pre_` / `post_` variation order, `var_color` direct colour, depth `z`)
   and its 3D camera (`cam_pitch`, `cam_yaw`, `cam_perspective` / `cam_dist`, `cam_zpos`, `cam_dof`).
 * **Formulas** (variations / plugins) live in `fractalchemy/formulas/` — see
-  [docs/formulas.md](docs/formulas.md). Some 570 are bundled: the flam3 classics and Apophysis 7X built-ins,
-  every Apophysis plugin whose source was available, and plugins that only existed as (mostly 32-bit) DLLs,
-  reconstructed from their machine code. Each is defined once and compiled for *both* engines from the
+  [docs/formulas.md](docs/formulas.md). Some 820 are bundled: the flam3 classics and Apophysis 7X built-ins,
+  every Apophysis plugin whose source was available, plugins that only existed as (mostly 32-bit) DLLs,
+  reconstructed from their machine code, and 250-odd variations translated from JWildfire
+  (`tools/import_jwf_variations.py`; the report in [docs/jwildfire_import.md](docs/jwildfire_import.md) lists
+  what could not be translated and why). Each is defined once and compiled for *both* engines from the
   Apophysis plugin C dialect (or written natively in Python + GLSL), and the test-suite checks that numpy
   and GLSL agree on every one. Your own formulas go into the per-user formulas folder (*Help ▸ Formulas…*
   shows it, together with everything loaded and why anything failed to load) — the **Formula Editor** (`F10`)
@@ -291,8 +293,8 @@ writing, the favourites, the recent list and the layout are remembered between r
 
 * **The grid** (top left) is a small Transform Editor canvas with its own little flame: one *formula* transform on
   the reference triangle, running the formula being edited, with the **variation preview** on by default — so the
-  formula's effect is drawn as a grid of points sent through the transform (its range / depth / density are sliders
-  in the side column; *Show the input grid* draws where the points started). Its toolbar: **Undo / Redo** (this
+  formula's effect is drawn as a grid of points sent through the transform (*Variation preview options* in the
+  side column, folded away behind a caret: range / depth / density sliders and *Show the input grid*). Its toolbar: **Undo / Redo** (this
   flame's own history), **add a linear transform**, **add a spherical transform**, **add a formula transform**
   (another one running the formula), **Duplicate**, **Delete** the active transform, flip, the variation preview,
   **Compare** (see below), fit, **Test rig ▾** (starter flames: the formula alone, with a linear, two formulas, a
@@ -312,14 +314,17 @@ writing, the favourites, the recent list and the layout are remembered between r
   one gradient everywhere, for ease. **Variables** lists the active transform's parameters (the formula's own,
   under its name) with **Reset**, **Randomise** and a **Sweep** that animates one variable over its range to show
   what it does; edits are undoable.
-* **Formulas**: every loaded formula — built-ins, the bundled library and your own (in bold) — with tags
-  (`pre` / `post` / `3D` / `DC` / `random`), where it came from and, when the file names one, its author; a search
-  box, origin and kind filters, and **favourites** (double-click the star, or the context menu; *Favourites* in
-  the origin filter lists them). Clicking one loads its code (a bundled `.c` source, or for a native Python
-  built-in a dialect skeleton carrying its numpy and GLSL as a reference) and puts the real formula in the
-  previews until the text is changed. **New formula ▾** (`Ctrl+N`, also on the *Formula* menu) offers templates —
-  normal (a swirl), pre, post, direct colour, 3D, blur — each a complete formula with one variable, named so it
-  clashes with nothing. *Formula ▸ Recent formulas* reopens what you worked on lately.
+* **Formulas**: every loaded formula with tags (`pre` / `post` / `3D` / `DC` / `random`), where it came from and,
+  when the file names one, its author. Rows are **colour-coded by origin** — light blue for the built-ins, amber
+  for the Apophysis plugin library, green for the JWildfire translations, violet (and bold) for your own — with
+  darker text of the same hue; the same tints mark the Transform Editor's Variations list and the formula
+  browser. Click a heading to sort; a search box, origin and kind filters, and **favourites** (double-click the
+  star, or the context menu; *Favourites* in the origin filter lists them). Clicking one loads its code (a
+  bundled `.c` source, or for a native Python built-in a dialect skeleton carrying its numpy and GLSL as a
+  reference) and puts the real formula in the previews until the text is changed. **New formula ▾** (`Ctrl+N`,
+  also on the *Formula* menu) offers templates — normal (a swirl), normal (linear), pre, post, direct colour,
+  3D, blur — each a complete formula with one variable, named so it clashes with nothing. *Formula ▸ Recent
+  formulas* reopens what you worked on lately.
 * **The code editor**: C syntax highlighting that knows the dialect (the plugin API, `FTx` / `FPy` / `VVAR` / `TC`,
   the math functions and constants, both comment styles), **completion** (Tab / Ctrl+Space, or by itself after
   two letters: the dialect's names with one-line docs, and the file's own variables), line numbers, brace-aware
@@ -480,7 +485,7 @@ fractalchemy/
                         triangle_drag (the mouse-drag maths), xform_ops (add / duplicate / link / delete transforms
                         with consistent xaos)
   formulas/             the formulas: builtin/ (native Python), library/ (the plugin dialect, one file each:
-                        apophysis7x / plugins / ports / reconstructed), lang/ (the compiler), loader (user folders,
+                        apophysis7x / plugins / ports / reconstructed / jwildfire), lang/ (the compiler), loader (user folders,
                         cache), apophysis_depth (the built-ins' depth rule), workbench (the Formula Editor's scratch
                         slot, sources, the read-only policy), authoring (templates, snippets, the variable and
                         rename refactors, test rigs), completion (the dialect's names for the editor and the
@@ -504,7 +509,8 @@ fractalchemy/
                         BaseCodeEditor (line numbers, find / replace, line edits, completion with a pluggable
                         completer) → CodeEditor (the script editor: Python highlighting and completer) and
                         FormulaCodeEditor (C dialect highlighting and completer), CompletionPopup, FindBar,
-                        GradientBar (the Formula Editor's clickable gradient swatch)
+                        GradientBar (the Formula Editor's clickable gradient swatch), CollapsibleSection, logo (the
+                        proposed mark, see docs/logo.md)
   scripting/            the scripting engine (Qt-free): api (the objects and functions scripts see), runner (stoppable
                         execution with line-numbered errors), docs (the reference database behind completion and the
                         help tabs), completion (type-aware completion / context help), generate (Flame → Script),
@@ -523,8 +529,10 @@ fractalchemy/
                         Reference / Info / Templates tabs, script_runner: the worker thread),
                         FormulaEditorWindow (+ formula_session: the formula being edited and its background
                         compiles, formula_editor_actions, formula_list_panel, formula_editor_panels: preview
-                        options / variable tools / presets, formula_drawer: reference / compiler output / probe)
+                        options / variable tools / presets, formula_drawer: reference / compiler output / probe,
+                        formula_origins: the origin classification and row colours shared by every formula list)
 tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
+                        import_jwf_variations.py + jwf_translate.py (JWildfire *Func.java → formulas),
                         scripting_reference.py (docs/scripting.md from the scripting documentation database)
 tests/                  pytest suite
 samples/                sample flames / gradients / images used by the tests, plus

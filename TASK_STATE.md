@@ -337,3 +337,17 @@ history (`git show 13a9126:TASK_STATE.md`).
   drawer toggles, quality menu, view / selection persistence, GPU-fallback note.
 * `proposed_variations.md`: the JWildfire survey (1 010 variations scanned, 634 missing, grouped with portability notes).
 * Tests: `tests/test_formula_editor.py` (16).
+
+### Round 3: JWildfire import, origin colours, logo
+* `tools/jwf_translate.py` (Java variation class → dialect, token-level; refuses what cannot be expressed with a reason)
+  and `tools/import_jwf_variations.py` (translate → compile → numpy-vs-GLSL verify → `library/jwildfire/`, report in
+  `docs/jwildfire_import.md`): 253 of 1 027 imported, 312 already in the library, 462 not translatable (vec2 / Complex /
+  state / Random / resources / run-time code / specialised base classes). Registry: 818 formulas; `test_variations`
+  covers them all.
+* `ui/formula_origins.py`: built-in / apophysis / jwildfire / user, each a light background + dark text; used by the
+  Formula Editor's list (sortable columns), the formula browser (new JWildfire group) and the Transform Editor's
+  Variations tab (`ValueRow.background`).
+* Formula Editor: "Normal (linear)" second template; the variation-preview options folded into a `CollapsibleSection`.
+* `widgets/logo.py` + `docs/logo.md` + `docs/logo/*.png`: the proposed mark (flask + golden-ratio spiral in flame colours);
+  not wired as the window icon yet.
+* Tests: `tests/test_jwf_import.py` (3), formula-editor tests extended.

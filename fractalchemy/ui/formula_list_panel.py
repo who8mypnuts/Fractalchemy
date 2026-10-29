@@ -1,10 +1,11 @@
 """The Formula Editor's list of every loaded formula: search, origin / kind filters, favourites, the *New formula* button.
 
-Rows come from the registry (built-ins, the bundled library and the user's own formulas — the latter in
-bold), tagged like the Transform Editor's Variations list (`pre` / `post` / `3D` / `DC` / `random`), with
-where they came from and, when the source file names one, the author. Clicking a row asks the window to
-load it (`formula_chosen`); the window decides whether unsaved edits allow that. A double-click on the star
-column (or the context menu) marks a favourite; the set is the window's to persist.
+Rows come from the registry — built-ins, the Apophysis plugin library, the JWildfire translations and the
+user's own formulas, each origin on its own light background (`formula_origins`) with the user's in bold —
+tagged like the Transform Editor's Variations list (`pre` / `post` / `3D` / `DC` / `random`), with where
+they came from and, when the source file names one, the author. Columns sort on click. Clicking a row
+asks the window to load it (`formula_chosen`); the window decides whether unsaved edits allow that. A
+double-click on the star column (or the context menu) marks a favourite; the set is the window's to persist.
 """
 
 from __future__ import annotations
@@ -13,17 +14,17 @@ import re
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QBrush, QFont
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ..formulas import workbench as W
 from ..fractal import variations as V
 from .editor_value_tabs import variation_tags
+from .formula_origins import ORDER, ORIGINS, USER, origin_of
 
 SEARCH_DEBOUNCE_MS = 200
-ORIGIN_BUILTIN, ORIGIN_LIBRARY, ORIGIN_USER = "built-in", "library", "user"
-ORIGIN_FILTERS = ("All", "Favourites", "User", "Library", "Built-in")
+ORIGIN_FILTERS = ("All", "Favourites") + tuple(ORIGINS[key].label for key in ORDER)
 KIND_FILTERS = ("Any kind", "normal", "pre", "post", "3D", "DC", "random")
 STAR, NO_STAR = "★", "☆"
 COLUMN_STAR, COLUMN_NAME, COLUMN_TAGS, COLUMN_ORIGIN, COLUMN_AUTHOR = range(5)
@@ -35,15 +36,8 @@ _authors: dict[Path, str] = {}
 
 
 def short_origin(var: V.Variation, user_dir: Path | None = None) -> str:
-    """`built-in` (native Python), `user` (the user's folders, or `user_dir`) or `library` (bundled sources)."""
-    if var.style == V.LEGACY:
-        return ORIGIN_BUILTIN
-    path = W.origin_path(var)
-    if path is None:
-        return ORIGIN_LIBRARY
-    if (user_dir is not None and path.parent == user_dir) or W.is_user_file(path) or not W.is_bundled_path(path):
-        return ORIGIN_USER
-    return ORIGIN_LIBRARY
+    """The origin key shown in the list: `built-in`, `apophysis`, `jwildfire` or `user` (see `formula_origins`)."""
+    return origin_of(var, user_dir)
 
 
 def author_of(var: V.Variation) -> str:
@@ -57,11 +51,15 @@ def author_of(var: V.Variation) -> str:
             head = path.read_text(encoding="utf-8", errors="replace")[:3000]
         except OSError:
             head = ""
-        for pattern in _AUTHOR_PATTERNS:
-            m = pattern.search(head)
-            if m and not m.group(1).startswith(("Fractalchemy", "Apophysis", "Free Software", "All", "GPL")):
-                author = re.sub(r"\s+", " ", m.group(1)).strip(" -.")
-                break
+        by_line = re.search(r"\n\s+by ([A-Z][A-Za-z.'\- ]{2,40})\s*\n", head[:600])     # a translated file's credit line
+        if by_line:
+            author = by_line.group(1).strip()
+        elif "translated from the JWildfire" not in head:          # (JWildfire's own copyright line names the project, not the variation)
+            for pattern in _AUTHOR_PATTERNS:
+                m = pattern.search(head)
+                if m and not m.group(1).startswith(("Fractalchemy", "Apophysis", "Free Software", "All", "GPL")):
+                    author = re.sub(r"\s+", " ", m.group(1)).strip(" -.")
+                    break
         _authors[path] = author
     return _authors[path]
 
@@ -92,7 +90,8 @@ class FormulaListPanel(QWidget):
         self.new_button.setToolTip("Start a new formula from a template")
         self.origin_filter = QComboBox(self)
         self.origin_filter.addItems(ORIGIN_FILTERS)
-        self.origin_filter.setToolTip("Show every formula, only your favourites, or one origin")
+        self.origin_filter.setToolTip("Show every formula, only your favourites, or one origin (the row colours: "
+                                      + "; ".join(f"{o.label} = {o.description}" for o in ORIGINS.values()) + ")")
         self.kind_filter = QComboBox(self)
         self.kind_filter.addItems(KIND_FILTERS)
         self.kind_filter.setToolTip("Show only pre / post / 3D / direct-colour / random formulas")
@@ -100,7 +99,6 @@ class FormulaListPanel(QWidget):
         self.tree.setHeaderLabels(["", "Formula", "Tags", "Origin", "Author"])
         self.tree.setRootIsDecorated(False)
         self.tree.setUniformRowHeights(True)
-        self.tree.setAlternatingRowColors(True)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.setColumnWidth(COLUMN_STAR, 22)
         self.tree.setColumnWidth(COLUMN_NAME, 150)
@@ -108,7 +106,7 @@ class FormulaListPanel(QWidget):
         self.tree.setColumnWidth(COLUMN_ORIGIN, 56)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.setToolTip("Every loaded formula; click one to load its code (your own formulas in bold). "
-                             "Double-click the star to keep a favourite.")
+                             "Click a heading to sort; double-click the star to keep a favourite.")
         self.count_label = QLabel(self)
         self.count_label.setEnabled(False)
         top = QHBoxLayout()
@@ -143,16 +141,23 @@ class FormulaListPanel(QWidget):
         self.tree.clear()
         bold = QFont(self.tree.font())
         bold.setBold(True)
+        self.tree.setSortingEnabled(False)
         for name in V.catalogue():
             var = V.REGISTRY[name]
-            origin = short_origin(var, self.user_dir)
-            item = QTreeWidgetItem([STAR if name in self.favourites else NO_STAR, name, variation_tags(var), origin, author_of(var)])
+            origin = ORIGINS[short_origin(var, self.user_dir)]
+            item = QTreeWidgetItem([STAR if name in self.favourites else NO_STAR, name, variation_tags(var), origin.label, author_of(var)])
             item.setData(COLUMN_NAME, Qt.ItemDataRole.UserRole, name)
             item.setTextAlignment(COLUMN_STAR, Qt.AlignmentFlag.AlignCenter)
             item.setToolTip(COLUMN_NAME, var.summary() + (f"\n{var.origin}" if var.origin else ""))
-            if origin == ORIGIN_USER:
+            item.setToolTip(COLUMN_ORIGIN, origin.description)
+            for column in range(COLUMN_AUTHOR + 1):
+                item.setBackground(column, QBrush(origin.background_color))
+                item.setForeground(column, QBrush(origin.text_color))
+            if origin.key == USER:
                 item.setFont(COLUMN_NAME, bold)
             self.tree.addTopLevelItem(item)
+        self.tree.setSortingEnabled(True)
+        self.tree.sortItems(COLUMN_NAME, Qt.SortOrder.AscendingOrder)
         self.apply_filter()
         if current:
             self.select(current)
@@ -170,7 +175,7 @@ class FormulaListPanel(QWidget):
             if origin == "Favourites":
                 hit = hit and name in self.favourites
             elif origin != "All":
-                hit = hit and where == origin.lower()
+                hit = hit and where == origin
             if kind == "normal":
                 hit = hit and "pre" not in tags.split() and "post" not in tags.split()
             elif kind != "Any kind":

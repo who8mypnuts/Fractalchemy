@@ -80,6 +80,8 @@ TEMPLATES: tuple[Template, ...] = (
     Template("normal", "Normal (swirl)", "Adds to the accumulator: the usual kind of variation.", "", (("amount", 1.0),), "",
              "    double r2 = FTx * FTx + FTy * FTy;\n    double s, c;\n    fsincos(r2 * VAR({n}_amount), &s, &c);\n\n"
              "    FPx += VVAR * (FTx * c - FTy * s);\n    FPy += VVAR * (FTx * s + FTy * c);\n"),
+    Template("linear", "Normal (linear)", "The plainest start: adds the input point, scaled by one variable.", "", (("amount", 1.0),), "",
+             "    FPx += VVAR * VAR({n}_amount) * FTx;\n    FPy += VVAR * VAR({n}_amount) * FTy;\n"),
     Template("pre", "Pre (rewrites the input)", "A pre_ formula changes FTx / FTy before the other variations run.", "pre_",
              (("scale", 0.5),), "",
              "    FTx = FTx * VAR({n}_scale);\n    FTy = FTy * VAR({n}_scale);\n"),

@@ -1,5 +1,12 @@
 # Proposed variations
 
+**Status**: the importer (`tools/import_jwf_variations.py`) now translates JWildfire variations mechanically; its
+first run added 253 of them to `fractalchemy/formulas/library/jwildfire/` (see `docs/jwildfire_import.md` for the
+full list and for what could not be translated, by reason). Of the names below, the §1 classics, the lattices,
+the one-step attractors, the `_bs` trig set, the map projections and most of §5's warps are in; the `cut_*` /
+`dc_*` / `glsl_*` shader families, the Jacobi functions, `hexes`, the `Complex`-based maps and everything with
+state or resources remain the hand-porting queue.
+
 A survey of what the formula library lacks and what could fill the gaps, written against the **JWildfire** sources
 (`JWildfire/src/org/jwildfire/create/tina/variation/*Func.java`, V9.20 tree, 1 010 variations by `getName()`) and
 our own registry (566 formulas loaded). 634 JWildfire names are not in our set; this document groups them,

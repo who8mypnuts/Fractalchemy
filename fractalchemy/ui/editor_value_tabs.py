@@ -1,8 +1,9 @@
 """The Transform Editor's list tabs — Variations, Variables and Xaos — one `ValueTable` each.
 
 * **Variations** — every loaded formula (built-ins, bundled plugins, user formulas) with the selected
-  transform's weight for it; used ones in bold; search box, *Hide unused*, *Clear*. The third column
-  tags `pre` / `post` formulas, 3D ones (they set the depth), direct-colour and random ones.
+  transform's weight for it; used ones in bold; rows tinted by origin (`formula_origins`); search box,
+  *Hide unused*, *Clear*. The third column tags `pre` / `post` formulas, 3D ones (they set the depth),
+  direct-colour and random ones.
 * **Variables** — the parameters of the transform's active variations (z / 3D parameters included), with
   *Show all variables* listing every parameter of every formula. Double-click a name to reset its default.
 * **Xaos** — the transform's outgoing (*to*) or incoming (*from*) xaos weights.
@@ -23,6 +24,7 @@ from ..fractal.xform_ops import chaos_row
 from ..widgets.silent import updating
 from ..widgets.value_table import ValueRow, ValueTable
 from .editor_context import EditorContext
+from .formula_origins import ORIGINS, origin_of
 
 KIND_TAGS = {V.PRE: "pre", V.POST: "post"}
 MISSING_COLOR = QColor(200, 60, 60)
@@ -172,8 +174,10 @@ class VariationsTab(TableTab):
         for name in names:
             var = V.REGISTRY.get(name)
             tip = f"{name}" + (f" — {var.summary()}" if var is not None else " — not available: no loaded formula has this name")
+            origin = ORIGINS[origin_of(var)] if var is not None else None
             rows.append(ValueRow(name, weights.get(name, 0.0), variation_tags(var), tip, bold=name in weights,
-                                 color=MISSING_COLOR if var is None else None))
+                                 color=MISSING_COLOR if var is None else origin.text_color,
+                                 background=origin.background_color if origin is not None else None))
         return rows
 
     def hide_row(self) -> Callable[[ValueRow], bool] | None:

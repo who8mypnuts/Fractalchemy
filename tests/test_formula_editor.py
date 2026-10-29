@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from fractalchemy.formulas import authoring as A, completion as FC, loader, verify, workbench as W
@@ -246,7 +246,7 @@ def test_choosing_a_formula_from_the_list_loads_its_code_and_the_real_formula_re
     assert "whorl" in fe.formula_list.visible_names() and fe.formula_list.count_label.text().endswith("formulas")
     fe.formula_list.search.setText("whorl")
     fe.formula_list.apply_filter()
-    assert fe.formula_list.visible_names() == ["dc_whorl2", "whorl"] and fe.formula_list.count_label.text() == "2 of 566 formulas"
+    assert fe.formula_list.visible_names() == ["dc_whorl2", "whorl"] and fe.formula_list.count_label.text() == f"2 of {len(V.catalogue())} formulas"
     fe.formula_list.select("whorl")
     fe.formula_list.tree.itemClicked.emit(fe.formula_list.tree.currentItem(), 1)   # (column 0 is the favourite star)
     assert fe.session.name == "whorl" and fe.session.origin == ORIGIN_REGISTERED and 'APO_PLUGIN("whorl")' in fe.code.text()
@@ -495,6 +495,20 @@ def test_list_filters_favourites_and_authors(main, tmp_path):
     panel.search.setText("faber")
     panel.apply_filter()
     assert "whorl" in panel.visible_names() and panel._item("whorl").text(4) == "Michael Faber"
+    # rows are tinted by origin (light backgrounds, darker text), the JWildfire translations are their own origin, columns sort
+    from fractalchemy.ui.formula_origins import APOPHYSIS, BUILTIN, JWILDFIRE, ORIGINS, origin_of
+    assert origin_of(V.REGISTRY["whorl"]) == APOPHYSIS and origin_of(V.REGISTRY["julian"]) == BUILTIN and origin_of(V.REGISTRY["disc2"]) == JWILDFIRE
+    panel.search.clear()
+    panel.apply_filter()
+    for name, key in (("whorl", APOPHYSIS), ("julian", BUILTIN), ("disc2", JWILDFIRE)):
+        item = panel._item(name)
+        assert item.background(1).color() == ORIGINS[key].background_color and item.foreground(1).color() == ORIGINS[key].text_color
+        assert item.text(3) == ORIGINS[key].label and ORIGINS[key].background_color.lightness() > 220 and ORIGINS[key].text_color.lightness() < 110
+    panel.origin_filter.setCurrentText("JWildfire")
+    assert "disc2" in panel.visible_names() and "whorl" not in panel.visible_names()
+    panel.origin_filter.setCurrentText("All")
+    panel.tree.sortItems(3, Qt.SortOrder.DescendingOrder)
+    assert panel.visible_names()[0] != "arch" and panel.tree.isSortingEnabled()
 
 
 def test_templates_snippets_variables_and_rename_from_the_window(main, tmp_path, monkeypatch):
@@ -503,6 +517,11 @@ def test_templates_snippets_variables_and_rename_from_the_window(main, tmp_path,
     wait_until(lambda: fe.session.variation is not None and fe.session.kind == V.POST)
     assert "post" in fe.compile_label.text()
     assert [a.text() for a in fe.actions.templates_menu.actions()] == [t.title for t in A.TEMPLATES]
+    assert [a.text() for a in fe.actions.templates_menu.actions()][:2] == ["Normal (swirl)", "Normal (linear)"]
+    assert not fe.preview_section.expanded and not fe.preview_options.isVisible()        # folded away behind its caret
+    fe.preview_section.header.click()
+    assert fe.preview_section.expanded and fe.preview_options.isVisible()
+    fe.preview_section.set_expanded(False)
     fe.new_formula()
     wait_until(lambda: fe.session.variation is not None and fe.session.kind == V.NORMAL)
     start = fe.code.text().index("VAR(new_formula_amount)")
@@ -627,3 +646,14 @@ def test_use_current_fractal_and_send_to_main(main, tmp_path):
     fe.actions.send_to_main.trigger()
     assert main.document.flame.xforms[0].variations == {"new_formula": 1.0}
     fe.session.modified = False
+
+
+def test_logo_paints_at_every_size(qapp):
+    from fractalchemy.widgets.logo import SIZES, logo_icon, logo_pixmap, wordmark_pixmap
+    for size in SIZES:
+        pixmap = logo_pixmap(size)
+        image = pixmap.toImage()
+        assert pixmap.width() == size and not image.allGray()
+        painted = sum(1 for x in range(0, size, max(1, size // 16)) for y in range(0, size, max(1, size // 16)) if image.pixelColor(x, y).alpha() > 0)
+        assert painted > 0
+    assert not logo_icon().isNull() and wordmark_pixmap(64).width() > 64

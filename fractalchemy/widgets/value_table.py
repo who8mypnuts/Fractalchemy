@@ -15,7 +15,7 @@ import math
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFont, QMouseEvent
+from PySide6.QtGui import QBrush, QColor, QFont, QMouseEvent
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem, QWidget
 
 DRAG_STEPS = {"plain": 0.001, "shift": 0.01, "ctrl": 0.0001, "alt": 0.00001}   # value change per pixel
@@ -34,6 +34,7 @@ class ValueRow:
     decimals: int = 6
     integer: bool = False
     color: QColor | None = None
+    background: QColor | None = None     # a row tint (the formula lists colour rows by origin)
 
 
 def drag_step(modifiers) -> float:
@@ -140,6 +141,9 @@ class ValueTable(QTableWidget):
             value_item.setToolTip(row.tooltip or row.name)
         if row.color is not None and (previous is None or previous.color != row.color):
             name_item.setForeground(row.color)
+        if previous is None or previous.background != row.background:
+            for column in range(self.columnCount()):
+                self.item(i, column).setBackground(row.background if row.background is not None else QBrush())
         if previous is None or previous.value != row.value or previous.decimals != row.decimals:
             value_item.setText(format_value(row.value, row.decimals, row.integer))
         if self.columnCount() > 2 and (previous is None or previous.info != row.info):
