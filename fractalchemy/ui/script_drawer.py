@@ -373,13 +373,13 @@ class ReferenceTab(QWidget):
     @staticmethod
     def _variations_html(query: str) -> str:
         groups: dict[str, list[str]] = {}
-        for name in sorted(V.REGISTRY):
+        for name in V.catalogue():
             var = V.REGISTRY[name]
             params = " ".join(var.params)
             if query and query not in name.lower() and query not in params.lower() and query not in origin_group(var).lower():
                 continue
             groups.setdefault(origin_group(var), []).append(name)
-        html = (f"<h2>Variations ({len(V.REGISTRY)} loaded)</h2><p class='hint'>Use <code>t.set_variation(name, weight)</code> or "
+        html = (f"<h2>Variations ({len(V.catalogue())} loaded)</h2><p class='hint'>Use <code>t.set_variation(name, weight)</code> or "
                 "<code>t.variations[name] = weight</code>; parameters through <code>t.params[name]</code>. Click a name to insert it.</p>")
         for group, names in groups.items():
             html += f"<h3>{escape(group)} ({len(names)})</h3><table width='100%'><tr><th width='30%'>name</th><th width='50%'>parameters (defaults)</th><th width='20%'>kind</th></tr>"

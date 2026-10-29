@@ -427,9 +427,9 @@ class FractalDocument(QObject):
         self.transforms_changed.emit()
         return result
 
-    def add_xform(self) -> int | None:
-        """Append a new transform; returns its index."""
-        return self._restructure("add-xform", xform_ops.add_xform)
+    def add_xform(self, xform: XForm | None = None) -> int | None:
+        """Append a new transform (Apophysis's reference triangle, or a prepared one); returns its index."""
+        return self._restructure("add-xform", lambda f: xform_ops.add_xform(f, xform))
 
     def duplicate_xform(self, index: int) -> int | None:
         """Append a copy of transform `index`; returns the copy's index."""

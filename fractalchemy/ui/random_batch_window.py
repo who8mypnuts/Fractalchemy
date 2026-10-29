@@ -121,7 +121,7 @@ class RandomBatchWindow(QWidget):
         known = {self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())}
         self.list.blockSignals(True)
         self.list.clear()
-        for name in sorted(V.REGISTRY, key=str.lower):
+        for name in V.catalogue():
             var = V.REGISTRY[name]
             item = QListWidgetItem(name)
             item.setData(Qt.ItemDataRole.UserRole, name)

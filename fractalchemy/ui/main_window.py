@@ -2,8 +2,8 @@
 
 Menus (File / Edit / View / Windows / Help), a toolbar, and a status bar showing the
 loaded fractal, render facts, the progressive pass counter and a progress bar. The
-Transform Editor, the Gradient Library, the Animation window, the Script Editor and the Render Image
-window are separate tool windows opened from *Windows* or the toolbar.
+Transform Editor, the Gradient Library, the Animation window, the Script Editor, the Formula Editor and the
+Render Image window are separate tool windows opened from *Windows* or the toolbar.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import action_icon, animation_icon, editor_icon, gradient_icon, render_icon, script_icon
+from ..widgets.icons import action_icon, animation_icon, editor_icon, formula_icon, gradient_icon, render_icon, script_icon
 from .animation_window import AnimationWindow
 from .background import run_in_background
 from .editor_window import EditorWindow
@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
         self._formula_browser = None
         self._random_window = None
         self._script_editor = None
+        self._formula_editor = None
         self._batch: list[Flame] = []          # generated fractals shown in the library's temporary area
         self._batch_showing: int | None = None
         self.files = FractalFileActions(self.document, self)
@@ -161,6 +162,8 @@ class MainWindow(QMainWindow):
         self.actionRandomBatch.triggered.connect(self.show_random_batch_window)
         self.actionScriptEditor.setIcon(script_icon())
         self.actionScriptEditor.triggered.connect(lambda: self.show_script_editor())
+        self.actionFormulaEditor.setIcon(formula_icon())
+        self.actionFormulaEditor.triggered.connect(lambda: self.show_formula_editor())
         self.actionAboutQt.triggered.connect(lambda: QMessageBox.aboutQt(self, f"About Qt — {config.APP_NAME}"))
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
@@ -310,6 +313,32 @@ class MainWindow(QMainWindow):
         editor.bring_to_front()
         if tab:
             editor.show_tab(tab)
+
+    # --- formula editor -----------------------------------------------------
+    @property
+    def formula_editor(self):
+        """The Formula Editor window (created on first use; hidden rather than destroyed when closed)."""
+        if self._formula_editor is None:
+            from .formula_editor_window import FormulaEditorWindow
+            self._formula_editor = FormulaEditorWindow(self.render_service, self.gradient_library, self, self._settings)
+            self._formula_editor.session.formulas_changed.connect(self._on_formulas_changed)
+        return self._formula_editor
+
+    def show_formula_editor(self, name: str | None = None) -> None:
+        """Open (or raise) the Formula Editor, optionally loading formula `name` into it."""
+        editor = self.formula_editor
+        editor.bring_to_front()
+        if name:
+            editor.load_formula(name)
+
+    def _on_formulas_changed(self) -> None:
+        """A formula was saved or deleted in the Formula Editor: every list of formulas is stale."""
+        self.editor.variations_tab.populate()
+        self.editor.variables_tab.refresh()
+        if self._random_window is not None:
+            self._random_window.populate()
+        if self._formula_browser is not None:
+            self._formula_browser.populate()
 
     def show_random_batch(self, flames: list) -> None:
         """Put generated flames in the library's temporary area (under 'Randomly Generated') and show the first."""
@@ -505,6 +534,9 @@ class MainWindow(QMainWindow):
                 self._script_editor.stop()
             self._script_editor.save_state()
             self._script_editor.hide()
+        if self._formula_editor is not None:
+            self._formula_editor.save_state()
+            self._formula_editor.hide()
         self.gradient_library.close()
         self.render_window.hide()
         self.editor.close()

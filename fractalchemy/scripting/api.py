@@ -102,7 +102,7 @@ def _variation_name(name: str) -> str:
         raise ScriptError(f"variation name must be a string, not {type(name).__name__}")
     canonical = V.canonical_name(name)
     if canonical not in V.REGISTRY:
-        close = [n for n in V.REGISTRY if name.lower() in n.lower()][:6]
+        close = [n for n in V.catalogue() if name.lower() in n.lower()][:6]
         hint = f" Did you mean: {', '.join(close)}?" if close else " list_variations() shows every name."
         raise ScriptError(f"unknown variation '{name}'.{hint}")
     return canonical
@@ -1041,7 +1041,7 @@ class ScriptContext:
     def add_random_transform(self, variations: Iterable[str] | None = None) -> Transform:
         """Append a transform with one of Apophysis's random affines and random variations."""
         from ..fractal.random_flame import _random_xform   # the Random Batch recipe
-        names = [_variation_name(n) for n in variations] if variations else [n for n in V.REGISTRY if n != "pre_blur"]
+        names = [_variation_name(n) for n in variations] if variations else [n for n in V.catalogue() if n != "pre_blur"]
         n = len(self.flame.xforms) + 1
         xform = _random_xform(self.rng, n - 1, n, names)
         xform.weight = 1.0 / n
@@ -1161,7 +1161,7 @@ class ScriptContext:
 
     def random_flame(self, variations: Iterable[str] | None = None, transforms=DEFAULT_TRANSFORM_COUNT, seed: int | None = None) -> Flame:
         """Replace the flame with a random one, as the Random Batch window makes them."""
-        names = [_variation_name(n) for n in variations] if variations else [n for n in V.REGISTRY if n != "pre_blur"]
+        names = [_variation_name(n) for n in variations] if variations else [n for n in V.catalogue() if n != "pre_blur"]
         lo, hi = (transforms, transforms) if isinstance(transforms, int) else tuple(transforms)
         options = RandomOptions(names, int(lo), int(hi), self.flame.camera.width, self.flame.camera.height)
         rng = _random.Random(seed) if seed is not None else self.rng
@@ -1254,7 +1254,7 @@ class ScriptContext:
     @staticmethod
     def list_variations(filter: str = "") -> list[str]:
         """Names of every loaded formula (optionally only those containing `filter`)."""
-        return sorted(n for n in V.REGISTRY if filter.lower() in n.lower())
+        return [n for n in sorted(V.catalogue()) if filter.lower() in n.lower()]
 
     @staticmethod
     def variation_info(name: str) -> dict:

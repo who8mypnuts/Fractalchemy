@@ -1,4 +1,4 @@
-"""The painted glyphs of the Transform Editor and the Animation window: one small painter per name.
+"""The painted glyphs of the Transform Editor, the Animation window and the Formula Editor: one small painter per name.
 
 Every painter draws into a 16 × 16 design grid scaled by `u` (the size / 16), with the shared pen
 already set. `glyph_pixmap(name, size)` looks the painter up in `GLYPHS`, so adding a glyph is one
@@ -11,7 +11,7 @@ import math
 from typing import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 
 from .icons import GLYPH_ACCENT, GLYPH_COLOR, curved_arrow
 
@@ -288,6 +288,67 @@ def _anim_render(p: QPainter, u: float) -> None:
     _play_badge(p, u)
 
 
+# --- formula editor glyphs --------------------------------------------------------------------------------------
+def _formula_text(p: QPainter, u: float, text: str, rect: QRectF, color: QColor, size: float, italic: bool = True) -> None:
+    """Serif, italic lettering — the algebra look of the Formula Editor's glyphs."""
+    font = QFont("serif")
+    font.setItalic(italic)
+    font.setBold(True)
+    font.setPixelSize(max(6, int(size * u)))
+    p.setFont(font)
+    p.setPen(_pen(color, u))
+    p.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+
+
+def _formula_editor(p: QPainter, u: float) -> None:
+    """A sheet with a big italic ƒ and a small v (the variation) — the Formula Editor's window and toolbar glyph."""
+    p.setPen(_pen(QColor(60, 60, 60), 0.9 * u))
+    p.setBrush(PAPER)
+    p.drawRoundedRect(QRectF(2 * u, 1.5 * u, 12 * u, 13 * u), u, u)
+    _formula_text(p, u, "ƒ", QRectF(2.5 * u, 1.0 * u, 8 * u, 13 * u), GLYPH_ACCENT, 12.5)
+    _formula_text(p, u, "v", QRectF(8.5 * u, 7.5 * u, 5.5 * u, 6.5 * u), GLYPH_COLOR, 7)
+
+
+def _add_linear(p: QPainter, u: float) -> None:
+    """A triangle with a straight arrow: add a linear transform."""
+    _triangle(p, u, 3, 13, 8)
+    p.setPen(_pen(GREEN, 1.8 * u))
+    p.drawLine(*_pts(u, (8.5, 5.5), (14, 5.5)))
+    p.drawPolyline(_pts(u, (11.5, 3), (14, 5.5), (11.5, 8)))
+
+
+def _add_spherical(p: QPainter, u: float) -> None:
+    """A triangle with a small circle: add a spherical transform."""
+    _triangle(p, u, 3, 13, 8)
+    p.setPen(_pen(GREEN, 1.8 * u))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawEllipse(QPointF(11.5 * u, 5.5 * u), 2.8 * u, 2.8 * u)
+
+
+def _add_formula(p: QPainter, u: float) -> None:
+    """A triangle with a ƒ: add a transform running the formula being edited."""
+    _triangle(p, u, 3, 13, 8)
+    _formula_text(p, u, "ƒ", QRectF(8 * u, 0.5 * u, 7.5 * u, 10 * u), GLYPH_ACCENT, 10)
+
+
+def _use_formula(p: QPainter, u: float) -> None:
+    """A ƒ inside a filled triangle: put the formula on the selected transform."""
+    p.setPen(_pen(GLYPH_ACCENT, 1.5 * u))
+    p.setBrush(ACCENT_FILL)
+    _triangle(p, u, 2.5, 13.5, 11)
+    _formula_text(p, u, "ƒ", QRectF(2.5 * u, 5 * u, 7 * u, 9 * u), GLYPH_ACCENT, 8)
+
+
+def _new_formula(p: QPainter, u: float) -> None:
+    """A blank sheet with a green plus: a new formula from the template."""
+    p.setBrush(PAPER)
+    p.drawPolygon(_pts(u, (3, 2), (9.5, 2), (13, 5.5), (13, 14), (3, 14)))
+    p.drawPolyline(_pts(u, (9.5, 2), (9.5, 5.5), (13, 5.5)))
+    p.setPen(_pen(GREEN, 2.0 * u))
+    p.drawLine(*_pts(u, (8, 7.5), (8, 12.5)))
+    p.drawLine(*_pts(u, (5.5, 10), (10.5, 10)))
+
+
 GLYPHS: dict[str, Painter] = {
     "editor": _editor, "add-transform": _add_transform, "duplicate-transform": _duplicate_transform,
     "delete-transform": _delete_transform, "linked-transform": _linked_transform, "final-transform": _final_transform,
@@ -301,6 +362,8 @@ GLYPHS: dict[str, Painter] = {
     "anim-first": _transport(_skip_shape, flip=True), "anim-last": _transport(_skip_shape, flip=False),
     "anim-prev": _transport(_keyframe_shape, flip=True), "anim-next": _transport(_keyframe_shape, flip=False),
     "anim-render": _anim_render,
+    "formula-editor": _formula_editor, "add-linear": _add_linear, "add-spherical": _add_spherical, "add-formula": _add_formula,
+    "use-formula": _use_formula, "new-formula": _new_formula,
 }
 
 

@@ -434,7 +434,7 @@ def options(source) -> list[Option]:
         return [Option(name) for name in source]
     if source == VARIATIONS:
         out = []
-        for name in sorted(V.REGISTRY):
+        for name in V.catalogue():
             var = V.REGISTRY[name]
             bits = [var.kind] if var.kind != V.NORMAL else []
             if var.z == V.Z_FORMULA:
@@ -445,7 +445,7 @@ def options(source) -> list[Option]:
         return out
     if source == PARAMS:
         out = []
-        for name in sorted(V.REGISTRY):
+        for name in V.catalogue():
             for key, default in V.REGISTRY[name].params.items():
                 out.append(Option(key, f"{name}, default {default:g}"))
         return out

@@ -103,7 +103,7 @@ class FormulaBrowser(QWidget):
         """(Re)build the tree from the registry."""
         self.tree.clear()
         groups: dict[str, QTreeWidgetItem] = {}
-        for name in sorted(V.REGISTRY, key=str.lower):
+        for name in V.catalogue():
             var = V.REGISTRY[name]
             group = origin_group(var)
             if group not in groups:
@@ -118,7 +118,7 @@ class FormulaBrowser(QWidget):
                 QTreeWidgetItem(failed, [Path(source).name, "", message]).setToolTip(2, f"{source}\n{message}")
         for group in groups.values():
             group.setText(1, str(group.childCount()))
-        text = f"{len(V.REGISTRY)} formulas loaded"
+        text = f"{len(V.catalogue())} formulas loaded"
         if report is not None:
             text += f" in {report.seconds:.2f} s" + (f", {len(report.errors)} failed" if report.errors else "")
         self.summary.setText(text + f".  User formulas folder: {user_formula_dir()}")

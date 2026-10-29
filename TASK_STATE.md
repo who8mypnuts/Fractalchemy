@@ -291,3 +291,30 @@ black before.
 ## Previous task log
 The review-and-hardening history of the gradient editor / viewer (cycles 0–4, rename, viewer controls) is in git
 history (`git show 13a9126:TASK_STATE.md`).
+
+
+## Formula Editor (added after the review cycles)
+*Windows ▸ Formula Editor* (`F10`, toolbar: the *ƒv* sheet). Write a formula in the plugin dialect and see it work live.
+
+* `formulas/workbench.py` (Qt-free): the reserved registry slot `SCRATCH_NAME = "(formula editor)"` — not a C identifier,
+  so no real formula can clash and `variations.catalogue()` (new; every listing site uses it) leaves it out —
+  `compile_formula`, `register_scratch`, `source_of` (a `.c` file's text, or a dialect skeleton carrying a native
+  built-in's numpy + GLSL), `new_formula_text` (the boilerplate), `prepared_xform` (a `pre_` / `post_` formula gets
+  `linear` beside it at render time, so the document's flame is never touched), `error_line`.
+* `ui/formula_session.py`: `FormulaSession` — the text, name, file and origin of the formula being edited, the debounced
+  background compile (`run_in_background`, stale results dropped, last good variation kept in the slot while the text
+  is broken), `save()` (the user's folder, registered at once under the real name), `delete()` (file + `load_all(force)`),
+  drafts for QSettings.
+* `ui/formula_editor_window.py`: its own `FractalDocument` (undo / redo) + `EditorContext` + `TransformOperations`
+  (`FixedSteps`, new in `editor_operations`) + `TriangleView` with the variation preview on; `LivePreview` with a
+  `flame_provider`; `FormulaCodeEditor`; `FormulaListPanel` (search, *New formula*); `GradientBar` (click → the
+  gradient goes to the Gradient Library, which recolours the main fractal too; from then on its edits follow);
+  `FormulaVariablesTab` (the scratch slot shown under the formula's name). Actions / toolbars / menus / context menu
+  in `ui/formula_editor_actions.py`.
+* `widgets/base_code_editor.py`: the language-independent editor (line numbers, error mark, find / replace, line edits)
+  split out of `code_editor.py`; `CodeEditor` (Python) and `widgets/formula_code_editor.py` (C dialect highlighting from
+  `lang/builtins.py`) subclass it; `FindBar` moved to `widgets/find_bar.py`.
+* `LivePreview`: the last pass no longer releases the slot (the following `job_finished` does) — releasing twice let a
+  pending change start a render that was then marked as not in flight.
+* `FractalDocument.add_xform(xform=None)` / `xform_ops.add_xform(flame, xform=None)` take a prepared transform.
+* Tests: `tests/test_formula_editor.py` (9).

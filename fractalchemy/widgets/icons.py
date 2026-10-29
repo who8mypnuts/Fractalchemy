@@ -355,3 +355,8 @@ def editor_icon(name: str, use_theme: bool = False) -> QIcon:
 def animation_icon() -> QIcon:
     """A film strip — the Animation window / toolbar glyph."""
     return editor_icon("animation")
+
+
+def formula_icon() -> QIcon:
+    """A sheet with an italic ƒ and a small v — the Formula Editor window / toolbar glyph."""
+    return editor_icon("formula-editor")

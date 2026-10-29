@@ -16,6 +16,7 @@ fractalchemy/formulas/
     lang/           the compiler for the dialect (preprocess → parse → analyse → numpy + GLSL)
     loader.py       discovery, caching, user folders
     apophysis_depth.py   Apophysis's depth rule for its built-ins
+    workbench.py    the Formula Editor's helpers: the scratch registry slot, sources, the boilerplate
 tools/
     import_apo_plugins.py   bulk-imports plugin sources into the library (with verification)
     apo_decompile.py        reconstructs a formula from a plugin DLL (no source needed)
@@ -124,6 +125,12 @@ allow one such point in twelve.
 
 ## Adding formulas
 
+* **The Formula Editor** (*Windows ▸ Formula Editor*, `F10`) is the easy way: a code editor with the dialect
+  highlighted, compiled for both engines a moment after every change and shown live on a transform grid and
+  in a rendered preview; *New formula* gives a boilerplate, the list loads any bundled formula's source as a
+  starting point, and *Save* writes the `.c` file into the per-user folder and registers it at once. While
+  you type, the work in progress lives in a reserved registry slot (`workbench.SCRATCH_NAME`) that only the
+  editor's own flame refers to, so no real formula changes under the other windows until you save.
 * **Users**: drop `.c` (dialect) or `.py` (native) files into the per-user folder —
   `~/.config/Fractalchemy/formulas` on Linux, `~/Library/Application Support/Fractalchemy/formulas`
   on macOS, `%APPDATA%\Fractalchemy\formulas` on Windows — or into any folder listed in

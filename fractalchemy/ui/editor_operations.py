@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from dataclasses import dataclass
 from typing import Callable, Protocol
 
 from PySide6.QtCore import Qt
@@ -40,6 +41,30 @@ class StepSource(Protocol):
 
     def auto_weights_enabled(self) -> bool:
         """Whether weights follow the triangles' areas."""
+
+
+@dataclass
+class FixedSteps:
+    """A `StepSource` with constant amounts, for editors without a Triangle tab (the Formula Editor's canvas)."""
+    rotate: float = 15.0
+    move: float = 0.1
+    scale: float = 1.25
+
+    def rotate_degrees(self) -> float:
+        """The rotation step in degrees."""
+        return self.rotate
+
+    def move_amount(self) -> float:
+        """The move step in fractal units."""
+        return self.move
+
+    def scale_factor(self) -> float:
+        """The scale step as a factor (> 1)."""
+        return self.scale
+
+    def auto_weights_enabled(self) -> bool:
+        """Weights never follow the triangles' areas here."""
+        return False
 
 
 def modifier_factor(coarse: float, fine: float, modifiers=None) -> float:
@@ -270,5 +295,5 @@ class TransformOperations:
         return True
 
 
-__all__ = ["TransformOperations", "StepSource", "modifier_factor", "auto_zscale_value", "parse_triangle_text", "triangle_text",
+__all__ = ["TransformOperations", "StepSource", "FixedSteps", "modifier_factor", "auto_zscale_value", "parse_triangle_text", "triangle_text",
            "TRIANGLE_CLIPBOARD_PREFIX"]

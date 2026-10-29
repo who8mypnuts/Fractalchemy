@@ -39,11 +39,11 @@ def _tidy_chaos(flame: Flame) -> None:
             x.chaos = None if all(v == 1.0 for v in row) else row
 
 
-def add_xform(flame: Flame) -> int:
-    """Append a fresh transform; returns its index."""
+def add_xform(flame: Flame, xform: XForm | None = None) -> int:
+    """Append a fresh transform (or the given one); returns its index."""
     if len(flame.xforms) >= MAX_XFORMS:
         return len(flame.xforms) - 1
-    _insert(flame, new_xform())
+    _insert(flame, xform if xform is not None else new_xform())
     return len(flame.xforms) - 1
 
 

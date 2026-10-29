@@ -200,10 +200,10 @@ class LivePreview(QWidget):
         self._stats = stats
         self.rendered.emit(stats)
         self.update()
-        if stats.finished:
-            self._release()
 
     def _on_finished(self, key: object, _stats: RenderStats) -> None:
+        """The slot is free (the service always follows a job's last pass with this, so the last pass itself does not
+        release — releasing twice would let a pending change start a render and then mark it as not in flight)."""
         if key == self.key:
             self._release()
 

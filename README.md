@@ -24,12 +24,12 @@ python -m pytest
   Parameters `Ctrl+Shift+V`, Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
   Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
   *Windows* (Transform Editor `F4`, Gradient Library `F6`, Animation `F9`, Random Batch `F7`, Script Editor `F8`,
-  Render Image… `Ctrl+R`), *Help* (Formulas…, About).
+  Formula Editor `F10`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
 * Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
   **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
   (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Transform Editor** (`F4`),
-  **Gradient Library**, **Animation** (`F9`), **Random Batch** (`F7`), **Script Editor** (`F8`), **Render Image**
-  (`Ctrl+R`).
+  **Gradient Library**, **Animation** (`F9`), **Random Batch** (`F7`), **Script Editor** (`F8`), **Formula Editor**
+  (`F10`), **Render Image** (`Ctrl+R`).
   Nothing is ever written unless you save: edits only change the preview, the title shows `*`, and Save / Save As
   let you keep as many versions as you like.
 * **Open Fractal…** shows the file's first flame and lists *all* of the file's flames in a temporary section at the
@@ -121,8 +121,9 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
   reconstructed from their machine code. Each is defined once and compiled for *both* engines from the
   Apophysis plugin C dialect (or written natively in Python + GLSL), and the test-suite checks that numpy
   and GLSL agree on every one. Your own formulas go into the per-user formulas folder (*Help ▸ Formulas…*
-  shows it, together with everything loaded and why anything failed to load). Formulas a flame uses that
-  are not available are listed in the status bar and ignored.
+  shows it, together with everything loaded and why anything failed to load) — the **Formula Editor** (`F10`)
+  writes them there and shows them working while you type. Formulas a flame uses that are not available are
+  listed in the status bar and ignored.
 * Tunables in `config.py`: `PREVIEW_PASSES` / `PREVIEW_QUALITY` (defaults for the settings panel),
   `INTERACTIVE_SCALE`, thumbnail size / quality.
 
@@ -282,6 +283,47 @@ window layout are remembered between runs. See [docs/scripting.md](docs/scriptin
   `save_flame()`, `flame_xml()`, `snapshot()` / `restore()`; random helpers; and Apophysis-style aliases
   (`Transform`, `AddTransform`, `Rotate`, `Scale`, `Translate`, `Multiply`, `RotateFlame`, `UpdateFlame`, `Print`, …).
 
+### Formula Editor window
+*Windows ▸ Formula Editor* (`F10`, the *ƒv* sheet on the toolbar) is where formulas (variations / plugins) are written
+and tried out **live**: the code compiles by itself a moment after every change, for both engines, and the result is
+drawn on a transform grid and rendered in a preview while you type. Closing the window hides it; what you were
+writing is remembered between runs. The window starts empty.
+
+* **The grid** (top left) is a small Transform Editor canvas with its own little flame: one *formula* transform on
+  the reference triangle, running the formula being edited, with the **variation preview** on by default — so the
+  formula's effect is drawn as a grid of points sent through the transform. Its toolbar: **Undo / Redo** (this
+  flame's own history), **add a linear transform**, **add a spherical transform**, **add a formula transform**
+  (another one running the formula), **Duplicate**, **Delete** the active transform, flip, the variation preview,
+  fit, and a **Transform** dropdown that selects the active transform. Triangles drag as in the Transform Editor
+  (corners move, edges rotate / scale, arrows nudge, `V` toggles the preview). The right-click menu on a triangle
+  adds **Use the formula on this transform** / **Make it linear** / **Make it spherical**, rotate 90°, flip
+  horizontally / vertically and reset; *Transform ▸ Start over* goes back to the single formula transform.
+* **Preview** (top right): the flame rendered through the shared render service — the GPU when there is one —
+  following every change (right-click for the quality). Beneath it, **Gradient**: a bar showing the preview's
+  gradient, a bright three-colour one to begin with. Clicking it opens the **Gradient Library** with that gradient
+  loaded, so the main window's fractal takes it too; from then on every gradient edit or choice made there
+  recolours this preview as well — one gradient everywhere, for ease. **Variables** lists the active transform's
+  parameters (the formula's own, under its name) for trying values; edits are undoable.
+* **Formulas**: every loaded formula — built-ins, the bundled library and your own (in bold) — with tags
+  (`pre` / `post` / `3D` / `DC` / `random`) and where it came from, and a search box. Clicking one loads its code
+  (a bundled `.c` source, or for a native Python built-in a dialect skeleton carrying its numpy and GLSL as a
+  reference) and puts the real formula in the previews until the text is changed. **New formula** (also the
+  *New* button, `Ctrl+N`) loads a boilerplate: a complete formula with one variable, `PluginVarPrepare` and a
+  `PluginVarCalc` that does a swirl, named so it clashes with nothing — rename it in `APO_PLUGIN("…")`, type
+  the maths, done.
+* **The code editor**: C syntax highlighting that knows the dialect (the plugin API, `FTx` / `FPy` / `VVAR` / `TC`,
+  the math functions and constants, both comment styles), line numbers, brace-aware indentation, find / replace
+  (`Ctrl+F` / `Ctrl+H`), go to line (`Ctrl+G`), `Ctrl+/` comments, `Ctrl+D` duplicates, `Alt+↑/↓` moves lines,
+  its own undo / redo. The line beneath it says what the code compiled to (`✓ name — normal; 2 variables`) or
+  what is wrong and on which line (the line is marked too); while the code is broken the previews keep showing
+  the last version that compiled. *Compile now* (`Ctrl+Enter`) does not wait for the pause.
+* **Files**: **Save** (`Ctrl+S`) writes `name.c` into your formulas folder (the one *Help ▸ Formulas…* shows) and
+  registers the formula at once, so the Transform Editor's Variations list, the Random Batch and the formula
+  browser have it without a restart; saving under a bundled formula's name asks first, because your file will
+  shadow it. **Save as…** picks the file, **Open…** loads a `.c` from anywhere, **Delete** removes a file of
+  yours (the code stays in the editor in case it was a slip). Nothing is registered under its real name until
+  you save: while you type, the work in progress lives in a reserved registry slot that only this window uses.
+
 ### Render Image window (the final renderer)
 *Windows ▸ Render Image…* (`Ctrl+R`) or the toolbar button opens a non-modal tool window; a render runs on its
 own thread with a snapshot of the flame, so you can open and edit another fractal while it works. Closing the
@@ -415,7 +457,8 @@ fractalchemy/
                         with consistent xaos)
   formulas/             the formulas: builtin/ (native Python), library/ (the plugin dialect, one file each:
                         apophysis7x / plugins / ports / reconstructed), lang/ (the compiler), loader (user folders,
-                        cache), apophysis_depth (the built-ins' depth rule)
+                        cache), apophysis_depth (the built-ins' depth rule), workbench (the Formula Editor's scratch
+                        slot, sources, boilerplate)
   render/               RenderSettings / RenderStats, CompiledFlame, tone map (numpy + GLSL), cpu_engine, codegen +
                         gpu_engine (moderngl), RenderService (worker thread, priorities, cancellation);
                         the final renderer: final_settings (options, tile plan) + memory (RAM / budgets), filters
@@ -432,7 +475,9 @@ fractalchemy/
   widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons (+ glyphs),
                         TriangleView (the editor canvas), ValueTable (name / value lists with drag editing),
                         PaletteSlider, Timeline (the animation timeline), actions / layouts / silent helpers,
-                        CodeEditor (the script editor widget: highlighting, completion popup, line numbers)
+                        BaseCodeEditor (line numbers, find / replace, line edits) → CodeEditor (the script editor:
+                        Python highlighting, completion popup) and FormulaCodeEditor (C dialect highlighting),
+                        FindBar, GradientBar (the Formula Editor's clickable gradient swatch)
   scripting/            the scripting engine (Qt-free): api (the objects and functions scripts see), runner (stoppable
                         execution with line-numbered errors), docs (the reference database behind completion and the
                         help tabs), completion (type-aware completion / context help), generate (Flame → Script),
@@ -448,7 +493,9 @@ fractalchemy/
                         FileActionsBase + the fractal / gradient file actions, GradientDocument,
                         GradientLibraryWindow, RenderWindow (+ render_size_panel, render_quality_panel,
                         render_output_panel, render_progress), ScriptEditorWindow (+ script_drawer: the Context /
-                        Reference / Info / Templates tabs, script_runner: the worker thread)
+                        Reference / Info / Templates tabs, script_runner: the worker thread),
+                        FormulaEditorWindow (+ formula_session: the formula being edited and its background
+                        compiles, formula_editor_actions, formula_list_panel)
 tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
                         scripting_reference.py (docs/scripting.md from the scripting documentation database)
 tests/                  pytest suite

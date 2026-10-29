@@ -246,6 +246,17 @@ class _Registry(dict):
 
 REGISTRY: dict[str, Variation] = _Registry()
 ALIASES: dict[str, str] = {}   # e.g. "linear3D" -> "linear"
+PRIVATE_PREFIX = "("   # registry slots that are not formulas of the catalogue (the Formula Editor's work in progress)
+
+
+def is_private(name: str) -> bool:
+    """True for a registry slot tools use for work in progress — never a formula a user should pick or save."""
+    return name.startswith(PRIVATE_PREFIX)
+
+
+def catalogue() -> list[str]:
+    """Every formula's name, case-insensitively sorted, private slots left out — what the lists and pickers show."""
+    return sorted((name for name in REGISTRY if not is_private(name)), key=str.lower)
 
 
 def register(var: Variation, aliases: tuple[str, ...] = (), replace: bool = True) -> Variation:

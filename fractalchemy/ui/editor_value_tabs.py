@@ -55,7 +55,7 @@ def param_rows(xform: XForm, show_all: bool) -> list[ValueRow]:
     """The Variables tab's rows: parameters of the transform's variations (or of every formula), used ones first."""
     names = list(xform.variations)
     if show_all:
-        names += [n for n in sorted(V.REGISTRY, key=str.lower) if n not in xform.variations]
+        names += [n for n in V.catalogue() if n not in xform.variations]
     rows: list[ValueRow] = []
     seen: set[str] = set()
     for name in names:
@@ -160,7 +160,7 @@ class VariationsTab(TableTab):
 
     def populate(self) -> None:
         """(Re)build the list from the registry — call after formulas were (re)loaded."""
-        self._names = sorted(V.REGISTRY, key=str.lower)
+        self._names = V.catalogue()
         self.refresh()
 
     def rows(self) -> list[ValueRow]:
