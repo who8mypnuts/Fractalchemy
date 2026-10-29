@@ -657,3 +657,7 @@ def test_logo_paints_at_every_size(qapp):
         painted = sum(1 for x in range(0, size, max(1, size // 16)) for y in range(0, size, max(1, size // 16)) if image.pixelColor(x, y).alpha() > 0)
         assert painted > 0
     assert not logo_icon().isNull() and wordmark_pixmap(64).width() > 64
+    from fractalchemy.widgets.logo import VARIANTS
+    for variant in VARIANTS:
+        assert not logo_pixmap(128, variant=variant).toImage().allGray() or variant == "mono"
+        assert wordmark_pixmap(48, variant=variant).width() > 48

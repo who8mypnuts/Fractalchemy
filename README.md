@@ -510,7 +510,7 @@ fractalchemy/
                         completer) → CodeEditor (the script editor: Python highlighting and completer) and
                         FormulaCodeEditor (C dialect highlighting and completer), CompletionPopup, FindBar,
                         GradientBar (the Formula Editor's clickable gradient swatch), CollapsibleSection, logo (the
-                        proposed mark, see docs/logo.md)
+                        application's mark — docs/logo.md, renders in logo/)
   scripting/            the scripting engine (Qt-free): api (the objects and functions scripts see), runner (stoppable
                         execution with line-numbered errors), docs (the reference database behind completion and the
                         help tabs), completion (type-aware completion / context help), generate (Flame → Script),
@@ -532,7 +532,7 @@ fractalchemy/
                         options / variable tools / presets, formula_drawer: reference / compiler output / probe,
                         formula_origins: the origin classification and row colours shared by every formula list)
 tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
-                        import_jwf_variations.py + jwf_translate.py (JWildfire *Func.java → formulas),
+                        import_jwf_variations.py + jwf_translate.py (JWildfire *Func.java → formulas), render_logo.py,
                         scripting_reference.py (docs/scripting.md from the scripting documentation database)
 tests/                  pytest suite
 samples/                sample flames / gradients / images used by the tests, plus

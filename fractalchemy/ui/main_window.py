@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QTimer
+from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QGuiApplication
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QToolButton
 
@@ -26,6 +26,7 @@ from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
 from ..widgets.icons import action_icon, animation_icon, editor_icon, formula_icon, gradient_icon, render_icon, script_icon
+from ..widgets.logo import logo_icon, wordmark_pixmap
 from .animation_window import AnimationWindow
 from .background import run_in_background
 from .editor_window import EditorWindow
@@ -76,7 +77,7 @@ class MainWindow(QMainWindow):
         """
         super().__init__()
         load_ui(self, UI_FILE, CUSTOM_WIDGETS)
-        self.setWindowIcon(gradient_icon())
+        self.setWindowIcon(logo_icon())
         self.render_service = RenderService(self, prefer_gpu=prefer_gpu)
         self.document = FractalDocument(self)
         self.status = RenderStatus(self.statusBar())
@@ -470,7 +471,13 @@ class MainWindow(QMainWindow):
         return stats.engine, stats.samples_per_second
 
     def about(self) -> None:
-        QMessageBox.about(self, f"About {config.APP_NAME}", ABOUT_TEXT)
+        box = QMessageBox(self)
+        box.setWindowTitle(f"About {config.APP_NAME}")
+        box.setIconPixmap(wordmark_pixmap(72))
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(ABOUT_TEXT)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.exec()
 
     def show_formulas(self, name: str = "") -> None:
         """Open (or raise) the formula browser, on formula `name` if given."""

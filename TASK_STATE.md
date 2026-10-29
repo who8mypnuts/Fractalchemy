@@ -351,3 +351,10 @@ history (`git show 13a9126:TASK_STATE.md`).
 * `widgets/logo.py` + `docs/logo.md` + `docs/logo/*.png`: the proposed mark (flask + golden-ratio spiral in flame colours);
   not wired as the window icon yet.
 * Tests: `tests/test_jwf_import.py` (3), formula-editor tests extended.
+
+### Round 4: the logo in the program; the 3D Editor plan
+* `widgets/logo.py` gained `VARIANTS` (main / mono / squares / round / triangles); `main.py` sets `logo_icon()` on the application,
+  `MainWindow` on itself, the About box shows `wordmark_pixmap()`. `tools/render_logo.py` renders everything at 1024 px into
+  `logo/` (transparent / on white / on dark, wordmarks, contact sheet). `docs/logo.md` updated.
+* `docs/3d-editor-plan.md`: the design of the 3D Editor (solid rendering, meshing + exports, Xenodream-style instancing, lights /
+  HDRI), grounded in JWildfire's solidrender / meshgen code; phased delivery and open questions. No code yet.
