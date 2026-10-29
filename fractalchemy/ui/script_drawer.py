@@ -117,7 +117,7 @@ def options_list(options: list[D.Option], source_name: str) -> str:
 
 
 def guide_html(markdown: str) -> str:
-    """The guide's small markdown subset (headings, paragraphs, bullets, fenced code, `code`, **bold**, *italic*) as HTML."""
+    """A small markdown subset (headings to ###, paragraphs, bullets, fenced code, `code`, **bold**, *italic*) as HTML."""
     import re
     out, para, in_code, in_list = [], [], False, False
 
@@ -163,6 +163,9 @@ def guide_html(markdown: str) -> str:
         elif line.startswith("## "):
             flush()
             out.append(f"<h2>{inline(line[3:])}</h2>")
+        elif line.startswith("### "):
+            flush()
+            out.append(f"<h3>{inline(line[4:])}</h3>")
         elif line.strip():
             para.append(inline(line))
         else:

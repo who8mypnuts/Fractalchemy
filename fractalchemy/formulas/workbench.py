@@ -6,10 +6,12 @@ formula by that name, so both render engines pick the work in progress up throug
 registry path (`CompiledXForm.build`) without any special casing. Only *Save* registers the formula
 under its real name (and writes the file that will be loaded at the next start-up).
 
-    var = compile_scratch(text)            # FormulaError on a problem
+    var = compile_formula(text).variation  # FormulaError on a problem
     register_scratch(var)                  # now a transform with {SCRATCH_NAME: 1.0} runs it
     source_of(REGISTRY["whorl"])           # the .c text (or a dialect skeleton for a native built-in)
-    new_formula_text("my_formula")         # the boilerplate
+    bundled_origin("whorl")                # the policy: names of bundled / built-in formulas cannot be saved over
+
+Templates, snippets, the rename refactor and the test rigs are in `authoring.py`.
 """
 
 from __future__ import annotations
@@ -27,57 +29,14 @@ from .loader import user_formula_dir
 
 SCRATCH_NAME = f"{V.PRIVATE_PREFIX}formula editor)"   # the registry slot of the formula being edited: not a C identifier, so no
                                                        # real formula can have the name, and the catalogue lists leave it out
+ORIGINAL_NAME = f"{V.PRIVATE_PREFIX}formula editor original)"   # the formula the edit started from, for *Compare with original*
 DEFAULT_NEW_NAME = "new_formula"
+PACKAGE_DIR = Path(__file__).resolve().parents[1]     # everything under here is bundled: read-only for the editor
 NATIVE_STUB_NOTE = "a native built-in: port the maths into PluginVarCalc to make it a formula of your own"
 _PLUGIN_NAME = re.compile(r'APO_PLUGIN\s*\(\s*"([^"]*)"\s*\)')
 _LINE_IN_MESSAGE = re.compile(r"\bline (\d+)\b")
 _OFFSET_IN_MESSAGE = re.compile(r"\boffset (\d+)\b")
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_]+")
-
-NEW_FORMULA_TEMPLATE = '''\
-/*
-    {name} — a Fractalchemy formula (Apophysis plugin dialect).
-
-    FTx / FTy / FTz   the incoming point (after the transform's affine)
-    FPx / FPy / FPz   the result: add your contribution to it
-    VVAR              the formula's weight on the transform
-    VAR(name)         one of the variables declared below
-    TC                the point colour (0..1); writing it makes a direct-colour formula
-
-    A name starting with pre_ rewrites FTx / FTy before the other variations,
-    post_ rewrites FPx / FPy after them. See docs/formulas.md for the whole dialect.
-*/
-
-typedef struct {{
-    double {name}_amount;
-}} Variables;
-
-#include "apoplugin.h"
-
-APO_PLUGIN("{name}");
-
-APO_VARIABLES(
-    VAR_REAL({name}_amount, 1.0)
-);
-
-// Once per transform: derive constants from the variables (optional).
-int PluginVarPrepare(Variation* vp)
-{{
-    return TRUE;
-}}
-
-// Once per point.
-int PluginVarCalc(Variation* vp)
-{{
-    double r2 = FTx * FTx + FTy * FTy;
-    double s, c;
-    fsincos(r2 * VAR({name}_amount), &s, &c);
-
-    FPx += VVAR * (FTx * c - FTy * s);
-    FPy += VVAR * (FTx * s + FTy * c);
-    return TRUE;
-}}
-'''
 
 NATIVE_SKELETON = '''\
 /*
@@ -134,17 +93,34 @@ def is_user_file(path: Path | None) -> bool:
         return False
 
 
+def is_bundled_path(path: Path | None) -> bool:
+    """True when `path` lies inside the Fractalchemy package (the bundled library, the built-ins): never a save target."""
+    if path is None:
+        return False
+    try:
+        return path.resolve().is_relative_to(PACKAGE_DIR)
+    except (OSError, ValueError):
+        return False
+
+
+def bundled_origin(name: str) -> str | None:
+    """The policy check of *Save*: the origin of the bundled / built-in formula called `name`, or None when the name is
+    free (unknown, private, or a formula of the user's own — those may be overwritten)."""
+    var = dict.get(V.REGISTRY, name) if name else None
+    if var is None or V.is_private(var.name):
+        return None
+    path = origin_path(var)
+    if path is not None and not is_bundled_path(path):
+        return None                      # a user file (their own folder or anywhere outside the package)
+    return var.origin or "a native built-in"
+
+
 def origin_path(var: V.Variation) -> Path | None:
     """The source file of a formula-style variation (None for native ones or when the file is gone)."""
     if var.style != V.FORMULA or not var.origin:
         return None
     path = Path(var.origin)
     return path if path.is_file() else None
-
-
-def new_formula_text(name: str = DEFAULT_NEW_NAME) -> str:
-    """The boilerplate of a new formula, named `name` (a valid C identifier is made of it)."""
-    return NEW_FORMULA_TEMPLATE.format(name=safe_file_name(name))
 
 
 def source_of(var: V.Variation) -> str:
@@ -206,6 +182,19 @@ def scratch_variation() -> V.Variation | None:
     return dict.get(V.REGISTRY, SCRATCH_NAME)
 
 
+def register_original(var: V.Variation | None) -> None:
+    """Keep the formula an edit started from in the *original* slot (None empties it), for side-by-side comparison."""
+    if var is None:
+        dict.pop(V.REGISTRY, ORIGINAL_NAME, None)
+    else:
+        V.register(replace(var, name=ORIGINAL_NAME))
+
+
+def original_variation() -> V.Variation | None:
+    """What the original slot holds (None when nothing is registered)."""
+    return dict.get(V.REGISTRY, ORIGINAL_NAME)
+
+
 def error_line(message: str, text: str = "") -> int | None:
     """The 1-based line a compiler message points at (`line N` or `offset N`), or None."""
     match = _LINE_IN_MESSAGE.search(message)
@@ -234,25 +223,29 @@ def uses_scratch(xform: XForm) -> bool:
     return SCRATCH_NAME in xform.variations
 
 
-def prepared_xform(xform: XForm, var: V.Variation | None = None) -> XForm:
+def prepared_xform(xform: XForm, var: V.Variation | None = None, slot: str = SCRATCH_NAME) -> XForm:
     """A copy of `xform` ready to render: a `pre_` / `post_` formula gets `linear` beside it (alone it would
-    leave the accumulator at zero, as in Apophysis), anything else is left as it is."""
-    var = var if var is not None else scratch_variation()
+    leave the accumulator at zero, as in Apophysis), anything else is left as it is. With another `slot` the
+    formula transforms run that registry slot instead (the *original* one, for comparison)."""
+    var = var if var is not None else dict.get(V.REGISTRY, slot)
     copy = xform.copy()
-    if uses_scratch(copy) and var is not None and var.kind in (V.PRE, V.POST) and not any(
-            n != SCRATCH_NAME for n in copy.variations):
-        copy.variations["linear"] = 1.0
+    if uses_scratch(copy):
+        if slot != SCRATCH_NAME:
+            copy.variations = {(slot if n == SCRATCH_NAME else n): w for n, w in copy.variations.items()}
+        if var is not None and var.kind in (V.PRE, V.POST) and not any(n != slot for n in copy.variations):
+            copy.variations["linear"] = 1.0
     return copy
 
 
-def prepared_flame(flame: Flame, var: V.Variation | None = None) -> Flame:
+def prepared_flame(flame: Flame, var: V.Variation | None = None, slot: str = SCRATCH_NAME) -> Flame:
     """A copy of the editor's flame with every transform prepared (see `prepared_xform`)."""
     copy = flame.copy()
-    copy.xforms = [prepared_xform(x, var) for x in copy.xforms]
+    copy.xforms = [prepared_xform(x, var, slot) for x in copy.xforms]
     return copy
 
 
-__all__ = ["SCRATCH_NAME", "DEFAULT_NEW_NAME", "NEW_FORMULA_TEMPLATE", "FormulaError", "CompiledFormula", "formula_name",
-           "safe_file_name", "user_formula_path", "is_user_file", "origin_path", "new_formula_text", "source_of",
+__all__ = ["SCRATCH_NAME", "ORIGINAL_NAME", "DEFAULT_NEW_NAME", "PACKAGE_DIR", "FormulaError", "CompiledFormula", "formula_name",
+           "safe_file_name", "user_formula_path", "is_user_file", "is_bundled_path", "bundled_origin", "origin_path", "source_of",
            "native_skeleton", "compile_formula", "as_scratch", "register_scratch", "unregister_scratch", "scratch_variation",
-           "error_line", "error_text", "formula_xform", "uses_scratch", "prepared_xform", "prepared_flame"]
+           "register_original", "original_variation", "error_line", "error_text", "formula_xform", "uses_scratch", "prepared_xform",
+           "prepared_flame"]

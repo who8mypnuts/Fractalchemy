@@ -148,6 +148,7 @@ class TriangleView(QWidget):
         self._mouse: Point | None = None
         self._has_focus_frame = False
         self._preview_points: np.ndarray | None = None     # (N, 2) editor-space points
+        self._input_points: np.ndarray | None = None       # the grid they came from, drawn faintly (optional)
         self._preview_color = QColor(255, 255, 255)
 
     # --- data ---------------------------------------------------------------------------------------------
@@ -191,9 +192,11 @@ class TriangleView(QWidget):
         """True while a mouse drag is in progress."""
         return self._drag is not None
 
-    def set_variation_preview(self, points: np.ndarray | None, color: QColor | None = None) -> None:
-        """Show `points` (editor space, shape (N, 2)) as dots in `color`; None hides the preview."""
+    def set_variation_preview(self, points: np.ndarray | None, color: QColor | None = None, inputs: np.ndarray | None = None) -> None:
+        """Show `points` (editor space, shape (N, 2)) as dots in `color`; None hides the preview. `inputs` — the grid the
+        points came from — is drawn faintly beneath them when given."""
         self._preview_points = None if points is None or len(points) == 0 else np.asarray(points, dtype=np.float64)
+        self._input_points = None if inputs is None or len(inputs) == 0 else np.asarray(inputs, dtype=np.float64)
         if color is not None:
             self._preview_color = QColor(color)
         self.update()
@@ -591,19 +594,20 @@ class TriangleView(QWidget):
         painter.drawLine(QPointF(0, origin.y()), QPointF(w, origin.y()))
 
     def _paint_variation_preview(self, painter: QPainter) -> None:
-        """The preview dots, plotted through numpy into an image (tens of thousands of points stay cheap)."""
-        pts = self._preview_points
+        """The preview dots (and the faint input grid), plotted through numpy into an image (tens of thousands of
+        points stay cheap)."""
         w, h = self.width(), self.height()
-        if pts is None or w <= 0 or h <= 0:
-            return
-        px = np.floor(w / 2 + (pts[:, 0] - self._center[0]) * self._ppu).astype(np.int64)
-        py = np.floor(h / 2 - (pts[:, 1] - self._center[1]) * self._ppu).astype(np.int64)
-        inside = (px >= 0) & (px < w) & (py >= 0) & (py < h)
-        if not inside.any():
+        if w <= 0 or h <= 0 or (self._preview_points is None and self._input_points is None):
             return
         image = np.zeros((h, w, 4), dtype=np.uint8)
         c = self._preview_color
-        image[py[inside], px[inside]] = (c.red(), c.green(), c.blue(), 210)
+        for pts, rgba in ((self._input_points, (150, 150, 150, 70)), (self._preview_points, (c.red(), c.green(), c.blue(), 210))):
+            if pts is None:
+                continue
+            px = np.floor(w / 2 + (pts[:, 0] - self._center[0]) * self._ppu).astype(np.int64)
+            py = np.floor(h / 2 - (pts[:, 1] - self._center[1]) * self._ppu).astype(np.int64)
+            inside = (px >= 0) & (px < w) & (py >= 0) & (py < h)
+            image[py[inside], px[inside]] = rgba
         painter.drawImage(0, 0, QImage(image.data, w, h, w * 4, QImage.Format.Format_RGBA8888))
 
     def _points(self, triangle: Triangle) -> list[QPointF]:

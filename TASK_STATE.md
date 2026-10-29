@@ -318,3 +318,22 @@ history (`git show 13a9126:TASK_STATE.md`).
   pending change start a render that was then marked as not in flight.
 * `FractalDocument.add_xform(xform=None)` / `xform_ops.add_xform(flame, xform=None)` take a prepared transform.
 * Tests: `tests/test_formula_editor.py` (9).
+
+### Formula Editor, round 2 (read-only policy + conveniences; JWildfire survey)
+* **Policy**: `workbench.bundled_origin()` / `is_bundled_path()`; `FormulaSession.save()` raises `FormulaNameTaken` for a
+  bundled / built-in name or a target inside the package; `own_file` never points into the package; the window offers
+  `name_mine` (rename of `APO_PLUGIN` + variable prefixes, `authoring.rename_formula`) on Save, *Duplicate as my own*,
+  *Rename…*, *Revert to saved*. Save compiles synchronously when the build is stale so the registry matches the file.
+* **authoring.py**: six templates, snippets, `add_variable` (struct + `APO_VARIABLES`), `derived_name`, test rigs, gradient
+  presets / random. **completion.py**: dialect catalogue + `complete()` (Tab / Ctrl+Space / auto). **verify.py**: the
+  numpy-vs-GLSL harness moved out of `tests/test_variations.py` (+ `probe`); the Probe tab runs it on a standalone GL
+  context on the thread pool.
+* **Widgets**: `BaseCodeEditor` now owns the completion machinery (pluggable `completer`, `auto_complete_trigger`);
+  `CompletionPopup` in its own module; `TriangleView.set_variation_preview(…, inputs=)` draws the input grid faintly.
+* **Panels**: `formula_editor_panels.py` (PreviewOptions sliders, VariableTools reset / randomise / sweep, VariableDialog,
+  GradientPresetsButton), `formula_drawer.py` (Reference: guide / names / this formula; Compiler output; Probe + check),
+  `formula_list_panel.py` (origin / kind filters, favourites, authors from headers). Window: compare preview (original
+  slot `ORIGINAL_NAME`), test rigs, use current fractal / send to main, recent list, user-folder watcher, side panel and
+  drawer toggles, quality menu, view / selection persistence, GPU-fallback note.
+* `proposed_variations.md`: the JWildfire survey (1 010 variations scanned, 634 missing, grouped with portability notes).
+* Tests: `tests/test_formula_editor.py` (16).

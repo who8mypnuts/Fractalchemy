@@ -349,6 +349,23 @@ def _new_formula(p: QPainter, u: float) -> None:
     p.drawLine(*_pts(u, (5.5, 10), (10.5, 10)))
 
 
+def _add_variable(p: QPainter, u: float) -> None:
+    """An italic x with a green plus: declare a variable."""
+    _formula_text(p, u, "x", QRectF(1.5 * u, 2 * u, 8 * u, 12 * u), GLYPH_COLOR, 11)
+    p.setPen(_pen(GREEN, 2.0 * u))
+    p.drawLine(*_pts(u, (12, 2.5), (12, 8.5)))
+    p.drawLine(*_pts(u, (9, 5.5), (15, 5.5)))
+
+
+def _compare(p: QPainter, u: float) -> None:
+    """Two framed panes side by side, the right one in the accent colour: compare with the original."""
+    p.setBrush(PAPER)
+    p.drawRect(QRectF(1.5 * u, 3.5 * u, 6 * u, 9 * u))
+    p.setPen(_pen(GLYPH_ACCENT, 1.5 * u))
+    p.setBrush(ACCENT_FILL)
+    p.drawRect(QRectF(8.5 * u, 3.5 * u, 6 * u, 9 * u))
+
+
 GLYPHS: dict[str, Painter] = {
     "editor": _editor, "add-transform": _add_transform, "duplicate-transform": _duplicate_transform,
     "delete-transform": _delete_transform, "linked-transform": _linked_transform, "final-transform": _final_transform,
@@ -363,7 +380,7 @@ GLYPHS: dict[str, Painter] = {
     "anim-prev": _transport(_keyframe_shape, flip=True), "anim-next": _transport(_keyframe_shape, flip=False),
     "anim-render": _anim_render,
     "formula-editor": _formula_editor, "add-linear": _add_linear, "add-spherical": _add_spherical, "add-formula": _add_formula,
-    "use-formula": _use_formula, "new-formula": _new_formula,
+    "use-formula": _use_formula, "new-formula": _new_formula, "add-variable": _add_variable, "compare": _compare,
 }
 
 

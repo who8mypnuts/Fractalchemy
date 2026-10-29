@@ -320,8 +320,10 @@ class MainWindow(QMainWindow):
         """The Formula Editor window (created on first use; hidden rather than destroyed when closed)."""
         if self._formula_editor is None:
             from .formula_editor_window import FormulaEditorWindow
-            self._formula_editor = FormulaEditorWindow(self.render_service, self.gradient_library, self, self._settings)
+            self._formula_editor = FormulaEditorWindow(self.render_service, self.gradient_library, self, self._settings,
+                                                       flame_source=lambda: self.document.flame)
             self._formula_editor.session.formulas_changed.connect(self._on_formulas_changed)
+            self._formula_editor.flame_sent.connect(self.show_flame)
         return self._formula_editor
 
     def show_formula_editor(self, name: str | None = None) -> None:

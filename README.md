@@ -287,42 +287,66 @@ window layout are remembered between runs. See [docs/scripting.md](docs/scriptin
 *Windows ▸ Formula Editor* (`F10`, the *ƒv* sheet on the toolbar) is where formulas (variations / plugins) are written
 and tried out **live**: the code compiles by itself a moment after every change, for both engines, and the result is
 drawn on a transform grid and rendered in a preview while you type. Closing the window hides it; what you were
-writing is remembered between runs. The window starts empty.
+writing, the favourites, the recent list and the layout are remembered between runs. The window starts empty.
 
 * **The grid** (top left) is a small Transform Editor canvas with its own little flame: one *formula* transform on
   the reference triangle, running the formula being edited, with the **variation preview** on by default — so the
-  formula's effect is drawn as a grid of points sent through the transform. Its toolbar: **Undo / Redo** (this
+  formula's effect is drawn as a grid of points sent through the transform (its range / depth / density are sliders
+  in the side column; *Show the input grid* draws where the points started). Its toolbar: **Undo / Redo** (this
   flame's own history), **add a linear transform**, **add a spherical transform**, **add a formula transform**
   (another one running the formula), **Duplicate**, **Delete** the active transform, flip, the variation preview,
-  fit, and a **Transform** dropdown that selects the active transform. Triangles drag as in the Transform Editor
-  (corners move, edges rotate / scale, arrows nudge, `V` toggles the preview). The right-click menu on a triangle
-  adds **Use the formula on this transform** / **Make it linear** / **Make it spherical**, rotate 90°, flip
-  horizontally / vertically and reset; *Transform ▸ Start over* goes back to the single formula transform.
+  **Compare** (see below), fit, **Test rig ▾** (starter flames: the formula alone, with a linear, two formulas, a
+  Julia pair, a Sierpinski set) and a **Transform** dropdown that selects the active transform. Triangles drag as in
+  the Transform Editor (corners move, edges rotate / scale, arrows nudge, `V` toggles the preview). The right-click
+  menu on a triangle adds **Use the formula on this transform** / **Make it linear** / **Make it spherical**, rotate
+  90°, flip horizontally / vertically and reset. *Transform ▸ Use the main window's fractal* copies the fractal
+  shown in the main window onto the grid to try the formula on; *Send to the main window* pushes the grid's flame
+  out as a new fractal (a saved formula's transforms go with it; an unsaved one's become linear).
 * **Preview** (top right): the flame rendered through the shared render service — the GPU when there is one —
-  following every change (right-click for the quality). Beneath it, **Gradient**: a bar showing the preview's
-  gradient, a bright three-colour one to begin with. Clicking it opens the **Gradient Library** with that gradient
-  loaded, so the main window's fractal takes it too; from then on every gradient edit or choice made there
-  recolours this preview as well — one gradient everywhere, for ease. **Variables** lists the active transform's
-  parameters (the formula's own, under its name) for trying values; edits are undoable.
+  following every change (quality in the View menu or by right-click; the status line says when the GPU rejected
+  a shader and the CPU rendered instead). **Compare with the original** (`Ctrl+Shift+O`) shows a second preview
+  rendering the formula as it was before the edits, side by side. Beneath them, **Gradient**: a bar showing the
+  preview's gradient, a bright three-colour one to begin with, with a **Presets ▾** button (six bright presets and
+  *Random*). Clicking the bar opens the **Gradient Library** with that gradient loaded, so the main window's
+  fractal takes it too; from then on every gradient edit or choice made there recolours this preview as well —
+  one gradient everywhere, for ease. **Variables** lists the active transform's parameters (the formula's own,
+  under its name) with **Reset**, **Randomise** and a **Sweep** that animates one variable over its range to show
+  what it does; edits are undoable.
 * **Formulas**: every loaded formula — built-ins, the bundled library and your own (in bold) — with tags
-  (`pre` / `post` / `3D` / `DC` / `random`) and where it came from, and a search box. Clicking one loads its code
-  (a bundled `.c` source, or for a native Python built-in a dialect skeleton carrying its numpy and GLSL as a
-  reference) and puts the real formula in the previews until the text is changed. **New formula** (also the
-  *New* button, `Ctrl+N`) loads a boilerplate: a complete formula with one variable, `PluginVarPrepare` and a
-  `PluginVarCalc` that does a swirl, named so it clashes with nothing — rename it in `APO_PLUGIN("…")`, type
-  the maths, done.
+  (`pre` / `post` / `3D` / `DC` / `random`), where it came from and, when the file names one, its author; a search
+  box, origin and kind filters, and **favourites** (double-click the star, or the context menu; *Favourites* in
+  the origin filter lists them). Clicking one loads its code (a bundled `.c` source, or for a native Python
+  built-in a dialect skeleton carrying its numpy and GLSL as a reference) and puts the real formula in the
+  previews until the text is changed. **New formula ▾** (`Ctrl+N`, also on the *Formula* menu) offers templates —
+  normal (a swirl), pre, post, direct colour, 3D, blur — each a complete formula with one variable, named so it
+  clashes with nothing. *Formula ▸ Recent formulas* reopens what you worked on lately.
 * **The code editor**: C syntax highlighting that knows the dialect (the plugin API, `FTx` / `FPy` / `VVAR` / `TC`,
-  the math functions and constants, both comment styles), line numbers, brace-aware indentation, find / replace
-  (`Ctrl+F` / `Ctrl+H`), go to line (`Ctrl+G`), `Ctrl+/` comments, `Ctrl+D` duplicates, `Alt+↑/↓` moves lines,
-  its own undo / redo. The line beneath it says what the code compiled to (`✓ name — normal; 2 variables`) or
-  what is wrong and on which line (the line is marked too); while the code is broken the previews keep showing
-  the last version that compiled. *Compile now* (`Ctrl+Enter`) does not wait for the pause.
-* **Files**: **Save** (`Ctrl+S`) writes `name.c` into your formulas folder (the one *Help ▸ Formulas…* shows) and
-  registers the formula at once, so the Transform Editor's Variations list, the Random Batch and the formula
-  browser have it without a restart; saving under a bundled formula's name asks first, because your file will
-  shadow it. **Save as…** picks the file, **Open…** loads a `.c` from anywhere, **Delete** removes a file of
-  yours (the code stays in the editor in case it was a slip). Nothing is registered under its real name until
-  you save: while you type, the work in progress lives in a reserved registry slot that only this window uses.
+  the math functions and constants, both comment styles), **completion** (Tab / Ctrl+Space, or by itself after
+  two letters: the dialect's names with one-line docs, and the file's own variables), line numbers, brace-aware
+  indentation, find / replace (`Ctrl+F` / `Ctrl+H`), go to line (`Ctrl+G`), `Ctrl+/` comments, `Ctrl+D` duplicates,
+  `Alt+↑/↓` moves lines, its own undo / redo, `Ctrl+E` to switch the keyboard between the code and the grid.
+  **Insert variable…** (`Ctrl+Shift+I`) declares a variable in the struct and in `APO_VARIABLES` at once (real or
+  integer, optional bounds) and puts `VAR(name)` at the cursor; *Edit ▸ Insert snippet* has the usual idioms
+  (polar coordinates, `fsincos`, a random number, a guarded division, a derived constant, direct colour, depth,
+  the noise header). The line beneath the editor says what the code compiled to (`✓ name — normal; 2 variables`)
+  or what is wrong and on which line (the line is marked too); while the code is broken the previews keep
+  showing the last version that compiled. *Compile now* (`Ctrl+Enter`) does not wait for the pause.
+* **The drawer** (right edge, `Ctrl+L`, collapsed at first): **Reference** — the dialect guide
+  (`docs/formulas.md`), the catalogue of every name the compiler knows (click one to insert it) and a summary of
+  the formula being edited; **Compiler** — the numpy and GLSL the last good compile generated, and the compiler's
+  remarks; **Probe** — one point through the formula on numpy *and* GLSL (on a context of its own, off the GUI
+  thread), and **Check numpy vs GLSL**, the test-suite's comparison on its sample points, for the formula at hand.
+* **Files**: **Save** (`Ctrl+S`) writes `name.c` into your formulas folder (*Formula ▸ Open formulas folder* shows
+  it) and registers the formula at once, so the Transform Editor's Variations list, the Random Batch and the
+  formula browser have it without a restart. **Bundled and built-in formulas are read-only**: a formula carrying
+  one of their names cannot be saved over them — Save offers to rename yours (`whorl` → `whorl_mine`, variable
+  prefixes included), *Duplicate as my own* does the same on purpose, and *Rename…* changes the name and the
+  prefixes by hand. **Save as…** picks a file outside Fractalchemy's own folders, **Open…** loads a `.c` from
+  anywhere, **Revert to saved** throws the edits away, **Delete** removes a file of yours (the code stays in the
+  editor in case it was a slip), **Copy source** puts the text on the clipboard. The user folder is watched: a
+  formula dropped in or changed by another program is loaded (and reloaded into the editor unless it has unsaved
+  edits). Nothing is registered under its real name until you save: while you type, the work in progress lives in
+  a reserved registry slot that only this window uses.
 
 ### Render Image window (the final renderer)
 *Windows ▸ Render Image…* (`Ctrl+R`) or the toolbar button opens a non-modal tool window; a render runs on its
@@ -458,7 +482,9 @@ fractalchemy/
   formulas/             the formulas: builtin/ (native Python), library/ (the plugin dialect, one file each:
                         apophysis7x / plugins / ports / reconstructed), lang/ (the compiler), loader (user folders,
                         cache), apophysis_depth (the built-ins' depth rule), workbench (the Formula Editor's scratch
-                        slot, sources, boilerplate)
+                        slot, sources, the read-only policy), authoring (templates, snippets, the variable and
+                        rename refactors, test rigs), completion (the dialect's names for the editor and the
+                        reference), verify (one variation on both engines: the probe and the numpy-vs-GLSL check)
   render/               RenderSettings / RenderStats, CompiledFlame, tone map (numpy + GLSL), cpu_engine, codegen +
                         gpu_engine (moderngl), RenderService (worker thread, priorities, cancellation);
                         the final renderer: final_settings (options, tile plan) + memory (RAM / budgets), filters
@@ -475,9 +501,10 @@ fractalchemy/
   widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons (+ glyphs),
                         TriangleView (the editor canvas), ValueTable (name / value lists with drag editing),
                         PaletteSlider, Timeline (the animation timeline), actions / layouts / silent helpers,
-                        BaseCodeEditor (line numbers, find / replace, line edits) → CodeEditor (the script editor:
-                        Python highlighting, completion popup) and FormulaCodeEditor (C dialect highlighting),
-                        FindBar, GradientBar (the Formula Editor's clickable gradient swatch)
+                        BaseCodeEditor (line numbers, find / replace, line edits, completion with a pluggable
+                        completer) → CodeEditor (the script editor: Python highlighting and completer) and
+                        FormulaCodeEditor (C dialect highlighting and completer), CompletionPopup, FindBar,
+                        GradientBar (the Formula Editor's clickable gradient swatch)
   scripting/            the scripting engine (Qt-free): api (the objects and functions scripts see), runner (stoppable
                         execution with line-numbered errors), docs (the reference database behind completion and the
                         help tabs), completion (type-aware completion / context help), generate (Flame → Script),
@@ -495,7 +522,8 @@ fractalchemy/
                         render_output_panel, render_progress), ScriptEditorWindow (+ script_drawer: the Context /
                         Reference / Info / Templates tabs, script_runner: the worker thread),
                         FormulaEditorWindow (+ formula_session: the formula being edited and its background
-                        compiles, formula_editor_actions, formula_list_panel)
+                        compiles, formula_editor_actions, formula_list_panel, formula_editor_panels: preview
+                        options / variable tools / presets, formula_drawer: reference / compiler output / probe)
 tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
                         scripting_reference.py (docs/scripting.md from the scripting documentation database)
 tests/                  pytest suite

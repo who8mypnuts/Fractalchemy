@@ -5,7 +5,8 @@ the plugin API (`APO_PLUGIN`, `APO_VARIABLES`, `VAR_REAL` …, `VAR()`, `TM()`),
 (`FTx`, `FPy`, `TC`, `VVAR`), the math functions and constants, preprocessor lines, strings, numbers and
 both comment styles (`/* … */` spanning lines through the block state).
 
-Indentation: Enter after `{` opens a level; typing `}` on a blank indented line closes one.
+Completion (Tab / Ctrl+Space, or by itself after two letters) offers the dialect's names and what the file declares
+(`formulas/completion.py`). Indentation: Enter after `{` opens a level; typing `}` on a blank indented line closes one.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import re
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument
 from PySide6.QtWidgets import QWidget
 
+from ..formulas import completion as FC
 from ..formulas.lang import builtins as B
 from .base_code_editor import INDENT, BaseCodeEditor
 
@@ -143,6 +145,7 @@ class FormulaCodeEditor(BaseCodeEditor):
         super().__init__(parent)
         self.setPlaceholderText("// Choose a formula from the list, or click New formula for a template.")
         self.highlighter = CHighlighter(self.document())
+        self.completer = FC.complete
 
     def indent_after(self, line: str) -> bool:
         """A block opener: the line ends with `{`."""
