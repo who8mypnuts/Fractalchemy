@@ -1,7 +1,7 @@
 """Application-wide tunables. Adjust here rather than hunting through modules."""
 
 APP_NAME = "Fractalchemy"
-APP_VERSION = "0.1"
+APP_VERSION = "0.5"
 
 # --- Import behaviour -------------------------------------------------------
 # Max per-channel deviation (0-255) allowed when dropping redundant stops on
