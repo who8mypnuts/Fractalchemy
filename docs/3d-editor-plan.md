@@ -10,8 +10,15 @@ A new tool window, *Windows ▸ 3D Editor*, that adds two things without touchin
    iterated function system — thousands of smiley-face balls along a 3D spiral — with lights and HDRI
    environments, rendered in the viewport and exportable as instanced scenes.
 
-Nothing here is implemented yet; this is the design to review. Where JWildfire is referenced, the relevant
-code was read (`create/tina/base/solidrender`, `base/raster/NormalsCalculator`, `render/LogDensityFilter`,
+**Decisions taken** (review of the first draft): `usd-core` is a requirement, so USD exports write `.usda` /
+`.usdc` / `.usdz` through it; the Blender export is a script + assets; print readiness is a **report** (watertight,
+manifold, thin walls, size) with a recommendation and **buttons** for each repair level — *simple clean-up*
+(weld, drop debris, orient normals), *aggressive* (plus hole filling, smoothing, decimation) and *remesh* (a voxel
+remesh as the last resort); the flame's 3D camera fields stay the one camera, driven by an orbit rig; **phase 1
+is the solid renderer without meshing**; the scene lives in its own **`.fa3d`** file with Open / Save in the 3D
+Editor from the start (materials, lights, assets and instancers will be embedded there, which `.fa` should not
+carry). **Phase 1 is implemented** (§11 marks it); the rest is the design to build on. Where JWildfire is
+referenced, the relevant code was read (`create/tina/base/solidrender`, `base/raster/NormalsCalculator`, `render/LogDensityFilter`,
 `meshgen/*`), so the techniques named are ones known to work on fractal point clouds.
 
 ---
@@ -44,8 +51,10 @@ A tool window of the main window like the others (hidden on close, remembered be
    orbits), and as a **solid** as soon as the first solid pass lands: a surface with lighting, materials by
    transform, ambient occlusion, shadows.
 3. The *Render* tab: quality (samples), resolution, the 3D camera (orbit in the viewport or type pitch / yaw /
-   perspective / distance), depth of field, fog, background. *Render…* opens the existing Render Image
-   window with the solid renderer selected — same size / quality / output panels, same job life cycle.
+   perspective / distance), depth of field, fog, background. *Render…* opens the **Render 3D Image** window: the
+   Render Image window's size / output panels and job life cycle (`JobWindowBase`), with the solid renderer's
+   own quality panel. (Built this way rather than as a mode of the Render Image window: the solid renderer has
+   no tiles, filters or denoiser, so a mode switch there would have disabled most of that window.)
 4. *Materials*: one per transform (diffuse, ambient, specular + size, specular colour, light-diffusion curve,
    reflection strength from the environment), or *by palette colour*. *Lights*: distant lights with altitude /
    azimuth / colour / intensity / shadow. *Environment*: an HDRI (`.hdr` / `.exr`) or a colour, exposure, rotation,
@@ -116,8 +125,9 @@ fractalchemy/
   render/
     gpu_solid.py           the GPU twin of solid/: the same generated iterate shader; a G-buffer plot program
                            (depth test on points, colour index + material id + frame), shading in fragment shaders;
-                           registered in RenderService as another job type ("solid"); final_engine gets a solid
-                           path for the Render Image window (tiles, denoise, output formats as today)
+                           the engines' `start()` dispatch on `RenderSettings.solid` (a Scene3D), so the
+                           RenderService runs solid jobs unchanged; the render to file is `ui/three_d/render_window.py`
+                           (`SolidRenderJob`: its own engine on a worker thread, `output.save_image` for the formats)
   ui/three_d/
     window.py              ThreeDWindow (QMainWindow tool window): toolbar, scene tree, viewport, properties, status
     document.py            Scene3DDocument: the scene + undo (same shape as FractalDocument)
@@ -314,7 +324,7 @@ cannot show to advantage become worthwhile (see `proposed_variations.md` and `do
 
 | phase | delivers | tests |
 |---|---|---|
-| **1. Solid render + window** | `scene3d` model + `.fa3d`; `solid/` capture / zbuffer / normals / shading (numpy); `render/gpu_solid.py` G-buffer + shading on the GPU; `ThreeDWindow` with the viewport (points + solid), Render / Materials / Lights tabs; *Render…* through the Render Image window; *Use main fractal* / follow / send back | numpy vs GPU agreement on the G-buffer and shaded image (`test_solid.py`); camera maths; window opens / pulls / renders on the CPU engine |
+| **1. Solid render + window** ✓ done | `scene3d` model + `.fa3d`; `solid/` capture / zbuffer / normals / shading (numpy); `render/gpu_solid.py` G-buffer + shading on the GPU; `ThreeDWindow` with the viewport (points + solid, orbit rig), Render / Camera / Materials / Lights / Environment tabs; *Render…* in the Render 3D Image window; *Use main fractal* / follow / send back; a **density threshold** (`SolidSettings.min_hits`: samples per G-buffer pixel a surface needs — removes the haze blur variations scatter) | numpy vs GPU agreement on the G-buffer and shaded image (`test_solid.py`); camera maths; window opens / pulls / renders on the CPU engine; the render to file |
 | **2. Mesh + export** | voxelise, filters, marching cubes, the clean-up pipeline with the report, OBJ / STL / PLY / glTF / USDA writers + readers, UV projections, Blender script export; the Mesh and Export tabs | round-trip every format; watertight / manifold checks on known shapes (sphere, torus point clouds); decimation preserves volume within tolerance |
 | **3. Holon IFS** | frames in the chaos game (affine + Jacobian), tree mode, mesh import + proxies, instanced viewport, instances in the G-buffer, PointInstancer / Geometry Nodes / glTF instancing export; the Instances tab with 3D affine gizmos | frame accumulation against closed forms; instance counts; export round trips |
 | **4. Environment + polish** | HDRI readers, IBL (SH9 + prefiltered), key-light extraction, shadow softness, fog, the `mesh_points` formula, the 3D formula imports from §9, documentation | HDRI decode against known images; IBL energy tests; the formulas through `test_variations` |
@@ -326,13 +336,10 @@ fractal.
 
 ## 12. Questions to settle before starting
 
-1. **USD**: hand-written `.usda` always, `.usdc`/`.usdz` only when `usd-core` is installed — acceptable, or make
-   `usd-core` a hard requirement?
-2. **Blender**: the script + assets approach (§6) rather than a `.blend` — agreed?
-3. **Print readiness**: is a report (watertight, manifold, wall-thickness estimate, mm size) enough, or should
-   the clean pipeline also *repair* aggressively (voxel remesh as a last resort)?
-4. **Camera**: reuse the flame's 3D camera fields (one camera everywhere) versus an independent 3D-Editor camera
-   — the plan reuses them and adds an orbit rig that writes them.
-5. **Scope of phase 1**: solid render only (no meshing) as the first deliverable, so the pipeline can be judged on
-   real fractals before the mesher is built on top of the same voxel / depth machinery?
-6. **Name and file**: "3D Editor" and `.fa3d`, or fold the scene into `.fa` as an optional section?
+1. **USD** — decided: `usd-core` is required (`requirements.txt`); exports go through it.
+2. **Blender** — decided: the script + assets approach (§6).
+3. **Print readiness** — decided: a report with a recommendation and one button per repair level (simple /
+   aggressive / remesh).
+4. **Camera** — decided: the flame's 3D camera fields, driven by the viewport's orbit rig.
+5. **Scope of phase 1** — decided: the solid renderer without meshing (done); meshing follows as phase 2.
+6. **Name and file** — decided: "3D Editor", `.fa3d` from the start, opened and saved inside the window.

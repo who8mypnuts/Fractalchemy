@@ -18,7 +18,7 @@ TEXT = QColor(110, 110, 110)
 class FractalPreview(QWidget):
     """Paints the latest viewport image, letterboxed to keep its aspect ratio."""
 
-    def __init__(self, parent: QWidget | None = None, size: QSize = QSize(150, 84)):
+    def __init__(self, parent: QWidget | None = None, size: QSize = QSize(256, 144)):
         super().__init__(parent)
         self._image: QImage | None = None
         self._placeholder = "No fractal loaded"

@@ -26,6 +26,8 @@ class RenderSettings:
             is reached; 0 = stop at `quality`. Refining passes yield to any other pending render.
         density_scale: Multiplier on the samples (Apophysis renders quality · 4^zoom per pixel, so a
             zoomed-in view is not starved); the viewport sets it from the camera zoom.
+        solid: A 3D Editor scene (`scene3d.Scene3D`): render the flame as a lit solid with its materials and lights
+            instead of the additive histogram (None: the ordinary flame render).
     """
     width: int = 800
     height: int = 600
@@ -38,6 +40,11 @@ class RenderSettings:
     filter_radius: float = config.PREVIEW_FILTER
     refine_to: float = 0.0
     density_scale: float = 1.0
+    solid: object | None = field(default=None, compare=False)
+
+    def with_solid(self, scene) -> "RenderSettings":
+        """The same settings rendering `scene` as a solid (None goes back to the flame render)."""
+        return replace(self, solid=scene)
 
     @property
     def samples_total(self) -> int:

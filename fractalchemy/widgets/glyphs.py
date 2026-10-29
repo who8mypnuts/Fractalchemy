@@ -366,6 +366,80 @@ def _compare(p: QPainter, u: float) -> None:
     p.drawRect(QRectF(8.5 * u, 3.5 * u, 6 * u, 9 * u))
 
 
+# --- 3D editor glyphs -------------------------------------------------------------------------------------------------
+def _cube(p: QPainter, u: float, x: float = 8.0, y: float = 8.5, s: float = 5.0) -> None:
+    """An isometric cube: the top face in the accent colour, the two sides in paper (the 3D Editor's mark)."""
+    top = [(x, y - s), (x + s * 0.87, y - s * 0.5), (x, y), (x - s * 0.87, y - s * 0.5)]
+    left = [(x - s * 0.87, y - s * 0.5), (x, y), (x, y + s), (x - s * 0.87, y + s * 0.5)]
+    right = [(x, y), (x + s * 0.87, y - s * 0.5), (x + s * 0.87, y + s * 0.5), (x, y + s)]
+    p.setPen(_pen(GLYPH_COLOR, 1.2 * u))
+    p.setBrush(PAPER)
+    p.drawPolygon(_pts(u, *left))
+    p.setBrush(QColor(225, 225, 225))
+    p.drawPolygon(_pts(u, *right))
+    p.setBrush(ACCENT_FILL)
+    p.setPen(_pen(GLYPH_ACCENT, 1.2 * u))
+    p.drawPolygon(_pts(u, *top))
+
+
+def _three_d(p: QPainter, u: float) -> None:
+    """The 3D Editor's window / toolbar glyph."""
+    _cube(p, u, 8.0, 8.5, 5.5)
+
+
+def _pull_fractal(p: QPainter, u: float) -> None:
+    """A cube with a green arrow coming in from the left: use the main window's fractal."""
+    _cube(p, u, 10.0, 8.5, 4.2)
+    p.setPen(_pen(GREEN, 1.8 * u))
+    p.drawLine(*_pts(u, (1.0, 8.5), (5.0, 8.5)))
+    p.drawPolyline(_pts(u, (3.0, 6.5), (5.0, 8.5), (3.0, 10.5)))
+
+
+def _push_fractal(p: QPainter, u: float) -> None:
+    """A cube with an accent arrow leaving to the right: send the fractal to the main window."""
+    _cube(p, u, 6.0, 8.5, 4.2)
+    p.setPen(_pen(GLYPH_ACCENT, 1.8 * u))
+    p.drawLine(*_pts(u, (10.5, 8.5), (15.0, 8.5)))
+    p.drawPolyline(_pts(u, (13.0, 6.5), (15.0, 8.5), (13.0, 10.5)))
+
+
+def _follow(p: QPainter, u: float) -> None:
+    """A cube chained to a small triangle (the main window's fractal): follow the main window."""
+    _triangle(p, u, 1.5, 13.5, 5.5)
+    _cube(p, u, 11.0, 8.5, 3.6)
+    p.setPen(_pen(GLYPH_ACCENT, 1.4 * u, Qt.PenStyle.DotLine))
+    p.drawLine(*_pts(u, (6.0, 10.0), (7.5, 9.5)))
+
+
+def _render_3d(p: QPainter, u: float) -> None:
+    """A framed picture with a cube in it: render the solid to an image."""
+    p.setPen(_pen(GLYPH_COLOR, 1.2 * u))
+    p.setBrush(PAPER)
+    p.drawRoundedRect(QRectF(1.5 * u, 2.5 * u, 13 * u, 11 * u), u, u)
+    _cube(p, u, 8.0, 8.5, 3.4)
+    p.setPen(_pen(GREEN, 1.8 * u))
+    p.setBrush(GREEN)
+    p.drawPolygon(_pts(u, (11.0, 10.0), (11.0, 14.5), (14.5, 12.25)))
+
+
+def _reset_view(p: QPainter, u: float) -> None:
+    """A cube with a curved arrow over it: back to the fractal's own camera."""
+    _cube(p, u, 8.0, 10.0, 3.6)
+    p.setPen(_pen(GLYPH_ACCENT, 1.5 * u))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawArc(QRectF(3.5 * u, 1.5 * u, 9 * u, 7 * u), 30 * 16, 150 * 16)
+    p.drawPolyline(_pts(u, (3.2, 2.5), (3.9, 5.3), (6.5, 4.5)))
+
+
+def _points(p: QPainter, u: float) -> None:
+    """A scatter of dots in the shape of a sphere: the unlit point-cloud display."""
+    p.setPen(Qt.PenStyle.NoPen)
+    for i, (x, y, r) in enumerate(((8, 3.5, 1.1), (4.5, 5.5, 1.0), (11.5, 5.5, 1.0), (8, 7.5, 1.3), (3.5, 9.5, 1.0), (12.5, 9.5, 1.0),
+                                   (6, 11.5, 1.1), (10, 11.5, 1.1), (8, 13.5, 0.9))):
+        p.setBrush(GLYPH_ACCENT if i % 3 == 0 else GLYPH_COLOR)
+        p.drawEllipse(QPointF(x * u, y * u), r * u, r * u)
+
+
 GLYPHS: dict[str, Painter] = {
     "editor": _editor, "add-transform": _add_transform, "duplicate-transform": _duplicate_transform,
     "delete-transform": _delete_transform, "linked-transform": _linked_transform, "final-transform": _final_transform,
@@ -381,6 +455,8 @@ GLYPHS: dict[str, Painter] = {
     "anim-render": _anim_render,
     "formula-editor": _formula_editor, "add-linear": _add_linear, "add-spherical": _add_spherical, "add-formula": _add_formula,
     "use-formula": _use_formula, "new-formula": _new_formula, "add-variable": _add_variable, "compare": _compare,
+    "three-d": _three_d, "pull-fractal": _pull_fractal, "push-fractal": _push_fractal, "follow": _follow, "render-3d": _render_3d,
+    "reset-view": _reset_view, "points": _points,
 }
 
 

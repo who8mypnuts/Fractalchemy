@@ -132,10 +132,18 @@ def test_translator_turns_a_variation_class_into_a_verified_formula():
 def test_translator_refuses_what_the_dialect_cannot_express():
     with pytest.raises(Unsupported, match="complex"):
         translate(JAVA.replace("double r = pAffineTP.getPrecalcSqrt();", "Complex z = new Complex(pAffineTP.x, pAffineTP.y); double r = 1.0;"))
-    with pytest.raises(Unsupported, match="state between points"):
-        translate(JAVA.replace("pVarTP.y += buf[1];", "pVarTP.y += buf[1]; scale = r;"))
-    with pytest.raises(Unsupported, match="Random"):
-        translate(JAVA.replace("private double scale, half;", "private double scale, half; private Random rnd = new Random(1);"))
+    # a field updated per point is a private orbit: a `static` the compiler re-runs (JWildfire's attractor variations)
+    stateful = translate(JAVA.replace("pVarTP.y += buf[1];", "pVarTP.y += buf[1]; half = r;"))
+    assert "static double half = 0;" in stateful.source and "VAR(twirly_half)" not in stateful.source
+    assert compile_source(stateful.source).variation.note.startswith("stateful plugin")
+    # a seeded java.util.Random becomes the seeded 31-bit generator once per transform, true randomness per point
+    random = translate(JAVA.replace("private double scale, half;", "private double scale, half; private Random rnd = new Random((long) power);")
+                       .replace("this.half = pAmount / 2.0;", "this.half = pAmount / 2.0 + rnd.nextDouble();")
+                       .replace("double[] buf = new double[2];", "double[] buf = new double[2]; double jitter = rnd.nextDouble();"))
+    assert "int rnd = jw_seed((int) VAR(twirly_power));" in random.source and "jw_rand01(&rnd)" in random.source
+    assert "double jitter = random01();" in random.source and compile_source(random.source).variation.random
+    with pytest.raises(Unsupported, match="rewrites its parameters"):
+        translate(JAVA.replace("pVarTP.y += buf[1];", "pVarTP.y += buf[1]; power = r;"))
     with pytest.raises(Unsupported, match="getName"):
         translate(JAVA.replace('return "twirly";', "return NAME;"))
     assert find_author("// Author: Jesus Sosa\n") == "Jesus Sosa" and find_author("created by Steven Brodhead Sr") == ""

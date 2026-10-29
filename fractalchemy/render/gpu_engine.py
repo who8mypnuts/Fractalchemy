@@ -110,22 +110,27 @@ class GpuEngine:
         self._tonemap_vao = self.ctx.vertex_array(self._tonemap, [])
         self._programs: dict[str, tuple] = {}   # shader source -> compiled programs (structure cache)
 
-    def start(self, flame: Flame, settings: RenderSettings) -> "GpuRenderJob":
-        """A new progressive render job for `flame`."""
+    def start(self, flame: Flame, settings: RenderSettings):
+        """A new progressive render job for `flame` (a solid render when the settings carry a 3D scene)."""
+        if settings.solid is not None:
+            from .gpu_solid import SolidGpuJob
+            return SolidGpuJob(self, flame, settings, settings.solid)
         return GpuRenderJob(self, flame, settings)
 
-    def programs(self, generated: GeneratedProgram):
-        """Compiled (iterate, plot) programs, cached by source text.
+    def programs(self, generated: GeneratedProgram, plot_fragment: str | None = None):
+        """Compiled (iterate, plot) programs, cached by source text (`plot_fragment`: another fragment shader for the
+        plot program, the solid renderer's G-buffer writer).
 
         Raises:
             ShaderBuildError: The driver rejected the generated GLSL; the sources and the compiler log
                 are written to `glsl_failure_dir()` so the problem can be reported and reproduced.
         """
-        key = generated.iterate_vertex + generated.plot_vertex
+        fragment = plot_fragment or _PLOT_FRAGMENT
+        key = generated.iterate_vertex + generated.plot_vertex + fragment
         if key not in self._programs:
             try:
                 iterate = self.ctx.program(vertex_shader=generated.iterate_vertex, varyings=["out_state", "out_xi", "out_seed"])
-                plot = self.ctx.program(vertex_shader=generated.plot_vertex, fragment_shader=_PLOT_FRAGMENT)
+                plot = self.ctx.program(vertex_shader=generated.plot_vertex, fragment_shader=fragment)
             except Exception as exc:  # noqa: BLE001 - moderngl.Error carries the compiler log
                 raise ShaderBuildError(str(exc), _dump_failure(generated, exc, self.renderer)) from exc
             self._programs[key] = (iterate, plot)
@@ -162,15 +167,15 @@ class GpuPopulation:
     """
 
     def __init__(self, engine: GpuEngine, compiled: CompiledFlame, points: int, seed: int,
-                 camera: Camera | None = None):
+                 camera: Camera | None = None, generated: GeneratedProgram | None = None, plot_fragment: str | None = None):
         self.engine = engine
         self.ctx = engine.ctx
         self.compiled = compiled
         self.points = points
         self.seed = seed
         self.camera = camera if camera is not None else Camera()
-        self.generated = generate(compiled)
-        self.iterate_prog, self.plot_prog = engine.programs(self.generated)
+        self.generated = generated if generated is not None else generate(compiled)
+        self.iterate_prog, self.plot_prog = engine.programs(self.generated, plot_fragment)
         self._rng = np.random.default_rng(seed)
         self._upload_params()
         self._create_population(seed)

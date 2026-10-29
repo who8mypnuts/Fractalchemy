@@ -106,6 +106,7 @@
     <addaction name="actionRandomBatch"/>
     <addaction name="actionScriptEditor"/>
     <addaction name="actionFormulaEditor"/>
+    <addaction name="actionThreeDEditor"/>
     <addaction name="actionRenderImage"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
@@ -161,6 +162,7 @@
    <addaction name="actionRandomBatch"/>
    <addaction name="actionScriptEditor"/>
    <addaction name="actionFormulaEditor"/>
+   <addaction name="actionThreeDEditor"/>
    <addaction name="actionRenderImage"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -235,6 +237,12 @@
    <property name="toolTip"><string>Formula Editor: write a formula (variation / plugin) and see it work live on a transform grid and in a preview (F10)</string></property>
    <property name="shortcut"><string>F10</string></property>
    <property name="statusTip"><string>Open the Formula Editor window</string></property>
+  </action>
+  <action name="actionThreeDEditor">
+   <property name="text"><string>3D Editor</string></property>
+   <property name="toolTip"><string>3D Editor: render the fractal as a lit solid with materials, lights and shadows, orbit it, and render it to an image (F11)</string></property>
+   <property name="shortcut"><string>F11</string></property>
+   <property name="statusTip"><string>Open the 3D Editor window</string></property>
   </action>
   <action name="actionRenderImage">
    <property name="text"><string>Render Image…</string></property>

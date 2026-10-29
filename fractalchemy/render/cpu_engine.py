@@ -40,8 +40,11 @@ class CpuEngine:
     def __init__(self, threads: int | None = None):
         self.threads = threads or thread_count()
 
-    def start(self, flame: Flame, settings: RenderSettings) -> "CpuRenderJob":
-        """A new progressive render job for `flame`."""
+    def start(self, flame: Flame, settings: RenderSettings):
+        """A new progressive render job for `flame` (a solid render when the settings carry a 3D scene)."""
+        if settings.solid is not None:
+            from ..solid.cpu_job import SolidCpuJob
+            return SolidCpuJob(flame, settings, settings.solid, self.threads)
         return CpuRenderJob(flame, settings, self.threads)
 
     def close(self) -> None:

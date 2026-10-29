@@ -160,7 +160,11 @@ their expressions, `MathLib` / `Math` → the math functions), `init()` / `initO
 parameter fields → `APO_VARIABLES` (prefixed with the formula name, as JWildfire writes them in flames),
 other fields → derived struct members, private helper methods → dialect functions, `static final`
 constants → `#define`s and constant tables, `sinAndCos` → `fsincos`. The `isPreserveZCoordinate()` blocks are
-dropped (plugins leave the depth alone unless they are 3D). Each translation is compiled and checked on
+dropped (plugins leave the depth alone unless they are 3D). Fields a variation updates per point (the attractor
+variations' private orbits) become `static` globals, which the compiler re-runs per point; a seeded
+`java.util.Random` becomes a 31-bit generator seeded from the same parameter for values computed once per
+transform (so the same seed gives the same picture, as in JWildfire) and true randomness where JWildfire draws
+per point. Each translation is compiled and checked on
 both engines before it is written; names already in the library are never shadowed. The report
 (`docs/jwildfire_import.md`) groups what could not be translated by reason — the `vec2` / `vec3` shader
 helper classes, the `Complex` class, `Random` objects and state kept between points, resources and

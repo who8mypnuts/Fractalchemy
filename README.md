@@ -24,12 +24,12 @@ python -m pytest
   Parameters `Ctrl+Shift+V`, Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
   Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
   *Windows* (Transform Editor `F4`, Gradient Library `F6`, Animation `F9`, Random Batch `F7`, Script Editor `F8`,
-  Formula Editor `F10`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
+  Formula Editor `F10`, 3D Editor `F11`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
 * Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
   **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
   (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Transform Editor** (`F4`),
   **Gradient Library**, **Animation** (`F9`), **Random Batch** (`F7`), **Script Editor** (`F8`), **Formula Editor**
-  (`F10`), **Render Image** (`Ctrl+R`).
+  (`F10`), **3D Editor** (`F11`), **Render Image** (`Ctrl+R`).
   Nothing is ever written unless you save: edits only change the preview, the title shows `*`, and Save / Save As
   let you keep as many versions as you like.
 * **Open Fractal…** shows the file's first flame and lists *all* of the file's flames in a temporary section at the
@@ -116,9 +116,9 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
   Apophysis's transform semantics (`pre_` / `post_` variation order, `var_color` direct colour, depth `z`)
   and its 3D camera (`cam_pitch`, `cam_yaw`, `cam_perspective` / `cam_dist`, `cam_zpos`, `cam_dof`).
 * **Formulas** (variations / plugins) live in `fractalchemy/formulas/` — see
-  [docs/formulas.md](docs/formulas.md). Some 820 are bundled: the flam3 classics and Apophysis 7X built-ins,
+  [docs/formulas.md](docs/formulas.md). Some 830 are bundled: the flam3 classics and Apophysis 7X built-ins,
   every Apophysis plugin whose source was available, plugins that only existed as (mostly 32-bit) DLLs,
-  reconstructed from their machine code, and 250-odd variations translated from JWildfire
+  reconstructed from their machine code, and 270-odd variations translated from JWildfire
   (`tools/import_jwf_variations.py`; the report in [docs/jwildfire_import.md](docs/jwildfire_import.md) lists
   what could not be translated and why). Each is defined once and compiled for *both* engines from the
   Apophysis plugin C dialect (or written natively in Python + GLSL), and the test-suite checks that numpy
@@ -353,6 +353,47 @@ writing, the favourites, the recent list and the layout are remembered between r
   edits). Nothing is registered under its real name until you save: while you type, the work in progress lives in
   a reserved registry slot that only this window uses.
 
+### 3D Editor window
+*Windows ▸ 3D Editor* (`F11`, the cube on the toolbar) renders the fractal as a **lit solid** — the point cloud
+treated as a surface, in the manner of JWildfire's solid rendering — with materials per transform, distant lights
+with shadows, ambient occlusion and fog, and a camera to orbit it. A tool window like the others: closing it
+hides it; the layout and the scene being edited are remembered between runs. It changes nothing the other
+windows show: it **pulls** a copy of the main window's fractal (**Use main fractal**, `Ctrl+U` — also done by
+itself the first time the window opens with a fractal in the main window) and can **push** one back (**Send
+to main window**, `Ctrl+Shift+U`, the 3D camera set here going with it). **Follow** keeps the scene in step with
+the main window as the fractal is edited there, re-pulling a moment after the edits pause (the camera orbited
+here is kept). The plan behind it, and the phases still to come (meshing and export, Holon IFS, HDRI
+environments), is `docs/3d-editor-plan.md`.
+
+* **The viewport** renders progressively through the shared render service — the GPU solid renderer
+  (`render/gpu_solid.py`: G-buffer, shadow maps and shading as OpenGL passes) when there is one, the numpy one
+  (`solid/`) otherwise; both give the same picture. **Left-drag orbits** (the flame's pitch and yaw),
+  **right-drag pans**, the **wheel zooms**, `Ctrl`+wheel changes the perspective, **double-click** (or **Reset
+  view**, `Home`) goes back to the camera the fractal arrived with. While dragging, the view renders at half
+  size and one pass; the full render follows when the mouse rests. Every move is an undo step (a drag is one),
+  written to the flame's own 3D camera fields, so a flame sent back to the main window looks the same there.
+  The **Points** toggle shows the palette-coloured point cloud unlit — a quick look at the shape.
+* **Render**: *Solid* / *Points* display, the viewport's **preview quality** (Draft / Normal / Fine: samples and
+  supersampling), the **density threshold** (a pixel needs this many samples to count as surface — the thin haze
+  a flame's blur variations scatter about lands in pixels with one or two hits, a surface collects many, so 3
+  removes the dust), normal **smoothing**, **ambient occlusion** (radius, intensity, samples, falloff) and
+  **fog** (start / end as fractions of the depth range, colour). **Camera**: pitch / yaw / tilt in degrees,
+  perspective, distance, zoom, as numbers. **Materials**: one per transform (the final transform takes the last)
+  — colour from the palette or a fixed one, diffuse, ambient, specular and shininess, highlight colour, light
+  wrap, *Copy to all transforms*. **Lights**: up to eight distant lights placed relative to the camera (altitude
+  above the view plane, azimuth around it, so they turn with the view), colour, intensity, and a **shadow** each
+  (a shadow map rendered from the light; darkness and softness). **Environment**: the background colour (also the
+  ambient light's colour) and whether it shows (off: transparent renders), ambient strength, exposure.
+* **Scenes**: the flame, materials, lights, environment and renderer settings together are a *scene*, saved as a
+  **`.fa3d`** file (JSON; the flame inside is the `.fa` format's) with **New / Open / Save / Save as** on the
+  toolbar (`Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S`). The window asks before discarding unsaved changes;
+  the title shows the file and a • when modified.
+* **Render…** (`Ctrl+R`) opens the **Render 3D Image** window: the Render Image window's size and output panels
+  (every format, bit depth, transparency, embedded parameters, *Save parameters* writes the `.flame` and the
+  `.fa3d` beside the image) with its own quality — samples per pixel, passes, supersampling, AO samples — and the
+  same Start / Pause / Stop life cycle on a worker thread with its own engine (the GPU when available), a live
+  preview and a link to the file when done.
+
 ### Render Image window (the final renderer)
 *Windows ▸ Render Image…* (`Ctrl+R`) or the toolbar button opens a non-modal tool window; a render runs on its
 own thread with a snapshot of the flame, so you can open and edit another fractal while it works. Closing the
@@ -498,6 +539,11 @@ fractalchemy/
                         denoise) + preview_canvas, output (formats, metadata) + png_tiff / exr encoders, report/
                         (model, writers, render_facts, fractal_facts: the details file in md / txt / html and the EXR
                         attributes), estimate (time estimate), units (shared formatting), final_service (FinalRenderJob)
+  scene3d/              the 3D Editor's scene (Scene3D: the flame, materials, distant lights, environment, renderer
+                        settings) and the .fa3d file
+  solid/                the solid renderer on the CPU: View (the 3D camera as a view transform), GBuffer + ShadowMap,
+                        shading (normals, ambient occlusion, lights, shadows, fog), SolidCpuJob (the engine job);
+                        render/gpu_solid.py is the same pipeline as OpenGL passes
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,
@@ -530,7 +576,10 @@ fractalchemy/
                         FormulaEditorWindow (+ formula_session: the formula being edited and its background
                         compiles, formula_editor_actions, formula_list_panel, formula_editor_panels: preview
                         options / variable tools / presets, formula_drawer: reference / compiler output / probe,
-                        formula_origins: the origin classification and row colours shared by every formula list)
+                        formula_origins: the origin classification and row colours shared by every formula list),
+                        three_d/ (the 3D Editor: Scene3DDocument with its undo history, Viewport3D with the orbit rig,
+                        the Render / Camera / Materials / Lights / Environment panels, SolidRenderWindow: the render to
+                        file on its own thread)
 tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
                         import_jwf_variations.py + jwf_translate.py (JWildfire *Func.java → formulas), render_logo.py,
                         scripting_reference.py (docs/scripting.md from the scripting documentation database)

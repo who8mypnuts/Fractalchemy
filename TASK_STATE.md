@@ -358,3 +358,25 @@ history (`git show 13a9126:TASK_STATE.md`).
   `logo/` (transparent / on white / on dark, wordmarks, contact sheet). `docs/logo.md` updated.
 * `docs/3d-editor-plan.md`: the design of the 3D Editor (solid rendering, meshing + exports, Xenodream-style instancing, lights /
   HDRI), grounded in JWildfire's solidrender / meshgen code; phased delivery and open questions. No code yet.
+
+### Round 5: the 3D Editor, phase 1 (solid rendering)
+* `scene3d/`: `Scene3D` (flame copy, `Material` per transform, `DistantLight`s, `Environment`, `SolidSettings` incl.
+  `min_hits` density threshold, `materials_for`), `format.py` (`.fa3d` JSON round trip, `Scene3DFormatError`).
+* `solid/` (numpy): `View` (the flame's 3D camera as a view transform; view space has z towards the camera, depth = −z),
+  `GBuffer` (nearest sample per supersampled pixel + hit count, `thresholded`), `ShadowMap` (orthographic grid along the
+  light, MIN depth; splat and lookup both use the floor cell), `shading` (normals from neighbour cross products with a
+  depth-span discontinuity limit, box-blur smoothing, hemisphere SSAO, Blinn-Phong with light wrap, PCF shadows, fog,
+  exposure, sRGB), `SolidCpuJob` (one `SolidPopulation` per thread, merge, shade). `render/gpu_solid.py`: the same as
+  OpenGL passes (G-buffer plot with depth test, additive hit count, MIN-blended shadow maps, normals / shade / downsample
+  fragment shaders; sampler arrays indexed through a `switch`, uniform arrays written as bytes). Engines dispatch on
+  `RenderSettings.solid`; `codegen.generate_solid()` builds the plot shader (modes: camera / shadow / count).
+  `CompiledXForm.build` now resolves aliases (`linear3D`) like the file loaders do.
+* `ui/three_d/`: `Scene3DDocument` (snapshot undo with merge keys; `scene_replaced` vs `scene_restored`), `Viewport3D`
+  (RenderService key, half-size single-pass renders while dragging, orbit / pan / zoom / perspective, home camera,
+  `up_to_date`), panels (Render / Camera / Materials / Lights / Environment; FloatRow merge keys, slider release ends the
+  step), `ThreeDWindow` (toolbar, tabs, status bar, `.fa3d` New / Open / Save, Use main / Follow (debounced, camera kept)
+  / Send, persistence of layout + scene), `SolidRenderWindow` (`JobWindowBase` + SizePanel / OutputPanel, `SolidRenderJob`
+  thread with its own engine). Main window: `actionThreeDEditor` (F11, toolbar cube), lazy `three_d_editor`, quit check.
+  Glyphs: three-d, pull/push-fractal, follow, render-3d, reset-view, points.
+* Tests: `tests/test_solid.py` (15: model / file, geometry, CPU job, GPU vs CPU on the same G-buffer, service, the window,
+  files + persistence, the render to file). README section "3D Editor window"; plan §11 marks phase 1 done.

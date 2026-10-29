@@ -63,7 +63,7 @@ TYPE_RENAMES = {"boolean": "bool", "float": "double", "long": "int", "short": "i
                 "Integer": "int"}
 UNSUPPORTED_WORDS = {"Complex": "complex-number helper class", "vec2": "GLSL vector helper classes", "vec3": "GLSL vector helper classes",
                      "vec4": "GLSL vector helper classes", "mat2": "GLSL matrix helper classes", "mat3": "GLSL matrix helper classes",
-                     "String": "strings at run time", "Random": "a Random object (state between points)", "System": "System calls",
+                     "String": "strings at run time", "System": "System calls",
                      "RESSOURCE": "resources (images / text / code) at run time", "ressource": "resources at run time",
                      "Flame": "a sub-flame / the flame object", "pLayer": "the layer object", "Layer": "the layer object",
                      "ArrayList": "Java collections", "List": "Java collections", "HashMap": "Java collections", "Map": "Java collections",
@@ -72,6 +72,9 @@ UNSUPPORTED_WORDS = {"Complex": "complex-number helper class", "vec2": "GLSL vec
                      "getFlameRenderer": "the renderer", "getCurrentXForm": "the transform object", "pXForm.getXYPostCoeff": "post coefficients",
                      "DC_BaseFunc": "the DC base class", "AbstractFractWFFunc": "the escape-time base class"}
 HELPERS = {
+    "jw_seed": "int jw_seed(double v) { return (((int)v) * 1103515245 + 12345) & 0x7fffffff; }",
+    "jw_next": "int jw_next(int* s) { *s = ((*s) * 1103515245 + 12345) & 0x7fffffff; return *s; }",
+    "jw_rand01": "double jw_rand01(int* s) { return jw_next(s) / 2147483648.0; }",
     "frac": "double frac(double v) { return v - trunc(v); }",
     "FTOI": "int FTOI(double v) { return v > 0.0 ? (int)(v + 0.5) : (v < 0.0 ? (int)(0.0 - (fabs(v) + 0.5)) : 0); }",
     "radians": "double radians(double d) { return d * M_PI / 180.0; }",
@@ -249,6 +252,18 @@ def _field(head: str, init: str) -> Member | list[Member]:
         if not isinstance(base, Member):
             raise Unsupported("a field declaration that cannot be read")
         return [base] + [Member("field", base.type, r, "", modifiers=base.modifiers) for r in rest if r]
+    if "," in init and "(" not in init and "{" not in init:  # `double a=0.1, b=0.05, m=-0.08;` (the head holds `double a`)
+        parts = [w.strip() for w in init.split(",")]
+        base = _field(head, parts[0])
+        if not isinstance(base, Member):
+            raise Unsupported("a field declaration that cannot be read")
+        out = [base]
+        for part in parts[1:]:
+            name, _eq, value = part.partition("=")
+            if not name.strip():
+                raise Unsupported("a field declaration that cannot be read")
+            out.append(Member("field", base.type, name.strip(), value.strip(), modifiers=base.modifiers))
+        return out
     words = head.replace("[]", " [] ").split()
     arrays = words.count("[]")
     words = [w for w in words if w != "[]"]               # `double[] a`, `double a[]` and `double a[][]` alike
@@ -308,9 +323,15 @@ def literal(text: str) -> float | None:
 
 
 # --- rewriting a body -----------------------------------------------------------------------------------------------
-def rewrite(body: str, fields: dict[str, str], helpers: set[str], locals_: set[str] | None = None) -> str:
-    """A Java method body as dialect text: the point / context / math rewrites, fields as `VAR(full)`."""
+def rewrite(body: str, fields: dict[str, str], helpers: set[str], locals_: set[str] | None = None, randoms: set[str] | None = None,
+            seeded: bool = False) -> str:
+    """A Java method body as dialect text: the point / context / math rewrites, fields as `VAR(full)`.
+
+    `randoms` are names holding a `java.util.Random`: their draws become the seeded 31-bit generator (`jw_rand01(&state)`)
+    when `seeded` (code that runs once per transform), else true randomness (`random01()`, code that runs per point).
+    """
     body = re.sub(r"\bthis\s*\.\s*", "", body)
+    randoms = set(randoms or ())
     for word, why in UNSUPPORTED_WORDS.items():
         if re.search(r"(?<![\w.])" + re.escape(word) + r"(?![\w])", body) if "." not in word else word in body:
             raise Unsupported(why)
@@ -390,7 +411,50 @@ def rewrite(body: str, fields: dict[str, str], helpers: set[str], locals_: set[s
                     i += 5
                     continue
                 raise Unsupported(f"transform call {member}")
-            if value.startswith("DoubleWrapper"):
+            if value == "Random":
+                if nxt == ("op", "("):                  # `new Random(seed)` (the `new` is dropped) → jw_seed(seed)
+                    helpers.add("jw_seed")
+                    out.append("jw_seed")
+                else:                                   # the type of a local generator
+                    out.append("int")
+                    if peek(1)[0] == "ident":
+                        randoms.add(peek(1)[1])
+                i += 1
+                continue
+            if value in randoms and nxt == ("op", ".") and peek(2)[0] == "ident":
+                method = peek(2)[1]
+                j = i + 3                               # the argument list
+                depth = 0
+                k = j
+                while k < n:
+                    if toks[k][1] == "(":
+                        depth += 1
+                    elif toks[k][1] == ")":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    k += 1
+                inner = toks[j + 1:k]
+                argument = " ".join(t[1] for t in inner)
+                if method in ("nextDouble", "nextFloat"):
+                    out.append(f"jw_rand01(&{value})" if seeded else "random01()")
+                    helpers.update({"jw_seed", "jw_next", "jw_rand01"} if seeded else set())
+                elif method == "nextInt":
+                    if not inner:
+                        raise Unsupported("nextInt() without a bound")
+                    out.append(f"(jw_next(&{value}) % ({argument}))" if seeded else f"((int)(random01() * ({argument})))")
+                    helpers.update({"jw_seed", "jw_next"} if seeded else set())
+                elif method == "nextBoolean":
+                    out.append(f"(jw_rand01(&{value}) < 0.5)" if seeded else "(random01() < 0.5)")
+                    helpers.update({"jw_seed", "jw_next", "jw_rand01"} if seeded else set())
+                elif method == "setSeed":
+                    helpers.add("jw_seed")
+                    out.append(f"{value} = jw_seed({argument})")
+                else:
+                    raise Unsupported(f"Random.{method}()")
+                i = k + 1
+                continue
+            if value == "DoubleWrapper" or value.startswith("DoubleWrapper"):
                 out.append("double")
                 i += 1
                 if peek(0) == ("op", "(") and peek(1) == ("op", ")"):     # `new DoubleWrapper()` → nothing
@@ -413,6 +477,10 @@ def rewrite(body: str, fields: dict[str, str], helpers: set[str], locals_: set[s
                         helpers.add(fn)
                     out.append(fn)
                     i += 3
+                    continue
+                if value == "Math" and peek(2)[1] == "random":
+                    out.append("random01()")
+                    i += 5
                     continue
                 if value == "Tools" and peek(2)[1] == "FTOI":
                     helpers.add("FTOI")
@@ -608,7 +676,15 @@ def translate(java: str, file_name: str = "") -> Translation:
     scratch = [m.name for m in field_members.values() if m.type.startswith("DoubleWrapper")]   # sin / cos outputs kept as fields
     for name_ in scratch:
         del field_members[name_]
+    generators: dict[str, str] = {}                                # Random fields: name → the seed expression (Java)
+    for fm in list(field_members.values()):
+        if fm.type == "Random":
+            seed_match = re.search(r"new\s+Random\s*\((.*)\)\s*$", fm.text.strip(), re.S)
+            generators[fm.name] = seed_match.group(1).strip() if seed_match and seed_match.group(1).strip() else "1"
+            del field_members[fm.name]
     for fm in field_members.values():
+        if fm.type == "Random":
+            continue
         if fm.type not in ("double", "int", "float", "long", "boolean", "short", "byte"):
             if fm.type.endswith("[]"):
                 raise Unsupported(f"array field {fm.name} (state between points)")
@@ -625,21 +701,34 @@ def translate(java: str, file_name: str = "") -> Translation:
     local_names = set(re.findall(r"\b(?:double|int|float|long|boolean)\s+([A-Za-z_]\w*)", transform.text))
     local_names |= set(re.findall(r"\b(?:double|int|float|long|boolean)\s+\w+\s*(?:=[^,;]*)?,\s*([A-Za-z_]\w*)", transform.text))
     assigned_in_transform -= local_names
-    state = [f for f in field_members if f in assigned_in_transform and f not in mapping.values()]
-    if state:
-        raise Unsupported(f"keeps state between points ({', '.join(sorted(state)[:3])})")
+    state = [f for f in field_members if f in assigned_in_transform and f not in mapping.values() and f not in generators]
+    statics: list[str] = []                                        # fields the formula updates per point: a private orbit, as
+    for fname in state:                                            # `static` globals (the compiler re-runs the orbit per point)
+        fm = field_members.pop(fname)
+        full.pop(fname, None)
+        value = literal(fm.text) if fm.text else 0.0
+        if value is None:
+            raise Unsupported(f"state field {fname} with a non-constant start ({fm.text})")
+        ctype = "int" if TYPE_RENAMES.get(fm.type, fm.type) == "int" else "double"
+        statics.append(f"static {ctype} {fname} = {value:g};")
     if any(p in assigned_in_transform for p in mapping.values()):
         raise Unsupported("rewrites its parameters while running")
     helpers: set[str] = set()
 
-    def body_of(member: Member) -> str:
+    def body_of(member: Member, seeded: bool) -> str:
         used = [n for n in scratch if re.search(rf"\b{re.escape(n)}\b", member.text)]
         used_buffers = [n for n in buffers if re.search(rf"\b{re.escape(n)}\b", member.text)]
+        used_generators = [n for n in generators if re.search(rf"\b{re.escape(n)}\b", member.text)]
         prefix = "".join(f"\n    double {n};" for n in used) + "".join(f"\n    {buffers[n]}" for n in used_buffers)
-        return prefix + rewrite(member.text, full, helpers, set(used) | set(used_buffers))
+        if used_generators and seeded:
+            helpers.add("jw_seed")
+            for n in used_generators:
+                seed = rewrite(generators[n], full, helpers, set(), set(), True).strip()
+                prefix += f"\n    int {n} = jw_seed({seed});"
+        return prefix + rewrite(member.text, full, helpers, set(used) | set(used_buffers) | set(used_generators), set(generators), seeded)
 
-    calc = body_of(transform)
-    prepare = "".join(body_of(m) for m in inits)
+    calc = body_of(transform, seeded=False)
+    prepare = "".join(body_of(m, seeded=True) for m in inits)
     functions = []
     for m in ms:
         if m.kind != "method" or m.name in API_METHODS or m.name in ("transform", "init", "initOnce"):
@@ -661,7 +750,9 @@ def translate(java: str, file_name: str = "") -> Translation:
             if len(words) != 2 or words[0] not in TYPE_RENAMES and words[0] not in ("double", "int"):
                 raise Unsupported(f"helper {m.name}() has a parameter {p.strip()!r}")
             params.append(f"{TYPE_RENAMES.get(words[0], words[0])} {words[1]}")
-        body_text = rewrite(m.text, full, helpers, set(w.split()[1] for w in params))
+        body_text = rewrite(m.text, full, helpers, set(w.split()[1] for w in params), set(generators), seeded=True)
+        if any(re.search(rf"\b{re.escape(n)}\b", m.text) for n in generators):
+            raise Unsupported(f"helper {m.name}() draws from a Random field")
         functions.append(f"{ret} {m.name}({', '.join(params)})\n{{{body_text}\n}}\n")
     constants = []
     for m in ms:
@@ -689,8 +780,10 @@ def translate(java: str, file_name: str = "") -> Translation:
             raise Unsupported(f"default of {pname} is not a constant ({fm.text})")
         params_out.append((full[fname], default, "int" if TYPE_RENAMES.get(fm.type, fm.type) == "int" else "real"))
     derived = [full[f] for f in field_members if f not in mapping.values()]
-    source = _emit(name, params_out, derived, field_members, full, includes + constants, [HELPERS[h] for h in sorted(helpers)] + functions,
-                   prepare, calc)
+    source = _emit(name, params_out, derived, field_members, full, includes + constants + statics,
+                   [HELPERS[h] for h in sorted(helpers)] + functions, prepare, calc)
+    if statics:
+        source = "// keeps a private orbit between points (JWildfire fields updated per point): the statics below\n" + source
     source = _size_array_params(source)
     return Translation(name, source, params_out, derived, author, types)
 

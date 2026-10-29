@@ -3,9 +3,10 @@
 Usage:
     python tools/render_logo.py [--out logo] [--size 1024]
 
-Writes, per variant: `<variant>_<size>.png` (transparent), `<variant>_on_white.png`, `<variant>_on_dark.png`, the
-wordmark in light and dark, and a contact sheet of everything plus the small sizes (16–64 px) so the mark can be
-judged at task-bar scale too.
+Writes one folder per variant (`logo/main/`, `logo/mono/`, …) holding the mark at `--size` pixels — transparent, on
+white and on dark — the wordmark (a quarter of that height) in the same three forms, and `design_sheet.png` (the
+mark at 16–256 px beside the light and dark wordmarks, the sheet used while designing); plus `contact_sheet.png`
+with every variant side by side. The default size is 2048 px.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", type=Path, default=ROOT / "logo")
-    parser.add_argument("--size", type=int, default=1024)
+    parser.add_argument("--size", type=int, default=2048)
     args = parser.parse_args()
     from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
     from PySide6.QtWidgets import QApplication
@@ -34,11 +35,15 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     white, dark = QColor("#ffffff"), QColor("#1b1e27")
     for variant, description in VARIANTS.items():
-        logo_pixmap(args.size, variant=variant).save(str(args.out / f"{variant}_{args.size}.png"))
-        logo_pixmap(args.size, white, variant).save(str(args.out / f"{variant}_on_white.png"))
-        logo_pixmap(args.size, dark, variant, ink=QColor("#e8ecf5") if variant == "mono" else None).save(str(args.out / f"{variant}_on_dark.png"))
-        wordmark_pixmap(256, white, variant=variant).save(str(args.out / f"{variant}_wordmark.png"))
-        wordmark_pixmap(256, dark, dark=True, variant=variant).save(str(args.out / f"{variant}_wordmark_dark.png"))
+        folder = args.out / variant
+        folder.mkdir(parents=True, exist_ok=True)
+        logo_pixmap(args.size, variant=variant).save(str(folder / f"mark_{args.size}.png"))
+        logo_pixmap(args.size, white, variant).save(str(folder / f"mark_{args.size}_on_white.png"))
+        logo_pixmap(args.size, dark, variant, ink=QColor("#e8ecf5") if variant == "mono" else None).save(str(folder / f"mark_{args.size}_on_dark.png"))
+        wordmark_pixmap(args.size // 4, variant=variant).save(str(folder / f"wordmark_{args.size // 4}.png"))
+        wordmark_pixmap(args.size // 4, white, variant=variant).save(str(folder / f"wordmark_{args.size // 4}_on_white.png"))
+        wordmark_pixmap(args.size // 4, dark, dark=True, variant=variant).save(str(folder / f"wordmark_{args.size // 4}_on_dark.png"))
+        _design_sheet(variant, description).save(str(folder / "design_sheet.png"))
     # the contact sheet: each variant large, with its small sizes beside it and its description beneath
     cell_w, cell_h = 560, 330
     sheet = QPixmap(cell_w * 3, cell_h * 2)
@@ -60,8 +65,33 @@ def main() -> int:
         painter.drawText(x0, y0 + 265, cell_w - 40, 50, 0x1000 | 0x0001, f"{variant}: {description}")   # TextWordWrap | AlignLeft
     painter.end()
     sheet.save(str(args.out / "contact_sheet.png"))
-    print(f"{len(VARIANTS)} variants rendered into {args.out}")
+    print(f"{len(VARIANTS)} variants rendered into {args.out} (one folder each, plus contact_sheet.png)")
     return 0
+
+
+def _design_sheet(variant: str, description: str):
+    """The sheet used while designing: the mark at 16–256 px in a row, the wordmark in light and dark beneath."""
+    from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+
+    from fractalchemy.widgets.logo import logo_pixmap, wordmark_pixmap
+
+    sheet = QPixmap(1200, 520)
+    sheet.fill(QColor("#f4f5f8"))
+    painter = QPainter(sheet)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    x = 30
+    for size in (16, 24, 32, 48, 64, 128, 256):
+        painter.drawPixmap(x, 30 + (256 - size), logo_pixmap(size, variant=variant))
+        x += size + 30
+    painter.drawPixmap(30, 320, wordmark_pixmap(112, variant=variant))
+    painter.drawPixmap(660, 330, wordmark_pixmap(96, QColor("#1b1e27"), dark=True, variant=variant))
+    font = QFont("Sans Serif")
+    font.setPixelSize(16)
+    painter.setFont(font)
+    painter.setPen(QColor("#1f2a44"))
+    painter.drawText(30, 480, f"{variant}: {description}")
+    painter.end()
+    return sheet
 
 
 if __name__ == "__main__":

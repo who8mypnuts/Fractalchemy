@@ -4,7 +4,8 @@ pillow-heif>=0.20      # HEIC / HEIF
 pillow-jxl-plugin>=1.3 # JPEG XL
 numpy>=1.26            # render engines (CPU chaos game, histogram + tone mapping, GPU buffers)
 moderngl>=5.10         # GPU preview engine (OpenGL 3.3); the CPU engine is used if no context can be created
-scipy>=1.10            # optional: fast Gaussian blur for density estimation (a numpy fallback is built in)
+scipy>=1.10            # Gaussian blur for density estimation, filters for the 3D Editor (a numpy fallback exists for the blur)
+usd-core>=23.5         # OpenUSD: .usda / .usdc / .usdz export from the 3D Editor
 # optional extras for the Render Image window's denoisers:
 #   opencv-python-headless   non-local means denoiser
 #   oidn                     Intel Open Image Denoise (needs the OIDN library)

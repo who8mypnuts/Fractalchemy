@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..fractal.scene import Affine, Flame, XForm
-from ..fractal.variations import NORMAL, POST, PRE, REGISTRY, Variation, params_for
+from ..fractal.variations import NORMAL, POST, PRE, REGISTRY, Variation, normalize, params_for, resolve
 
 PREPARE_SEED = 12345   # prepare-time randomness (e.g. JuliaRandomN) is the same for every render of a flame
 
@@ -63,14 +63,15 @@ class CompiledXForm:
         active = []
         pre_blur = 0.0
         rng = np.random.default_rng(PREPARE_SEED)
-        for name, weight in xform.variations.items():
-            var = REGISTRY.get(name)
+        variations, all_params, _unsupported = normalize(xform.variations, xform.params)   # aliases such as linear3D
+        for name, weight in variations.items():
+            var = resolve(name)
             if var is None or weight == 0:
                 continue
             if name == "pre_blur":
                 pre_blur = weight
                 continue
-            params = params_for(name, xform.params)
+            params = params_for(name, all_params)
             if var.prepare is not None:
                 params.update(var.prepare(params, weight, tuple(xform.coefs), rng))
             params.update(var.tables)

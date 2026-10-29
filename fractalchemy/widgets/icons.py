@@ -360,3 +360,8 @@ def animation_icon() -> QIcon:
 def formula_icon() -> QIcon:
     """A sheet with an italic ƒ and a small v — the Formula Editor window / toolbar glyph."""
     return editor_icon("formula-editor")
+
+
+def three_d_icon() -> QIcon:
+    """An isometric cube — the 3D Editor window / toolbar glyph."""
+    return editor_icon("three-d")

@@ -1,4 +1,4 @@
-"""Horizontal strip of every gradient in the current file; click one to edit it."""
+"""A two-row strip of every gradient in the current file, scrolling sideways; click one to edit it."""
 
 from __future__ import annotations
 
@@ -11,9 +11,14 @@ from PySide6.QtWidgets import QAbstractItemView, QListView, QListWidget, QListWi
 from ..model import Gradient
 from .thumbnail import THUMBNAIL_SIZE, render_thumbnail
 
+ROWS = 2
+ITEM_SIZE = QSize(THUMBNAIL_SIZE.width() + 12, THUMBNAIL_SIZE.height() + 28)
+SPACING = 6
+STRIP_HEIGHT = ROWS * (ITEM_SIZE.height() + SPACING) + SPACING + 18      # two rows plus the scroll bar
+
 
 class GradientBrowser(QListWidget):
-    """Horizontal strip of thumbnails, one per gradient in the open file.
+    """Two rows of thumbnails, one per gradient in the open file, filled column by column and scrolling sideways.
 
     Signals:
         entry_chosen(int): The user clicked the thumbnail at this index.
@@ -21,7 +26,7 @@ class GradientBrowser(QListWidget):
     entry_chosen = Signal(int)
 
     def __init__(self, parent: QWidget | None = None):
-        """Configure a single-row, horizontally scrolling icon view."""
+        """Configure a two-row, horizontally scrolling icon view."""
         super().__init__(parent)
         self._path: Path | None = None
         self._configure()
@@ -29,17 +34,18 @@ class GradientBrowser(QListWidget):
 
     def _configure(self) -> None:
         self.setViewMode(QListView.ViewMode.IconMode)
-        self.setFlow(QListView.Flow.LeftToRight)
-        self.setWrapping(False)
+        self.setFlow(QListView.Flow.TopToBottom)      # fill the rows column by column, so the strip grows sideways
+        self.setWrapping(True)
         self.setMovement(QListView.Movement.Static)
+        self.setResizeMode(QListView.ResizeMode.Adjust)
         self.setIconSize(THUMBNAIL_SIZE)
-        self.setSpacing(6)
+        self.setSpacing(SPACING)
         self.setUniformItemSizes(True)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setFixedHeight(THUMBNAIL_SIZE.height() + 48)
-        self.setToolTip("Gradients in this file — click one to edit it")
+        self.setFixedHeight(STRIP_HEIGHT)
+        self.setToolTip("Gradients in this file, two rows — click one to edit it")
 
     # --- API ----------------------------------------------------------------
     @property
@@ -74,7 +80,7 @@ class GradientBrowser(QListWidget):
     def _make_item(self, gradient: Gradient) -> QListWidgetItem:
         item = QListWidgetItem(QIcon(render_thumbnail(gradient)), gradient.name)
         item.setToolTip(_tooltip(gradient, self.count()))
-        item.setSizeHint(QSize(THUMBNAIL_SIZE.width() + 12, THUMBNAIL_SIZE.height() + 28))
+        item.setSizeHint(ITEM_SIZE)
         item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
         return item
 

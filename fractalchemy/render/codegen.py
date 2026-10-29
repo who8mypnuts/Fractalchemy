@@ -84,8 +84,84 @@ class _Params:
         return out
 
 
+SOLID_PLOT_TEMPLATE = """{prelude}
+uniform vec3 u_cam_x;   // pixel x = dot(u_cam_x, vec3(q, 1))   (G-buffer pixels)
+uniform vec3 u_cam_y;
+uniform vec2 u_target;  // the G-buffer's size in pixels
+uniform vec2 u_depth_range;       // (near, far) of depth = -view z
+uniform int u_mode;               // 0: the camera's G-buffer; 1: a light's shadow map; 2: the G-buffer's hit count
+uniform mat3 u_light_basis;       // rows: u axis, v axis, -light direction (light_basis())
+uniform vec2 u_light_origin;
+uniform vec2 u_light_scale;
+uniform float u_light_size;
+uniform uint u_salt;
+{project}
+in vec4 in_state;
+in uint in_xi;
+out vec4 v_data;
+{final_fn}
+void main() {{
+    vec3 p = in_state.xyz;
+    float c = in_state.w;
+    int xi = int(in_xi);
+    uint s = hash(uint(gl_VertexID) ^ u_salt);
+{final_call}    float op = P({opacity_base} + xi);
+    vec3 q = view_position(p);
+    bool ok = op > 0.0 && abs(q.x) < 1e10 && abs(q.y) < 1e10 && abs(q.z) < 1e10;
+    if (u_mode != 1) {{
+        vec2 f = perspective_divide(q, s);
+        vec2 px = vec2(dot(u_cam_x, vec3(f, 1.0)), dot(u_cam_y, vec3(f, 1.0)));
+        vec2 clip = px / u_target * 2.0 - 1.0;
+        float depth = clamp((-q.z - u_depth_range.x) / (u_depth_range.y - u_depth_range.x), 0.0, 1.0) * 2.0 - 1.0;
+        gl_Position = ok ? vec4(clip, depth, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
+        v_data = u_mode == 0 ? vec4(q, float(xi) * 256.0 + floor(clamp(c, 0.0, 1.0) * 255.0 + 0.5)) : vec4(1.0, 0.0, 0.0, 1.0);
+    }} else {{
+        vec3 l = u_light_basis * q;
+        vec2 cell = (l.xy - u_light_origin) * u_light_scale;
+        vec2 clip = cell / u_light_size * 2.0 - 1.0;
+        gl_Position = ok ? vec4(clip, 0.0, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
+        v_data = vec4(l.z, 0.0, 0.0, 1.0);
+    }}
+    gl_PointSize = 1.0;
+}}
+"""
+
+SOLID_VIEW_GLSL = """
+vec3 view_position(vec3 p) {
+    float zz = p.z - u_cam_3d.y;
+    return vec3(u_cam_m[0][0] * p.x + u_cam_m[1][0] * p.y + u_cam_m[2][0] * zz,
+                u_cam_m[0][1] * p.x + u_cam_m[1][1] * p.y + u_cam_m[2][1] * zz,
+                u_cam_m[0][2] * p.x + u_cam_m[1][2] * p.y + u_cam_m[2][2] * zz);
+}
+vec2 perspective_divide(vec3 q, inout uint s) {
+    float zr = 1.0 - u_cam_3d.x * q.z;
+    vec2 f = q.xy;
+    if (u_cam_3d.z != 0.0) {
+        float t = rnd(s) * 2.0 * PI;
+        float dr = rnd(s) * u_cam_3d.z * q.z;
+        f += dr * vec2(cos(t), sin(t));
+    }
+    return f / zr;
+}
+"""
+
+
+def generate_solid(compiled: CompiledFlame) -> GeneratedProgram:
+    """Shaders for the solid renderer: the same iterate shader, and a plot shader that emits view-space positions
+    (camera mode) or light-space depths (shadow-map mode) instead of palette colours."""
+    generated, params, final_fn, final_call, opacity_base = _generate(compiled)
+    project = GLSL_PROJECT.split("vec2 project3d")[0] + SOLID_VIEW_GLSL      # the camera uniforms, then the solid's own helpers
+    plot = SOLID_PLOT_TEMPLATE.format(prelude=_PRELUDE, project=project, final_fn=final_fn, final_call=final_call, opacity_base=opacity_base)
+    return GeneratedProgram(generated.iterate_vertex, plot, generated.params, generated.xform_count)
+
+
 def generate(compiled: CompiledFlame) -> GeneratedProgram:
     """Shaders and parameter block for `compiled`."""
+    return _generate(compiled)[0]
+
+
+def _generate(compiled: CompiledFlame) -> tuple[GeneratedProgram, "_Params", str, str, int]:
+    """`generate()` plus the pieces the solid plot shader reuses (the final function and its call, the opacity table)."""
     params = _Params()
     n = compiled.count
     functions = [_xform_function(f"xf_{i}", x, params) for i, x in enumerate(compiled.xforms)]
@@ -152,7 +228,7 @@ void main() {{
     v_color = vec4(texelFetch(u_palette, ivec2(ci, 0), 0).rgb * op, op);
 }}
 """
-    return GeneratedProgram(iterate, plot, params.array(), n)
+    return GeneratedProgram(iterate, plot, params.array(), n), params, final_fn, final_call, opacity_base
 
 
 def bind_params(text: str, values: dict[str, int]) -> str:

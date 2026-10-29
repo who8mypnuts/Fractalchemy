@@ -25,7 +25,8 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import action_icon, animation_icon, editor_icon, formula_icon, gradient_icon, render_icon, script_icon
+from ..widgets.icons import (action_icon, animation_icon, editor_icon, formula_icon, gradient_icon, render_icon, script_icon,
+                             three_d_icon)
 from ..widgets.logo import logo_icon, wordmark_pixmap
 from .animation_window import AnimationWindow
 from .background import run_in_background
@@ -78,6 +79,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         load_ui(self, UI_FILE, CUSTOM_WIDGETS)
         self.setWindowIcon(logo_icon())
+        self._prefer_gpu = prefer_gpu
         self.render_service = RenderService(self, prefer_gpu=prefer_gpu)
         self.document = FractalDocument(self)
         self.status = RenderStatus(self.statusBar())
@@ -90,6 +92,7 @@ class MainWindow(QMainWindow):
         self._random_window = None
         self._script_editor = None
         self._formula_editor = None
+        self._three_d = None
         self._batch: list[Flame] = []          # generated fractals shown in the library's temporary area
         self._batch_showing: int | None = None
         self.files = FractalFileActions(self.document, self)
@@ -165,6 +168,8 @@ class MainWindow(QMainWindow):
         self.actionScriptEditor.triggered.connect(lambda: self.show_script_editor())
         self.actionFormulaEditor.setIcon(formula_icon())
         self.actionFormulaEditor.triggered.connect(lambda: self.show_formula_editor())
+        self.actionThreeDEditor.setIcon(three_d_icon())
+        self.actionThreeDEditor.triggered.connect(lambda: self.show_three_d_editor())
         self.actionAboutQt.triggered.connect(lambda: QMessageBox.aboutQt(self, f"About Qt — {config.APP_NAME}"))
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
@@ -333,6 +338,25 @@ class MainWindow(QMainWindow):
         editor.bring_to_front()
         if name:
             editor.load_formula(name)
+
+    # --- 3D editor ------------------------------------------------------------
+    @property
+    def three_d_editor(self):
+        """The 3D Editor window (created on first use; hidden rather than destroyed when closed)."""
+        if self._three_d is None:
+            from .three_d import ThreeDWindow
+            self._three_d = ThreeDWindow(self.render_service, self, self._settings, main_document=self.document,
+                                         prefer_gpu=self._prefer_gpu)
+            self._three_d.flame_sent.connect(self.show_flame)
+            self._three_d.status.connect(self._message)
+        return self._three_d
+
+    def show_three_d_editor(self, use_main: bool | None = None) -> None:
+        """Open (or raise) the 3D Editor; it pulls the main window's fractal when it has none yet (or when `use_main`)."""
+        editor = self.three_d_editor
+        if use_main or (use_main is None and editor.document.flame is None and self.document.flame is not None):
+            editor.use_main_fractal()
+        editor.bring_to_front()
 
     def _on_formulas_changed(self) -> None:
         """A formula was saved or deleted in the Formula Editor: every list of formulas is stale."""
@@ -538,6 +562,9 @@ class MainWindow(QMainWindow):
         if self.animation.render_window is not None and not self.animation.render_window.confirm_quit():
             event.ignore()
             return
+        if self._three_d is not None and not self._three_d.confirm_quit():
+            event.ignore()
+            return
         if self._script_editor is not None:
             if self._script_editor.runner.running:
                 self._script_editor.stop()
@@ -546,6 +573,9 @@ class MainWindow(QMainWindow):
         if self._formula_editor is not None:
             self._formula_editor.save_state()
             self._formula_editor.hide()
+        if self._three_d is not None:
+            self._three_d.save_state()
+            self._three_d.hide()
         self.gradient_library.close()
         self.render_window.hide()
         self.editor.close()
