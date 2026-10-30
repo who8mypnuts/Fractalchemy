@@ -337,7 +337,8 @@ class MeshPanel(_Panel):
         lines = [f"<b>Full:</b> {full.faces:,} faces, {full.components} pieces, {'watertight' if full.watertight else 'open'}",
                  f"<b>Clean:</b> {cl.faces:,} faces, {cl.components} piece{'s' if cl.components != 1 else ''}, "
                  f"{'watertight' if cl.watertight else 'open'}, {'consistent' if cl.consistent else 'inconsistent'}"
-                 + (f", thinnest wall ≥ {cl.thin_wall:.3g}" if cl.thin_wall is not None else ""),
+                 + (f", thinnest wall ≥ {cl.thin_wall:.3g}" if cl.thin_wall is not None else "")
+                 + (f", {cl.self_intersections} self-intersections" if cl.self_intersections else ""),
                  f"<i>{cl.recommendation()}</i>"]
         if cl.notes:
             lines.append("Clean-up: " + "; ".join(cl.notes))

@@ -30,7 +30,7 @@ from .mesh_preview import nearest_palette_index
 
 EPSILON = 1e-4
 MIN_SCALE, MAX_SCALE = 1e-9, 1e9
-PRIMITIVES = ("sphere", "cube", "torus", "tetrahedron", "icosahedron", "cylinder")
+PRIMITIVES = ("sphere", "cube", "torus", "tetrahedron", "icosahedron", "cylinder", "dla")
 
 
 @dataclass
@@ -316,7 +316,8 @@ def normalized_mesh(mesh: Mesh) -> Mesh:
 
 def primitive(kind: str, detail: int = 2) -> Mesh:
     """A built-in asset mesh, unit-sized and centred: `sphere` (icosphere, `detail` subdivisions), `cube`, `torus`,
-    `tetrahedron`, `icosahedron`, `cylinder`.
+    `tetrahedron`, `icosahedron`, `cylinder`, or `dla` — a coral grown by diffusion-limited aggregation (`detail`
+    sets the particle count: 800 · (detail + 1)).
 
     Raises:
         ValueError: For an unknown kind.
@@ -340,6 +341,8 @@ def primitive(kind: str, detail: int = 2) -> Mesh:
         mesh = _torus(16 * (detail + 1), 8 * (detail + 1))
     elif kind == "cylinder":
         mesh = _cylinder(12 * (detail + 1))
+    elif kind == "dla":
+        return dla_mesh(800 * (detail + 1), 48 + 16 * min(detail, 3), seed=detail + 1)
     else:
         raise ValueError(f"unknown primitive {kind!r} (known: {', '.join(PRIMITIVES)})")
     if mesh.signed_volume() < 0:
@@ -647,7 +650,72 @@ def scene_instance_cloud(scene, budget: int = 1_500_000, transform_count: int | 
                          np.concatenate([p[2] for p in parts]), np.concatenate([p[3] for p in parts]), total)
 
 
+
+
+# --- grown assets: diffusion-limited aggregation ----------------------------------------------------------------------------
+def dla_grid(particles: int = 2000, size: int = 64, seed: int = 1, stickiness: float = 1.0, walkers: int = 256) -> np.ndarray:
+    """Diffusion-limited aggregation on a cubic lattice: `(size, size, size)` bool occupancy of a coral-like cluster.
+
+    `walkers` random-walk at once (vectorised): each starts on a sphere just outside the cluster, sticks when it
+    touches it (with probability `stickiness`; lower values give denser, rounder growth) and is relaunched when it
+    wanders far away or leaves the grid.
+    """
+    rng = np.random.default_rng(seed)
+    grid = np.zeros((size, size, size), dtype=bool)
+    centre = size // 2
+    grid[centre, centre, centre] = True
+    radius = 1.0
+    steps = np.array([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]])
+    limit = centre - 2
+    placed = 0
+
+    def launch(count: int) -> np.ndarray:
+        d = rng.normal(size=(count, 3))
+        d /= np.maximum(np.linalg.norm(d, axis=1, keepdims=True), 1e-9)
+        return np.rint(centre + d * min(radius + 4.0, limit - 1.0)).astype(np.int64)
+
+    positions = launch(walkers)
+    for _round in range(200_000):
+        if placed >= particles:
+            break
+        positions = positions + steps[rng.integers(0, 6, size=positions.shape[0])]
+        off = positions - centre
+        kill = min(radius * 2.0 + 6.0, float(limit))
+        lost = (np.einsum("ij,ij->i", off, off) > kill * kill) | (np.abs(off) >= limit).any(axis=1)
+        if lost.any():
+            positions[lost] = launch(int(lost.sum()))
+        x, y, z = positions[:, 0], positions[:, 1], positions[:, 2]
+        touching = (grid[x + 1, y, z] | grid[x - 1, y, z] | grid[x, y + 1, z] | grid[x, y - 1, z] | grid[x, y, z + 1] | grid[x, y, z - 1])
+        if stickiness < 1.0:
+            touching &= rng.random(positions.shape[0]) < stickiness
+        touching &= ~grid[x, y, z]
+        if touching.any():
+            stuck = positions[touching]
+            grid[stuck[:, 0], stuck[:, 1], stuck[:, 2]] = True
+            placed += int(touching.sum())
+            radius = max(radius, float(np.sqrt(np.einsum("ij,ij->i", stuck - centre, stuck - centre).max())))
+            positions[touching] = launch(int(touching.sum()))
+    return grid
+
+
+def dla_mesh(particles: int = 2000, size: int = 64, seed: int = 1, stickiness: float = 1.0, thickness: float = 0.9) -> Mesh:
+    """A DLA cluster as a mesh (the occupancy blurred by `thickness` voxels and surfaced), unit-sized and centred."""
+    from scipy import ndimage
+    from .isosurface import surface_nets
+    from .voxelize import VoxelGrid
+    occupancy = dla_grid(particles, size, seed, stickiness)
+    field = ndimage.gaussian_filter(occupancy.astype(np.float32), thickness, mode="constant")
+    grid = VoxelGrid(field, None, np.zeros(3), 1.0 / size)
+    mesh = surface_nets(grid, 0.2 if thickness > 0 else 0.5, field, with_color=False)
+    if mesh.face_count == 0:
+        return primitive("sphere", 1)
+    mesh = mesh.keep_components(largest=1)[0]
+    mesh = normalized_mesh(mesh)
+    mesh.compute_normals()
+    return mesh
+
+
 __all__ = ["InstanceSet", "InstanceCloud", "cached_instances", "scene_instance_sets", "scene_instance_cloud", "instancer_flame",
            "polar_decompose", "rotation_to_quaternion", "apply_with_jacobian", "chaos_instances", "tree_instances",
            "instances_for", "primitive", "normalized_mesh", "instance_points", "bake_instances", "instance_colors", "affine3d_xform",
-           "read_affine3d", "default_own_ifs", "PRIMITIVES"]
+           "read_affine3d", "default_own_ifs", "PRIMITIVES", "dla_grid", "dla_mesh"]

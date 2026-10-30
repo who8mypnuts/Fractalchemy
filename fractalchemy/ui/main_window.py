@@ -349,6 +349,7 @@ class MainWindow(QMainWindow):
                                          prefer_gpu=self._prefer_gpu)
             self._three_d.flame_sent.connect(self.show_flame)
             self._three_d.status.connect(self._message)
+            self._three_d.formulas_changed.connect(self._on_formulas_changed)
         return self._three_d
 
     def show_three_d_editor(self, use_main: bool | None = None) -> None:

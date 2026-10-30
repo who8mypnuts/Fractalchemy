@@ -169,11 +169,11 @@ def test_gpu_solid_job_matches_the_cpu_shading_of_its_own_gbuffer():
     w, h = job.view.size
     raw = np.frombuffer(job.gbuffer_tex.read(), dtype=np.float32).reshape(h, w, 4)
     gbuffer = GBuffer(w, h)
-    hit = raw[..., 3] >= 0
+    hit = raw[..., 3] >= 0.5                                                   # alpha = code + 1; 0 = empty
     assert hit.mean() > 0.05
     gbuffer.depth[hit] = -raw[..., 2][hit]
     gbuffer.pos[:] = raw[..., :3]
-    code = np.rint(raw[..., 3]).astype(np.int32)
+    code = np.rint(raw[..., 3] - 1.0).astype(np.int32)
     gbuffer.color[hit] = (code & 255)[hit]
     gbuffer.material[hit] = (code >> 8)[hit]
     gbuffer.count[:] = np.rint(np.frombuffer(job.count_tex.read(), dtype=np.float32).reshape(h, w)).astype(np.int32)
@@ -182,8 +182,9 @@ def test_gpu_solid_job_matches_the_cpu_shading_of_its_own_gbuffer():
     maps = {}
     for index, shadow in job.shadow_maps.items():
         copy = shadow.empty_copy()
-        copy.depth[:] = np.frombuffer(job.shadow_textures[index][0].read(), dtype=np.float32).reshape(shadow.size, shadow.size)
-        copy.depth[copy.depth > 1e29] = np.inf
+        stored = np.frombuffer(job.shadow_textures[index][0].read(), dtype=np.float32).reshape(shadow.size, shadow.size)
+        copy.depth[:] = stored / shadow.along_scale + shadow.along_min          # the GPU keeps the distance normalised to 0..1
+        copy.depth[stored >= 1.0] = np.inf
         maps[index] = copy
     assert 0 in maps and 1 not in maps               # the default scene: the key light casts shadows, the fill does not
     for display, min_hits in (("points", 3), ("solid", 3), ("solid", 1)):

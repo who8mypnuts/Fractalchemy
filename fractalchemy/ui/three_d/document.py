@@ -12,8 +12,10 @@ the material list (one per transform).
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
+import numpy as np
 from PySide6.QtCore import QObject, Signal
 
 from ...fractal.scene import Flame, XForm
@@ -266,6 +268,35 @@ class Scene3DDocument(QObject):
         del self.scene.lights[index]
         self._set_modified(True)
         self.lights_changed.emit()
+
+    def add_key_lights(self, count: int = 2) -> int:
+        """Add the HDRI's brightest regions as distant lights placed relative to the current camera (the first casts
+        shadows, the others fill). Returns how many were added (0 without an HDRI)."""
+        from ...solid import hdri
+        env_map = hdri.environment_for(self.scene.environment)
+        flame = self.scene.fractal
+        if env_map is None or flame is None:
+            return 0
+        found = env_map.key_lights(count)
+        if not found:
+            return 0
+        self._record("Extract key lights")
+        m = np.array(flame.camera.matrix(), dtype=np.float64)
+        turn = hdri.rotation_about_z(self.scene.environment.hdri_rotation).T     # a map feature at L sits at world L · Rᵀ
+        added = 0
+        for index, (direction, color, relative) in enumerate(found):
+            if len(self.scene.lights) >= MAX_LIGHTS:
+                break
+            view = (np.asarray(direction) @ turn) @ m                              # world → view space
+            altitude = math.degrees(math.asin(max(-1.0, min(1.0, float(view[2])))))
+            azimuth = math.degrees(math.atan2(-float(view[1]), float(view[0])))
+            self.scene.lights.append(DistantLight(altitude, azimuth, tuple(int(round(c * 255)) for c in color),
+                                                  round(max(0.05, relative) * self.scene.environment.hdri_strength, 3),
+                                                  shadows=index == 0, shadow_intensity=0.7, shadow_softness=2.0))
+            added += 1
+        self._set_modified(True)
+        self.lights_changed.emit()
+        return added
 
     def update_environment(self, merge_key: object = None, **fields) -> None:
         env = self.scene.environment

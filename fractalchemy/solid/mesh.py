@@ -33,6 +33,8 @@ class MeshReport:
         bounds: `((min x, y, z), (max x, y, z))`.
         thin_wall: Estimated thinnest wall, a lower bound (world units; None when not estimated).
         degenerate_faces: Zero-area faces found (removed by `clean`).
+        self_intersections: Intersecting triangle pairs found among `pairs_checked` nearby pairs (a sample; None = not checked).
+        pairs_checked: How many triangle pairs the self-intersection check looked at.
         notes: Remarks (what was repaired, what could not be).
     """
     vertices: int = 0
@@ -47,6 +49,8 @@ class MeshReport:
     bounds: tuple[tuple[float, float, float], tuple[float, float, float]] = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
     thin_wall: float | None = None
     degenerate_faces: int = 0
+    self_intersections: int | None = None
+    pairs_checked: int = 0
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -57,7 +61,7 @@ class MeshReport:
     @property
     def printable(self) -> bool:
         """Watertight, manifold, consistently oriented, one piece."""
-        return self.watertight and self.consistent and self.components == 1 and self.faces > 0
+        return self.watertight and self.consistent and self.components == 1 and self.faces > 0 and not self.self_intersections
 
     def recommendation(self) -> str:
         """What to do next, in a sentence."""
@@ -72,6 +76,8 @@ class MeshReport:
             problems.append("inconsistent face orientation")
         if self.components > 1:
             problems.append(f"{self.components} separate pieces")
+        if self.self_intersections:
+            problems.append(f"{self.self_intersections} self-intersecting triangle pairs (in a sample of {self.pairs_checked:,})")
         if not problems:
             return "Ready to print: watertight, manifold and in one piece."
         return "Needs repair (" + ", ".join(problems) + "): try the simple clean-up, then the aggressive one, then a remesh."
@@ -80,7 +86,8 @@ class MeshReport:
         return {"vertices": self.vertices, "faces": self.faces, "components": self.components, "boundary_edges": self.boundary_edges,
                 "nonmanifold_edges": self.nonmanifold_edges, "consistent": self.consistent, "watertight": self.watertight,
                 "volume": self.volume, "area": self.area, "bounds": [list(self.bounds[0]), list(self.bounds[1])],
-                "thin_wall": self.thin_wall, "degenerate_faces": self.degenerate_faces, "notes": list(self.notes)}
+                "thin_wall": self.thin_wall, "degenerate_faces": self.degenerate_faces, "self_intersections": self.self_intersections,
+                "pairs_checked": self.pairs_checked, "notes": list(self.notes)}
 
 
 @dataclass
@@ -526,8 +533,9 @@ class Mesh:
         return out
 
     # --- the report --------------------------------------------------------------------------------------------------
-    def report(self, voxel_size: float | None = None, inside: np.ndarray | None = None) -> MeshReport:
-        """The print-readiness report. `inside` (a voxel occupancy grid) and `voxel_size` enable the thin-wall estimate."""
+    def report(self, voxel_size: float | None = None, inside: np.ndarray | None = None, intersections: bool = True) -> MeshReport:
+        """The print-readiness report. `inside` (a voxel occupancy grid) and `voxel_size` enable the thin-wall estimate;
+        `intersections` runs the sampled self-intersection check."""
         rep = MeshReport(vertices=self.vertex_count, faces=self.face_count)
         if self.face_count == 0:
             rep.notes.append("empty mesh")
@@ -544,6 +552,8 @@ class Mesh:
         rep.bounds = (tuple(float(x) for x in lo), tuple(float(x) for x in hi))
         if inside is not None and voxel_size is not None and inside.any():
             rep.thin_wall = thin_wall_estimate(inside, voxel_size)
+        if intersections:
+            rep.self_intersections, rep.pairs_checked = self_intersections(self)
         return rep
 
 
@@ -722,6 +732,78 @@ def _flips_faces(v: np.ndarray, f: np.ndarray, cand: np.ndarray, point: np.ndarr
     return np.bincount(e, weights=flip, minlength=cand.shape[0]) > 0
 
 
+def _segments_hit_triangles(p0: np.ndarray, p1: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Möller–Trumbore: does segment p0→p1 cross triangle (a, b, c)? `(N,)` bool, vectorised over N."""
+    d = p1 - p0
+    e1, e2 = b - a, c - a
+    h = np.cross(d, e2)
+    det = np.einsum("ij,ij->i", e1, h)
+    ok = np.abs(det) > 1e-14
+    inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+    s_ = p0 - a
+    u = np.einsum("ij,ij->i", s_, h) * inv
+    q = np.cross(s_, e1)
+    v = np.einsum("ij,ij->i", d, q) * inv
+    t = np.einsum("ij,ij->i", e2, q) * inv
+    eps = 1e-9
+    return ok & (u > eps) & (v > eps) & (u + v < 1.0 - eps) & (t > eps) & (t < 1.0 - eps)
+
+
+def self_intersections(mesh: Mesh, max_pairs: int = 300_000, seed: int = 1) -> tuple[int, int]:
+    """(intersecting triangle pairs found, pairs checked): triangles sharing a grid cell are paired (at most `max_pairs`,
+    sampled), pairs sharing a vertex skipped, each pair tested edge-against-triangle both ways."""
+    f = mesh.faces
+    m = f.shape[0]
+    if m < 2:
+        return 0, 0
+    v = mesh.vertices
+    tri = v[f]                                                          # (M, 3, 3)
+    lo, hi = tri.min(axis=1), tri.max(axis=1)
+    extent = float((v.max(axis=0) - v.min(axis=0)).max()) or 1.0
+    edge = np.linalg.norm(tri[:, 1] - tri[:, 0], axis=1)
+    cell = max(float(np.median(edge)) * 2.0, extent / 256.0, 1e-12)
+    centre = (lo + hi) / 2.0
+    keys = np.floor((centre - v.min(axis=0)) / cell).astype(np.int64)
+    flat = (keys[:, 0] * 73856093) ^ (keys[:, 1] * 19349663) ^ (keys[:, 2] * 83492791)
+    order = np.argsort(flat, kind="stable")
+    sorted_keys = flat[order]
+    starts = np.r_[0, np.nonzero(np.diff(sorted_keys))[0] + 1, m]
+    pairs_a, pairs_b = [], []
+    rng = np.random.default_rng(seed)
+    budget = max_pairs
+    for i in range(starts.shape[0] - 1):
+        members = order[starts[i]:starts[i + 1]]
+        n = members.shape[0]
+        if n < 2:
+            continue
+        ia, ib = np.triu_indices(n, 1)
+        if ia.shape[0] > budget:
+            pick = rng.choice(ia.shape[0], size=budget, replace=False)
+            ia, ib = ia[pick], ib[pick]
+        pairs_a.append(members[ia])
+        pairs_b.append(members[ib])
+        budget -= ia.shape[0]
+        if budget <= 0:
+            break
+    if not pairs_a:
+        return 0, 0
+    pa, pb = np.concatenate(pairs_a), np.concatenate(pairs_b)
+    # pairs sharing a vertex touch legitimately; boxes that do not overlap cannot intersect
+    share = (f[pa][:, :, None] == f[pb][:, None, :]).any(axis=(1, 2))
+    overlap = (lo[pa] <= hi[pb]).all(axis=1) & (lo[pb] <= hi[pa]).all(axis=1)
+    keep = ~share & overlap
+    pa, pb = pa[keep], pb[keep]
+    checked = int(pa.shape[0])
+    if checked == 0:
+        return 0, int(keep.shape[0])
+    ta, tb = tri[pa], tri[pb]
+    hit = np.zeros(checked, dtype=bool)
+    for i in range(3):
+        hit |= _segments_hit_triangles(ta[:, i], ta[:, (i + 1) % 3], tb[:, 0], tb[:, 1], tb[:, 2])
+        hit |= _segments_hit_triangles(tb[:, i], tb[:, (i + 1) % 3], ta[:, 0], ta[:, 1], ta[:, 2])
+    return int(hit.sum()), int(keep.shape[0])
+
+
 def _edge_direction(face: np.ndarray, a: int, b: int) -> int:
     """+1 when `face` traverses a→b, −1 for b→a."""
     for i in range(3):
@@ -831,4 +913,4 @@ def remesh(inside: np.ndarray, grid_origin: np.ndarray, spacing: float, close_ra
 
 
 __all__ = ["Mesh", "MeshReport", "CleanSettings", "SIMPLE_CLEAN", "AGGRESSIVE_CLEAN", "clean", "remesh", "thin_wall_estimate",
-           "quadric_decimate"]
+           "quadric_decimate", "self_intersections"]

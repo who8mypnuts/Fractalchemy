@@ -417,3 +417,35 @@ history (`git show 13a9126:TASK_STATE.md`).
   Instance on Points, Euler XYZ from quaternions), `pipeline.export_instances` (instanced or baked, mm scaling, report).
 * UI: `instances_panel.py` (assets, instancers, own-IFS table), document methods for assets / instancers / own transforms (meshes
   survive undo through a cache), Export tab subject (mesh / instances / baked), ExportJob dispatch. Tests: `tests/test_holon.py` (9).
+
+### Round 8: the 3D Editor, phase 4 (environments and polish)
+* `solid/hdri.py`: `read_hdr` (RGBE, RLE), `read_exr` (scanline; none / ZIP / ZIPS; half / float / uint; the inverse of
+  `render/exr.py`), `read_image_linear` (Pillow LDR → linear), `write_hdr` (flat RGBE, for tests), `EnvironmentMap` (working size
+  512, prefiltered levels by Gaussian blur + halving, SH9 projection, `sample` with fractional level and rotation about z,
+  `irradiance`, `key_lights` — brightest regions with energy claimed progressively), `load_environment` cache, `environment_for`.
+* Model: `Environment.hdri_rotation / hdri_strength / hdri_blur / hdri_background`. CPU `shade`: IBL (SH irradiance × ambient,
+  prefiltered reflection by `shininess_to_roughness`) and `hdri_background` along per-pixel camera rays (`background_directions`;
+  an orthographic camera borrows `BACKGROUND_PERSPECTIVE`). GPU: the same in `SHADE_GLSL` (`equirect`, `sh_irradiance`,
+  `background_color`), a mip-mapped RGB16F texture per map cached on the engine, `u_view_to_world = R(rot)ᵀ · m`.
+* Environment panel: Choose HDRI / Clear, thumbnail (Reinhard), rotation / light / blur, HDRI-as-background, *Extract key lights*
+  (`Scene3DDocument.add_key_lights`: world → view directions through the camera matrix; the first light casts shadows).
+* `solid/mesh_formula.py`: `mesh_<asset>` generated dialect source (triangle + CDF tables as `static const`, fixed-depth binary
+  search, barycentric sample), registered through the formula compiler and saved to the user folder; Instances tab *Use as formula*
+  → `ThreeDWindow.formulas_changed` → `MainWindow._on_formulas_changed`.
+* Library: twelve SDF primitives hand-written in the dialect (`library/jwildfire/*3D.c`), stray samples sent far off frame.
+* Tests: `tests/test_environment.py` (9). Registry now 846 formulas.
+
+### Round 9: the viewport mist, and the plan's leftovers
+* **Bug**: the GPU solid renderer marked empty G-buffer pixels with a clear alpha of −1 and shadow maps with a clear of 1e30;
+  drivers that clamp `glClearColor` to [0, 1] (llvmpipe does not, real GPUs often do) then treated every pixel as a surface at
+  the origin — a uniform grey-white mist. Now the G-buffer alpha is `code + 1` (0 = empty, clear 0) and shadow depths are
+  normalised to 0..1 (`ShadowMap.along_min / along_scale`, clear 1.0, bias in normalised units). Same-G-buffer GPU/CPU test kept.
+* Point lights (`DistantLight.kind / position / radius`, `is_point`, `casts_shadows`; both shaders; Lights panel kind / position /
+  radius; Blender scripts emit POINT lamps). The flame's tone curves apply to solid renders (CPU after sRGB, GPU in the
+  downsample pass with the 2D tonemap's curves texture).
+* Library: `affine3D` / `pre_affine3D` / `post_affine3D` (matches Rz·Ry·Rx · scale exactly), `post_mandelbulb3d_crop`,
+  `post_mandelbox3d_crop`, `post_aexion_crop`; the SDF primitives now add nothing on failure (no far-off trails).
+* `holon.dla_grid` (vectorised lattice DLA, 256 walkers at once) + `dla_mesh`; `primitive("dla", detail)`.
+* `mesh.self_intersections` (grid-bucketed nearby pairs, Möller–Trumbore edge-vs-triangle both ways, sampled) in `MeshReport`
+  (`self_intersections`, `pairs_checked`; counts against `printable` and the recommendation).
+* Tests: `tests/test_environment.py` now 12.

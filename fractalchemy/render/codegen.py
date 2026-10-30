@@ -94,6 +94,7 @@ uniform mat3 u_light_basis;       // rows: u axis, v axis, -light direction (lig
 uniform vec2 u_light_origin;
 uniform vec2 u_light_scale;
 uniform float u_light_size;
+uniform vec2 u_light_along;       // (min, scale): the distance along the light normalised to 0..1 for the shadow map
 uniform uint u_salt;
 {project}
 in vec4 in_state;
@@ -114,13 +115,14 @@ void main() {{
         vec2 clip = px / u_target * 2.0 - 1.0;
         float depth = clamp((-q.z - u_depth_range.x) / (u_depth_range.y - u_depth_range.x), 0.0, 1.0) * 2.0 - 1.0;
         gl_Position = ok ? vec4(clip, depth, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
-        v_data = u_mode == 0 ? vec4(q, float(xi) * 256.0 + floor(clamp(c, 0.0, 1.0) * 255.0 + 0.5)) : vec4(1.0, 0.0, 0.0, 1.0);
+        // alpha = material · 256 + colour + 1: an empty pixel is 0 (the buffer is cleared to 0, which every driver honours)
+        v_data = u_mode == 0 ? vec4(q, float(xi) * 256.0 + floor(clamp(c, 0.0, 1.0) * 255.0 + 0.5) + 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
     }} else {{
         vec3 l = u_light_basis * q;
         vec2 cell = (l.xy - u_light_origin) * u_light_scale;
         vec2 clip = cell / u_light_size * 2.0 - 1.0;
         gl_Position = ok ? vec4(clip, 0.0, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
-        v_data = vec4(l.z, 0.0, 0.0, 1.0);
+        v_data = vec4(clamp((l.z - u_light_along.x) * u_light_along.y, 0.0, 1.0), 0.0, 0.0, 1.0);
     }}
     gl_PointSize = 1.0;
 }}
@@ -156,6 +158,7 @@ uniform mat3 u_light_basis;
 uniform vec2 u_light_origin;
 uniform vec2 u_light_scale;
 uniform float u_light_size;
+uniform vec2 u_light_along;
 uniform uint u_salt;
 uniform float u_count_value;      // what an instance point adds to the hit count (enough to pass any threshold)
 {project}
@@ -172,13 +175,13 @@ void main() {{
         vec2 clip = px / u_target * 2.0 - 1.0;
         float depth = clamp((-q.z - u_depth_range.x) / (u_depth_range.y - u_depth_range.x), 0.0, 1.0) * 2.0 - 1.0;
         gl_Position = ok ? vec4(clip, depth, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
-        v_data = u_mode == 0 ? vec4(q, in_code) : vec4(u_count_value, 0.0, 0.0, 1.0);
+        v_data = u_mode == 0 ? vec4(q, in_code + 1.0) : vec4(u_count_value, 0.0, 0.0, 1.0);
     }} else {{
         vec3 l = u_light_basis * q;
         vec2 cell = (l.xy - u_light_origin) * u_light_scale;
         vec2 clip = cell / u_light_size * 2.0 - 1.0;
         gl_Position = ok ? vec4(clip, 0.0, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
-        v_data = vec4(l.z, 0.0, 0.0, 1.0);
+        v_data = vec4(clamp((l.z - u_light_along.x) * u_light_along.y, 0.0, 1.0), 0.0, 0.0, 1.0);
     }}
     gl_PointSize = 1.0;
 }}

@@ -18,6 +18,7 @@ import numpy as np
 
 from ..fractal.scene import Flame
 from ..scene3d.model import Scene3D
+from ..solid import hdri as H
 from ..solid.gbuffer import ShadowMap
 from ..solid.holon import scene_instance_cloud
 from ..solid.shading import DISCONTINUITY, MAX_LIGHTS, ao_kernel
@@ -26,7 +27,7 @@ from .codegen import generate_solid, instance_plot_shader
 from .compiled import CompiledFlame
 from .projection import glsl_uniforms
 from .settings import RenderSettings, RenderStats
-from .tonemap import FULLSCREEN_VERTEX_GLSL
+from .tonemap import FULLSCREEN_VERTEX_GLSL, curve_luts
 
 SHADOW_MAP_SIZE = 1024
 RANGE_SAMPLES = 4
@@ -52,13 +53,13 @@ vec4 fetch(ivec2 p) {
     ivec2 size = textureSize(u_gbuffer, 0);
     p = clamp(p, ivec2(0), size - 1);
     vec4 g = texelFetch(u_gbuffer, p, 0);
-    if (texelFetch(u_count, p, 0).r < u_min_hits) g.w = -1.0;
+    if (texelFetch(u_count, p, 0).r < u_min_hits) g.w = 0.0;
     return g;
 }
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
     vec4 centre = fetch(p);
-    if (centre.w < 0.0) { f_normal = vec4(0.0); return; }
+    if (centre.w < 0.5) { f_normal = vec4(0.0); return; }     // alpha 0 = empty (see the plot shader)
     float depth = -centre.z;
     vec3 n = vec3(0.0);
     const ivec2 offsets[8] = ivec2[8](ivec2(1, 0), ivec2(0, 1), ivec2(-1, 0), ivec2(0, -1), ivec2(1, -1), ivec2(1, 1), ivec2(-1, 1), ivec2(-1, -1));
@@ -68,8 +69,8 @@ void main() {
     for (int i = 0; i < 8; i++) {
         vec4 a = fetch(p + pa[i]);          // (dx, dy) as pixel offsets
         vec4 b = fetch(p + pb[i]);
-        bool oka = a.w >= 0.0 && abs(-a.z - depth) < u_limit;
-        bool okb = b.w >= 0.0 && abs(-b.z - depth) < u_limit;
+        bool oka = a.w >= 0.5 && abs(-a.z - depth) < u_limit;
+        bool okb = b.w >= 0.5 && abs(-b.z - depth) < u_limit;
         if (oka && okb) n += cross(a.xyz - centre.xyz, b.xyz - centre.xyz);
     }
     f_normal = vec4(n, 1.0);
@@ -100,6 +101,9 @@ uniform float u_ao_falloff;
 uniform float u_ao_intensity;
 uniform vec3 u_ao_kernel[64];
 uniform int u_light_count;
+uniform int u_light_point[8];     // 1: a point light at u_light_pos (view space) with falloff radius u_light_radius
+uniform vec3 u_light_pos[8];
+uniform float u_light_radius[8];
 uniform vec3 u_light_dir[8];
 uniform vec3 u_light_color[8];    // colour × intensity
 uniform float u_light_shadow[8];  // shadow intensity (0: no shadow map)
@@ -107,7 +111,8 @@ uniform int u_light_taps[8];
 uniform mat3 u_light_basis[8];
 uniform vec2 u_light_origin[8];
 uniform vec2 u_light_scale[8];
-uniform float u_light_bias[8];
+uniform float u_light_bias[8];    // in normalised shadow depth
+uniform vec2 u_light_along[8];    // (min, scale) of the normalised distance along the light
 uniform float u_light_size;
 uniform vec3 u_env_color;
 uniform float u_env_ambient;
@@ -116,12 +121,50 @@ uniform int u_env_visible;
 uniform int u_fog;
 uniform vec2 u_fog_range;         // (start depth, end depth)
 uniform vec3 u_fog_color;
+uniform int u_env_hdri;           // 1: an HDRI lights the scene (and may be the background)
+uniform sampler2D u_env_map;      // equirectangular, prefiltered mip levels
+uniform float u_env_levels;       // mip levels − 1
+uniform vec3 u_env_sh[9];         // SH9 radiance coefficients
+uniform mat3 u_view_to_world;     // view directions → world (the map's rotation included)
+uniform float u_env_strength;
+uniform int u_env_background;
+uniform float u_env_blur;         // background lod
+uniform vec3 u_cam_inv_x;         // pixel → view-plane coordinates (inverse of u_cam_x / u_cam_y)
+uniform vec3 u_cam_inv_y;
+uniform float u_bg_perspective;
 out vec4 f_color;
+
+vec2 equirect(vec3 d) {
+    float u = fract(atan(d.y, d.x) / (2.0 * PI));
+    float v = acos(clamp(d.z, -1.0, 1.0)) / PI;
+    return vec2(u, v);
+}
+
+vec3 env_sample(vec3 d, float lod) { return textureLod(u_env_map, equirect(d), lod).rgb; }
+
+vec3 sh_irradiance(vec3 n) {
+    // Ramamoorthi & Hanrahan: the irradiance from the SH9 radiance, divided by PI
+    vec3 e = u_env_sh[0] * 0.282095 * PI
+           + (u_env_sh[1] * 0.488603 * n.y + u_env_sh[2] * 0.488603 * n.z + u_env_sh[3] * 0.488603 * n.x) * 2.094395
+           + (u_env_sh[4] * 1.092548 * n.x * n.y + u_env_sh[5] * 1.092548 * n.y * n.z + u_env_sh[6] * 0.315392 * (3.0 * n.z * n.z - 1.0)
+              + u_env_sh[7] * 1.092548 * n.x * n.z + u_env_sh[8] * 0.546274 * (n.x * n.x - n.y * n.y)) * 0.785398;
+    return max(e / PI, vec3(0.0));
+}
+
+vec3 background_color(ivec2 p) {
+    if (u_env_hdri == 1 && u_env_background == 1) {
+        vec3 px = vec3(vec2(p) + 0.5, 1.0);
+        vec2 f = vec2(dot(u_cam_inv_x, px), dot(u_cam_inv_y, px));
+        vec3 dir = normalize(vec3(f, -1.0 / u_bg_perspective));
+        return env_sample(u_view_to_world * dir, u_env_blur * u_env_levels);
+    }
+    return u_env_color;
+}
 
 vec4 fetch(sampler2D t, ivec2 p) { ivec2 size = textureSize(t, 0); return texelFetch(t, clamp(p, ivec2(0), size - 1), 0); }
 vec4 surface(ivec2 p) {
     vec4 g = texelFetch(u_gbuffer, p, 0);
-    if (texelFetch(u_count, p, 0).r < u_min_hits) g.w = -1.0;     // too few samples: dust, not surface
+    if (texelFetch(u_count, p, 0).r < u_min_hits) g.w = 0.0;      // too few samples: dust, not surface
     return g;
 }
 
@@ -159,7 +202,7 @@ float occlusion(vec3 pos, vec3 n) {
         vec2 px = project(sample_pos);
         ivec2 pi = clamp(ivec2(floor(px + 0.5)), ivec2(0), size - 1);
         vec4 g = surface(pi);
-        if (g.w < 0.0) continue;
+        if (g.w < 0.5) continue;
         float diff = (-sample_pos.z) - (-g.z);
         if (diff > 0.02 * u_ao_radius && diff < u_ao_radius)
             occluded += 1.0 - pow(clamp(diff / u_ao_radius, 0.0, 1.0), max(u_ao_falloff, 1e-3));
@@ -184,13 +227,14 @@ float shadow_depth(int i, ivec2 c) {
 float shadow(int i, vec3 pos) {
     vec3 l = u_light_basis[i] * pos;
     vec2 cell = (l.xy - u_light_origin[i]) * u_light_scale[i];
+    float along = (l.z - u_light_along[i].x) * u_light_along[i].y;
     int taps = u_light_taps[i];
     float total = 0.0;
     for (int du = -taps; du <= taps; du++)
         for (int dv = -taps; dv <= taps; dv++) {
             ivec2 c = clamp(ivec2(floor(cell)) + ivec2(du, dv), ivec2(0), ivec2(int(u_light_size) - 1));
             float nearest = shadow_depth(i, c);
-            total += (nearest + u_light_bias[i] < l.z) ? 1.0 : 0.0;
+            total += (nearest + u_light_bias[i] < along) ? 1.0 : 0.0;
         }
     float n = float(2 * taps + 1);
     return total / (n * n);
@@ -199,11 +243,11 @@ float shadow(int i, vec3 pos) {
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
     vec4 g = surface(p);
-    if (g.w < 0.0) {
-        f_color = u_env_visible == 1 ? vec4(clamp(u_env_color * u_exposure, 0.0, 1.0), 1.0) : vec4(0.0);
+    if (g.w < 0.5) {
+        f_color = u_env_visible == 1 ? vec4(clamp(background_color(p) * u_exposure, 0.0, 1.0), 1.0) : vec4(0.0);
         return;
     }
-    int code = int(g.w + 0.5);
+    int code = int(g.w - 0.5);                                    // alpha = code + 1
     int colour = code & 255;
     int material = min(code >> 8, u_material_count - 1);
     vec4 m0 = texelFetch(u_materials, ivec2(material * 3, 0), 0);
@@ -218,14 +262,29 @@ void main() {
         vec3 pos = g.xyz;
         float ao = u_ao == 1 ? occlusion(pos, n) : 1.0;
         vec3 v = normalize(u_eye - pos);
-        rgb = base * (m0.y * u_env_ambient * u_env_color) * ao;
+        if (u_env_hdri == 1) {
+            vec3 wn = u_view_to_world * n;
+            rgb = base * (m0.y * u_env_ambient) * sh_irradiance(wn) * u_env_strength * ao;
+            vec3 r = u_view_to_world * (2.0 * dot(n, v) * n - v);
+            float roughness = clamp(1.0 - log(max(m0.w, 1.0)) / log(200.0), 0.0, 1.0);
+            rgb += m1.rgb * m0.z * env_sample(r, roughness * u_env_levels) * u_env_strength * ao;
+        } else {
+            rgb = base * (m0.y * u_env_ambient * u_env_color) * ao;
+        }
         for (int i = 0; i < u_light_count; i++) {
             vec3 L = u_light_dir[i];
+            float attenuation = 1.0;
+            if (u_light_point[i] == 1) {
+                vec3 to_light = u_light_pos[i] - pos;
+                float distance = max(length(to_light), 1e-12);
+                L = to_light / distance;
+                attenuation = 1.0 / (1.0 + (distance / u_light_radius[i]) * (distance / u_light_radius[i]));
+            }
             float ndl = dot(n, L);
             float lambert = clamp((ndl + m1.w) / (1.0 + m1.w), 0.0, 1.0);
             vec3 h = normalize(v + L);
             float spec = ndl > 0.0 ? pow(clamp(dot(n, h), 0.0, 1.0), max(m0.w, 1.0)) : 0.0;
-            float lit = u_light_shadow[i] > 0.0 ? 1.0 - u_light_shadow[i] * shadow(i, pos) : 1.0;
+            float lit = attenuation * (u_light_shadow[i] > 0.0 ? 1.0 - u_light_shadow[i] * shadow(i, pos) : 1.0);
             rgb += base * (m0.x * lambert) * u_light_color[i] * (lit * ao);
             rgb += m1.rgb * (m0.z * spec) * u_light_color[i] * lit;
         }
@@ -242,11 +301,17 @@ DOWNSAMPLE_GLSL = """
 #version 330
 uniform sampler2D u_image;
 uniform int u_factor;
+uniform sampler2D u_curves;      // 256 x 2: row 0 = (overall, red, green, blue) tone curves (render/tonemap.py)
+uniform bool u_has_curves;
 out vec4 f_color;
 vec3 encode(vec3 c) {
     vec3 lo = c * 12.92;
     vec3 hi = 1.055 * pow(max(c, vec3(1e-9)), vec3(1.0 / 2.4)) - 0.055;
     return mix(hi, lo, step(c, vec3(0.0031308)));
+}
+float curve(float v, int channel) {
+    vec4 t = texture(u_curves, vec2((clamp(v, 0.0, 1.0) * 255.0 + 0.5) / 256.0, 0.25));
+    return channel == 0 ? t.r : channel == 1 ? t.g : channel == 2 ? t.b : t.a;
 }
 void main() {
     ivec2 p = ivec2(gl_FragCoord.xy) * u_factor;
@@ -255,7 +320,12 @@ void main() {
         for (int dx = 0; dx < u_factor; dx++)
             total += texelFetch(u_image, p + ivec2(dx, dy), 0);
     vec4 c = total / float(u_factor * u_factor);
-    f_color = vec4(encode(c.rgb), c.a);
+    vec3 rgb = encode(c.rgb);
+    if (u_has_curves) {
+        rgb = vec3(curve(rgb.r, 0), curve(rgb.g, 0), curve(rgb.b, 0));          // overall, then the colour channels
+        rgb = vec3(curve(rgb.r, 1), curve(rgb.g, 2), curve(rgb.b, 3));
+    }
+    f_color = vec4(rgb, c.a);
 }
 """
 
@@ -326,7 +396,7 @@ class SolidGpuJob:
         self.gbuffer_tex.filter = (gl.NEAREST, gl.NEAREST)
         self.gbuffer_depth = self.ctx.depth_renderbuffer((w, h))
         self.gbuffer_fbo = self.ctx.framebuffer([self.gbuffer_tex], self.gbuffer_depth)
-        self.gbuffer_fbo.clear(0.0, 0.0, 0.0, -1.0, depth=1.0)
+        self.gbuffer_fbo.clear(0.0, 0.0, 0.0, 0.0, depth=1.0)     # alpha 0 = empty (a clear some drivers clamp to [0, 1] anyway)
         self.count_tex = self.ctx.texture((w, h), 1, dtype="f4")
         self.count_tex.filter = (gl.NEAREST, gl.NEAREST)
         self.count_fbo = self.ctx.framebuffer([self.count_tex])
@@ -351,6 +421,15 @@ class SolidGpuJob:
         self.materials_tex = self.ctx.texture((len(mats) * 3, 1), 4, table.tobytes(), dtype="f4")
         self.materials_tex.filter = (gl.NEAREST, gl.NEAREST)
         self.material_count = len(mats)
+        luts = curve_luts(self.flame.coloring.curves)
+        self.has_curves = luts is not None
+        curves = np.zeros((2, 256, 4), dtype=np.float32)
+        if luts is not None:
+            curves[0, :, :] = luts[:4].T
+            curves[1, :, 0] = luts[4]
+        self.curves_tex = self.ctx.texture((256, 2), 4, curves.tobytes(), dtype="f4")
+        self.curves_tex.filter = (gl.LINEAR, gl.LINEAR)
+        self.curves_tex.repeat_x = self.curves_tex.repeat_y = False
 
     def _prepare(self) -> None:
         """Warm up, then size the depth range and the shadow maps from where the points are (read back once)."""
@@ -379,13 +458,13 @@ class SolidGpuJob:
         self.depth_range = self.view.depth_range(vz)
         self.bounds = self.view.bounds(vx, vy, vz)
         for index, light in enumerate(self.scene.lights[:MAX_LIGHTS]):
-            if light.shadows and self.scene.solid.display != "points":
+            if light.casts_shadows and self.scene.solid.display != "points":
                 shadow = ShadowMap(light.altitude, light.azimuth, self.bounds, SHADOW_MAP_SIZE)
                 self.shadow_maps[index] = shadow
                 tex = self.ctx.texture((SHADOW_MAP_SIZE, SHADOW_MAP_SIZE), 1, dtype="f4")
                 tex.filter = (self.gl.NEAREST, self.gl.NEAREST)
                 fbo = self.ctx.framebuffer([tex])
-                fbo.clear(1e30, 0.0, 0.0, 0.0)
+                fbo.clear(1.0, 0.0, 0.0, 0.0)                     # normalised distance: 1 = as far as anything gets
                 self.shadow_textures[index] = (tex, fbo)
         self._set_plot_uniforms()
         if self.instances is not None:
@@ -439,6 +518,7 @@ class SolidGpuJob:
             _set(self.instance_prog, "u_light_basis", tuple(float(v) for v in shadow.basis.T.reshape(-1)))
             _set(self.instance_prog, "u_light_origin", (float(shadow.origin[0]), float(shadow.origin[1])))
             _set(self.instance_prog, "u_light_scale", (float(shadow.scale[0]), float(shadow.scale[1])))
+            _set(self.instance_prog, "u_light_along", (float(shadow.along_min), float(shadow.along_scale)))
             self.instance_vao.render(mode=gl.POINTS)
             self.ctx.blend_equation = gl.FUNC_ADD
         self.ctx.disable(gl.BLEND)
@@ -491,6 +571,7 @@ class SolidGpuJob:
                 _set(prog, "u_light_basis", tuple(float(v) for v in shadow.basis.T.reshape(-1)))
                 _set(prog, "u_light_origin", (float(shadow.origin[0]), float(shadow.origin[1])))
                 _set(prog, "u_light_scale", (float(shadow.scale[0]), float(shadow.scale[1])))
+                _set(prog, "u_light_along", (float(shadow.along_min), float(shadow.along_scale)))
                 self.population.plot()
                 self.ctx.blend_equation = gl.FUNC_ADD
                 self.ctx.disable(gl.BLEND)
@@ -558,13 +639,21 @@ class SolidGpuJob:
         _set_array(prog, "u_ao_kernel", kernel, "f4", 3)
         lights = self.scene.lights[:MAX_LIGHTS]
         _set(prog, "u_light_count", len(lights))
-        dirs, colors, shadows, taps, bases, origins, scales, biases = [], [], [], [], [], [], [], []
+        dirs, colors, shadows, taps, bases, origins, scales, biases, alongs = [], [], [], [], [], [], [], [], []
+        points, positions, radii = [], [], []
         unit = 4
         units = []
         for index in range(MAX_LIGHTS):
             light = lights[index] if index < len(lights) else None
-            shadow = self.shadow_maps.get(index) if light is not None and light.shadows and solid.display != "points" else None
+            shadow = self.shadow_maps.get(index) if light is not None and light.casts_shadows and solid.display != "points" else None
             d = light_direction(light.altitude, light.azimuth) if light is not None else np.array([0.0, 0.0, 1.0])
+            points.append(1 if light is not None and light.is_point else 0)
+            if light is not None and light.is_point:
+                lx, ly, lz = self.view.to_view(*(np.array([c], dtype=np.float64) for c in light.position))
+                positions += [float(lx[0]), float(ly[0]), float(lz[0])]
+            else:
+                positions += [0.0, 0.0, 0.0]
+            radii.append(float(max(light.radius, 1e-6)) if light is not None else 1.0)
             dirs += [float(v) for v in d]
             colors += [float(c) / 255.0 * light.intensity for c in light.color] if light is not None else [0.0, 0.0, 0.0]
             shadows.append(float(light.shadow_intensity) if shadow is not None else 0.0)
@@ -573,18 +662,23 @@ class SolidGpuJob:
                 bases += [float(v) for v in shadow.basis.T.reshape(-1)]
                 origins += [float(shadow.origin[0]), float(shadow.origin[1])]
                 scales += [float(shadow.scale[0]), float(shadow.scale[1])]
-                biases.append(float(shadow.extent * 0.004))
+                biases.append(float(shadow.extent * 0.004 * shadow.bias_scale * shadow.along_scale))
+                alongs += [float(shadow.along_min), float(shadow.along_scale)]
                 self.shadow_textures[index][0].use(unit)
             else:
                 bases += [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
                 origins += [0.0, 0.0]
                 scales += [1.0, 1.0]
                 biases.append(0.0)
+                alongs += [0.0, 1.0]
                 self.palette_tex.use(unit)       # any bound texture: the light has no map and never samples it
             units.append(unit)
             unit += 1
         _set_array(prog, "u_shadow", units, "i4", 1)
         _set_array(prog, "u_light_dir", dirs, "f4", 3)
+        _set_array(prog, "u_light_point", points, "i4", 1)
+        _set_array(prog, "u_light_pos", positions, "f4", 3)
+        _set_array(prog, "u_light_radius", radii, "f4", 1)
         _set_array(prog, "u_light_color", colors, "f4", 3)
         _set_array(prog, "u_light_shadow", shadows, "f4", 1)
         _set_array(prog, "u_light_taps", taps, "i4", 1)
@@ -592,6 +686,7 @@ class SolidGpuJob:
         _set_array(prog, "u_light_origin", origins, "f4", 2)
         _set_array(prog, "u_light_scale", scales, "f4", 2)
         _set_array(prog, "u_light_bias", biases, "f4", 1)
+        _set_array(prog, "u_light_along", alongs, "f4", 2)
         _set(prog, "u_light_size", float(SHADOW_MAP_SIZE))
         _set(prog, "u_env_color", tuple(c / 255.0 for c in env.color))
         _set(prog, "u_env_ambient", float(env.ambient))
@@ -600,17 +695,75 @@ class SolidGpuJob:
         _set(prog, "u_fog", 1 if solid.fog else 0)
         _set(prog, "u_fog_range", (float(near + solid.fog_start * span), float(near + solid.fog_end * span)))
         _set(prog, "u_fog_color", tuple(c / 255.0 for c in solid.fog_color))
+        self._set_environment_uniforms(prog)
         self.vaos["shade"].render(mode=gl.TRIANGLES, vertices=3)
         # downsample + sRGB
         self.out_fbo.use()
         self.ctx.viewport = (0, 0, self.settings.width, self.settings.height)
         self.shaded_tex.use(0)
         prog = self.programs["down"]
+        self.curves_tex.use(1)
         _set(prog, "u_image", 0)
         _set(prog, "u_factor", int(self.view.oversample))
+        _set(prog, "u_curves", 1)
+        _set(prog, "u_has_curves", self.has_curves)
         self.vaos["down"].render(mode=gl.TRIANGLES, vertices=3)
         data = self.out_fbo.read(components=4, dtype="f1")
         return np.frombuffer(data, dtype=np.uint8).reshape(self.settings.height, self.settings.width, 4).copy()
+
+    def _set_environment_uniforms(self, prog) -> None:
+        """The HDRI: its texture (cached on the engine by file), SH coefficients and the view → world matrix."""
+        from .gpu_engine import _set
+        env = self.scene.environment
+        env_map = H.environment_for(env)
+        if env_map is None:
+            _set(prog, "u_env_hdri", 0)
+            return
+        texture = self._environment_texture(env_map)
+        texture.use(13)
+        m = self.view.matrix
+        to_world = H.rotation_about_z(env.hdri_rotation).T @ m          # column-vector form of  d · (mᵀ · R)
+        _set(prog, "u_env_hdri", 1)
+        _set(prog, "u_env_map", 13)
+        _set(prog, "u_env_levels", float(len(env_map.levels) - 1))
+        _set_array(prog, "u_env_sh", env_map.sh.astype(np.float32), "f4", 3)
+        _set(prog, "u_view_to_world", tuple(float(v) for v in to_world.T.reshape(-1)))
+        _set(prog, "u_env_strength", float(env.hdri_strength))
+        _set(prog, "u_env_background", 1 if env.hdri_background else 0)
+        _set(prog, "u_env_blur", float(env.hdri_blur))
+        a, b, c, d, e, f = self.view.pixel_transform
+        det = a * d - b * c
+        # fx = (d·(px−e) − c·(py−f)) / det ;  fy = (a·(py−f) − b·(px−e)) / det
+        _set(prog, "u_cam_inv_x", (d / det, -c / det, (-d * e + c * f) / det))
+        _set(prog, "u_cam_inv_y", (-b / det, a / det, (b * e - a * f) / det))
+        perspective = self.flame.camera.perspective
+        from ..solid.shading import BACKGROUND_PERSPECTIVE
+        _set(prog, "u_bg_perspective", float(perspective if perspective > 1e-6 else BACKGROUND_PERSPECTIVE))
+
+    def _environment_texture(self, env_map):
+        """A mip-mapped RGB16F texture of the environment's prefiltered levels, cached on the engine."""
+        engine = self.engine
+        cache = getattr(engine, "_env_textures", None)
+        if cache is None:
+            cache = engine._env_textures = {}
+        key = (env_map.path, id(env_map))
+        texture = cache.get(key)
+        if texture is not None:
+            return texture
+        gl = self.gl
+        h, w = env_map.image.shape[:2]
+        texture = self.ctx.texture((w, h), 3, dtype="f2")
+        texture.build_mipmaps(0, len(env_map.levels) - 1)
+        for level, data in enumerate(env_map.levels):
+            texture.write(np.ascontiguousarray(data, dtype=np.float16).tobytes(), level=level)
+        texture.filter = (gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR)
+        texture.repeat_x = True
+        texture.repeat_y = False
+        if len(cache) >= 4:
+            old = cache.pop(next(iter(cache)))
+            old.release()
+        cache[key] = texture
+        return texture
 
     def close(self) -> None:
         """Free the GPU objects (idempotent)."""
@@ -619,7 +772,8 @@ class SolidGpuJob:
         self._closed = True
         self.population.release()
         for obj in (self.gbuffer_fbo, self.gbuffer_tex, self.gbuffer_depth, self.count_fbo, self.count_tex, self.normals_fbo,
-                    self.normals_tex, self.shaded_fbo, self.shaded_tex, self.out_fbo, self.out_tex, self.palette_tex, self.materials_tex):
+                    self.normals_tex, self.shaded_fbo, self.shaded_tex, self.out_fbo, self.out_tex, self.palette_tex, self.materials_tex,
+                    self.curves_tex):
             obj.release()
         for tex, fbo in self.shadow_textures.values():
             fbo.release()

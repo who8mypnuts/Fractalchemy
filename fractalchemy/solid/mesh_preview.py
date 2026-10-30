@@ -114,7 +114,7 @@ def render_mesh(mesh: Mesh, camera: Camera, scene: Scene3D, width: int, height: 
         gbuffer.fill_gaps(1)                                 # a point splat leaves pin-holes: close them
         if scene.solid.display != "points":
             for index, light in enumerate(scene.lights[:MAX_LIGHTS]):
-                if light.shadows:
+                if light.casts_shadows:
                     shadow = ShadowMap(light.altitude, light.azimuth, bounds, SHADOW_MAP_SIZE)
                     shadow.bias_scale = SHADOW_BIAS_SCALE
                     shadow.splat(vx, vy, vz)

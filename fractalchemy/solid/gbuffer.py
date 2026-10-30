@@ -153,6 +153,10 @@ class ShadowMap:
         self.scale = (self.size - 1) / (hi[:2] - lo[:2] + 2 * pad)
         self.depth = np.full((self.size, self.size), EMPTY_DEPTH, dtype=np.float32)
         self.extent = float((hi - lo).max())
+        # the GPU stores the distance along the light normalised to 0..1 over this range (a clear of 1.0 is then safe on
+        # drivers that clamp clear colours; the range is padded so nothing lands outside it)
+        self.along_min = float(lo[2] - pad - 0.5 * self.extent)
+        self.along_scale = 1.0 / max(float(hi[2] - lo[2] + 2 * pad + self.extent), 1e-9)
         self.bias_scale = 1.0          # multiplies the default depth bias (mesh previews use more: their maps are point-sampled)
 
     def light_coords(self, vx: np.ndarray, vy: np.ndarray, vz: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -177,6 +181,7 @@ class ShadowMap:
         clone = ShadowMap.__new__(ShadowMap)
         clone.direction, clone.size, clone.basis = self.direction, self.size, self.basis
         clone.origin, clone.scale, clone.extent = self.origin, self.scale, self.extent
+        clone.along_min, clone.along_scale = self.along_min, self.along_scale
         clone.bias_scale = self.bias_scale
         clone.depth = np.full((self.size, self.size), EMPTY_DEPTH, dtype=np.float32)
         return clone

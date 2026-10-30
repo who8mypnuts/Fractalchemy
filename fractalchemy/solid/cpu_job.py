@@ -75,7 +75,7 @@ class SolidCpuJob:
         self.depth_range = self.view.depth_range(vz)
         self.bounds = self.view.bounds(vx, vy, vz)
         for index, light in enumerate(self.scene.lights[:MAX_LIGHTS]):
-            if light.shadows and self.scene.solid.display != "points":
+            if light.casts_shadows and self.scene.solid.display != "points":
                 self.shadow_maps[index] = ShadowMap(light.altitude, light.azimuth, self.bounds, SHADOW_MAP_SIZE)
         for w in self._workers:
             w.set_targets(self.shadow_maps)

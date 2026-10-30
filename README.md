@@ -116,9 +116,9 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
   Apophysis's transform semantics (`pre_` / `post_` variation order, `var_color` direct colour, depth `z`)
   and its 3D camera (`cam_pitch`, `cam_yaw`, `cam_perspective` / `cam_dist`, `cam_zpos`, `cam_dof`).
 * **Formulas** (variations / plugins) live in `fractalchemy/formulas/` — see
-  [docs/formulas.md](docs/formulas.md). Some 830 are bundled: the flam3 classics and Apophysis 7X built-ins,
+  [docs/formulas.md](docs/formulas.md). Some 850 are bundled: the flam3 classics and Apophysis 7X built-ins,
   every Apophysis plugin whose source was available, plugins that only existed as (mostly 32-bit) DLLs,
-  reconstructed from their machine code, and 270-odd variations translated from JWildfire
+  reconstructed from their machine code, and 280-odd variations translated from JWildfire
   (`tools/import_jwf_variations.py`; the report in [docs/jwildfire_import.md](docs/jwildfire_import.md) lists
   what could not be translated and why). Each is defined once and compiled for *both* engines from the
   Apophysis plugin C dialect (or written natively in Python + GLSL), and the test-suite checks that numpy
@@ -380,10 +380,12 @@ environments), is `docs/3d-editor-plan.md`.
   **fog** (start / end as fractions of the depth range, colour). **Camera**: pitch / yaw / tilt in degrees,
   perspective, distance, zoom, as numbers. **Materials**: one per transform (the final transform takes the last)
   — colour from the palette or a fixed one, diffuse, ambient, specular and shininess, highlight colour, light
-  wrap, *Copy to all transforms*. **Lights**: up to eight distant lights placed relative to the camera (altitude
-  above the view plane, azimuth around it, so they turn with the view), colour, intensity, and a **shadow** each
-  (a shadow map rendered from the light; darkness and softness). **Environment**: the background colour (also the
-  ambient light's colour) and whether it shows (off: transparent renders), ambient strength, exposure.
+  wrap, *Copy to all transforms*. **Lights**: up to eight — **distant** lights placed relative to the camera
+  (altitude above the view plane, azimuth around it, so they turn with the view) with a **shadow** each (a shadow
+  map rendered from the light; darkness and softness), or **point** lights placed in the fractal's space (x, y, z,
+  a falloff radius — inverse-square, no shadows), colour and intensity. **Environment**: the background colour
+  (also the ambient light's colour) and whether it shows (off: transparent renders), ambient strength, exposure.
+  The flame's **tone curves** (overall and per channel) apply to solid renders too, so they match the 2D view.
 * **Scenes**: the flame, materials, lights, environment and renderer settings together are a *scene*, saved as a
   **`.fa3d`** file (JSON; the flame inside is the `.fa` format's) with **New / Open / Save / Save as** on the
   toolbar (`Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S`). The window asks before discarding unsaved changes;
@@ -403,7 +405,8 @@ environments), is `docs/3d-editor-plan.md`.
   Taubin smoothing, decimation to a target face count by quadric edge collapse — the built-in batched collapser,
   or `fast-simplification` when installed) or *remesh* (the voxel occupancy closed and cavity-filled, the last
   resort). Each carries a **print report**: pieces, open and non-manifold edges, orientation, watertight, volume,
-  area, size, a thin-wall estimate, and a recommendation. The capture is cached, so changing the threshold or the
+  area, size, a thin-wall estimate, a sampled **self-intersection** count (nearby triangle pairs tested
+  edge-against-triangle), and a recommendation. The capture is cached, so changing the threshold or the
   clean-up and regenerating takes a moment. *Show* switches the viewport between the solid render and either
   mesh — drawn with the same lights and materials (points sampled on the faces, smooth-shaded), so the mesh lands
   over the render it came from.
@@ -411,7 +414,8 @@ environments), is `docs/3d-editor-plan.md`.
   turned and scaled by the orbit's accumulated **frame** — the product of the transforms' local Jacobians along
   the way (exact for affine transforms, sensible for `spherical`, `julia3D` and the rest; or *scale only* to keep
   them upright). **Assets** are primitives (sphere, cube, torus, tetrahedron, icosahedron, cylinder, with a detail
-  level), imported meshes (OBJ / STL / PLY / glTF / USD) or the Mesh tab's clean mesh saved as a PLY. An
+  level; `dla` grows a coral by diffusion-limited aggregation — an asset generator: grow once, instance many
+  times), imported meshes (OBJ / STL / PLY / glTF / USD) or the Mesh tab's clean mesh saved as a PLY. An
   **instancer** picks an asset and a fractal — the scene's, or an **own 3D IFS** edited in a table, one row per
   transform as a 3D affine map (position, rotation, scale, weight, colour; *Add* / *Remove* / *Starter IFS* / *Send
   to main window* — it is a normal flame underneath: `linear3D` + `zscale` + `ztranslate` + `post_rotate_x/y`) —
@@ -421,6 +425,21 @@ environments), is `docs/3d-editor-plan.md`.
   palette colour, the asset's own colours or a fixed one) and a material. The instances are drawn and rendered
   with the fractal — same G-buffer, lights, shadows and ambient occlusion, on both engines — or alone (*Show the
   fractal itself* off).
+  **Use as formula** turns an asset into a variation, `mesh_<name>`: its points lie on the mesh's surface (the
+  triangles and an area table ride in the parameter texture, so it runs on both engines), usable in *any* flame
+  from the Transform Editor — a transform that *is* a smiley face. The source is saved to your formulas folder.
+* **Environment**: a background colour with ambient light, or an **HDRI** — `.hdr` (Radiance RGBE), `.exr`
+  (scanline half / float, none / ZIP / ZIPS) or any LDR image — as **image-based lighting**: diffuse from the
+  map's SH9 irradiance, reflections from prefiltered copies by material shininess, on both engines identically;
+  rotation, light strength, and the map as the (optionally blurred) background or the colour instead. **Extract
+  key lights** turns the map's brightest regions into distant lights (the first with shadows) — HDRI lighting
+  with real shadows, without path tracing. A thumbnail shows the map.
+* **3D formulas**: twelve JWildfire signed-distance solids are in the formula library — `box3D`, `rbox3D`,
+  `ellipsoid3D`, `cylinder3D`, `torus3D`, `cappedtorus3D`, `capsule3D`, `cone3D`, `octahedron3D`, `pyramid3D`,
+  `hexprism3D`, `rhombus3D` — volumes meant to be lit, and natural building blocks for 3D IFS; `affine3D` /
+  `pre_affine3D` / `post_affine3D` (a full 3D affine map: translate, scale, rotate, shear — the transform of a 3D
+  IFS); and the 3D crops `post_mandelbulb3d_crop`, `post_mandelbox3d_crop`, `post_aexion_crop` (Mandelbulb /
+  Mandelbox / Aexion shells as solids).
 * **Export**: the clean or the full mesh as **OBJ** (+ MTL), binary **STL**, binary **PLY**, **glTF** (GLB),
   **OpenUSD** (`.usda` always; `.usdc` / `.usdz` through `usd-core`), with **vertex colours**, or **UVs + a baked
   texture** (box / spherical / cylindrical projection, or an `xatlas` atlas when installed), or geometry only;
@@ -588,7 +607,9 @@ fractalchemy/
                         uv (projections, texture bake), mesh_preview (a mesh through the solid shader), holon (frames
                         along the orbit, chaos / tree instancing, primitives, the 3D-affine transform representation,
                         instance point clouds for the renderers, baking), pipeline (the stages and the exports), io/ (OBJ,
-                        STL, PLY, glTF + instancing, USD + PointInstancer, Blender scripts, readers)
+                        STL, PLY, glTF + instancing, USD + PointInstancer, Blender scripts, readers), hdri (.hdr / .exr
+                        readers, the equirect environment map: SH9 irradiance, prefiltered levels, key lights),
+                        mesh_formula (a mesh as a `mesh_…` variation)
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,

@@ -20,6 +20,8 @@ import numpy as np
 
 from ..fractal.scene import Flame
 from ..scene3d.model import Scene3D
+from ..render.tonemap import apply_luts, curve_luts
+from . import hdri as H
 from .gbuffer import GBuffer, ShadowMap, downsample
 from .view import View, light_direction
 
@@ -28,6 +30,7 @@ NEIGHBOUR_PAIRS = (((0, 1), (1, 0)), ((1, 0), (0, -1)), ((0, -1), (-1, 0)), ((-1
 DISCONTINUITY = 0.03       # a neighbour further away (in depth) than this × the depth span is another surface
 AO_BIAS = 0.02             # fraction of the AO radius a sample must be behind the surface to count
 MAX_LIGHTS = 8
+BACKGROUND_PERSPECTIVE = 0.35   # the perspective an orthographic camera's background rays borrow
 
 
 # --- normals ----------------------------------------------------------------------------------------------------
@@ -145,6 +148,27 @@ def ambient_occlusion(view: View, gbuffer: GBuffer, normal: np.ndarray, radius: 
     return box_blur(ao[..., None], 1, hits)[..., 0]
 
 
+def background_directions(view: View, width: int, height: int) -> np.ndarray:
+    """`(H, W, 3)` unit view-space directions of the camera rays through the G-buffer's pixels (a perspective of
+    `BACKGROUND_PERSPECTIVE` stands in for an orthographic camera, so the sky still has some parallax)."""
+    a, b, c, d, e, f = view.pixel_transform
+    det = a * d - b * c
+    ys, xs = np.mgrid[0:height, 0:width]
+    px, py = xs + 0.5 - e, ys + 0.5 - f
+    fx = (d * px - c * py) / det
+    fy = (a * py - b * px) / det
+    p = view.camera.perspective if view.camera.perspective > 1e-6 else BACKGROUND_PERSPECTIVE
+    dirs = np.stack([fx, fy, np.full_like(fx, -1.0 / p)], axis=-1)
+    return dirs / np.linalg.norm(dirs, axis=-1, keepdims=True)
+
+
+def hdri_background(view: View, env_map: "H.EnvironmentMap", env, height: int, width: int) -> np.ndarray:
+    """The HDRI seen along every pixel's camera ray, `(H, W, 3)` linear."""
+    dirs = background_directions(view, width, height) @ view.matrix.T
+    level = env.hdri_blur * (len(env_map.levels) - 1)
+    return env_map.sample(dirs.reshape(-1, 3), level, env.hdri_rotation).reshape(height, width, 3)
+
+
 def shade(view: View, gbuffer: GBuffer, scene: Scene3D, flame: Flame, shadow_maps: dict[int, ShadowMap] | None = None,
           depth_range: tuple[float, float] | None = None) -> np.ndarray:
     """The lit image `(height, width, 4)` uint8 of the G-buffer (downsampled from the supersampled size).
@@ -188,19 +212,42 @@ def shade(view: View, gbuffer: GBuffer, scene: Scene3D, flame: Flame, shadow_map
             ao = ambient_occlusion(view, gbuffer, normal, solid.ao_radius * span * 4.0, solid.ao_samples, solid.ao_falloff, solid.ao_intensity)
         v = view.view_direction(gbuffer.pos.astype(np.float64))
         env_color = np.array(env.color) / 255.0
-        rgb = base * (mat[..., 1:2] * env.ambient * env_color) * ao[..., None]
+        env_map = H.environment_for(env)
+        if env_map is not None:
+            # image-based lighting: diffuse from the SH9 irradiance, specular from the prefiltered map along the reflection
+            to_world = view.matrix.T                               # view = world · m  ⇒  world = view · mᵀ
+            world_normal = normal @ to_world
+            irradiance = env_map.irradiance(world_normal.reshape(-1, 3), env.hdri_rotation).reshape(h, w, 3) * env.hdri_strength
+            rgb = base * (mat[..., 1:2] * env.ambient) * irradiance * ao[..., None]
+            reflected = 2.0 * (normal * v).sum(axis=-1, keepdims=True) * normal - v
+            roughness = np.array([H.shininess_to_roughness(m.shininess) for m in mats])[material_index]
+            level = H.roughness_to_level(roughness, len(env_map.levels))
+            reflection = env_map.sample((reflected @ to_world).reshape(-1, 3), level.reshape(-1), env.hdri_rotation).reshape(h, w, 3)
+            rgb = rgb + mat[..., 6:9] * mat[..., 2:3] * reflection * env.hdri_strength * ao[..., None]
+        else:
+            rgb = base * (mat[..., 1:2] * env.ambient * env_color) * ao[..., None]
         for index, light in enumerate(scene.lights[:MAX_LIGHTS]):
-            L = light_direction(light.altitude, light.azimuth)
-            ndl = (normal @ L)
+            attenuation = 1.0
+            if light.is_point:
+                # a point light in the fractal's space: direction and inverse-square falloff per pixel
+                lx, ly, lz = view.to_view(*(np.array([c], dtype=np.float64) for c in light.position))
+                to_light = np.stack([lx[0], ly[0], lz[0]], axis=0) - gbuffer.pos.astype(np.float64)
+                distance = np.linalg.norm(to_light, axis=-1, keepdims=True)
+                L = to_light / np.maximum(distance, 1e-12)
+                attenuation = 1.0 / (1.0 + (distance[..., 0] / max(light.radius, 1e-6)) ** 2)
+                ndl = (normal * L).sum(axis=-1)
+            else:
+                L = light_direction(light.altitude, light.azimuth)
+                ndl = (normal @ L)
             wrap = mat[..., 4]
             lambert = np.clip((ndl + wrap) / (1.0 + wrap), 0.0, 1.0)
             half = v + L
             half /= np.maximum(np.linalg.norm(half, axis=-1, keepdims=True), 1e-12)
             ndh = np.clip((normal * half).sum(axis=-1), 0.0, 1.0)
             spec = np.where(ndl > 0, ndh ** np.maximum(mat[..., 3], 1.0), 0.0)
-            lit = np.ones((h, w))
-            if light.shadows and shadow_maps and index in shadow_maps:
-                lit = 1.0 - light.shadow_intensity * shadow_maps[index].occlusion(gbuffer.pos.astype(np.float64), light.shadow_softness)
+            lit = np.ones((h, w)) * attenuation
+            if light.casts_shadows and shadow_maps and index in shadow_maps:
+                lit = lit * (1.0 - light.shadow_intensity * shadow_maps[index].occlusion(gbuffer.pos.astype(np.float64), light.shadow_softness))
             light_color = np.array(light.color) / 255.0 * light.intensity
             rgb = rgb + base * (mat[..., 0:1] * lambert[..., None]) * light_color * (lit * ao)[..., None]
             rgb = rgb + mat[..., 6:9] * (mat[..., 2:3] * spec[..., None]) * light_color * lit[..., None]
@@ -210,15 +257,23 @@ def shade(view: View, gbuffer: GBuffer, scene: Scene3D, flame: Flame, shadow_map
             rgb = rgb * (1.0 - t[..., None]) + (np.array(solid.fog_color) / 255.0) * t[..., None]
     rgb = np.clip(rgb * env.exposure, 0.0, 1.0)
     background = np.array(env.color) / 255.0
+    env_map = H.environment_for(env) if env.visible and env.hdri_background else None
+    if env_map is not None:
+        background = np.clip(hdri_background(view, env_map, env, h, w) * env.exposure, 0.0, 1.0)
     rgba = np.empty((h, w, 4))
     rgba[..., :3] = np.where(hits[..., None], rgb, background if env.visible else 0.0)
     rgba[..., 3] = np.where(hits, 1.0, 1.0 if env.visible else 0.0)
     rgba = downsample(rgba, view.oversample)
     encoded = np.where(rgba[..., :3] <= 0.0031308, rgba[..., :3] * 12.92, 1.055 * np.power(np.maximum(rgba[..., :3], 1e-9), 1 / 2.4) - 0.055)
+    luts = curve_luts(getattr(getattr(flame, "coloring", None), "curves", None))
+    if luts is not None:
+        # the flame's tone curves, on display values as the 2D render applies them: overall, then per channel
+        overall = apply_luts(encoded, luts[0])
+        encoded = np.stack([apply_luts(overall[..., ch], luts[1 + ch]) for ch in range(3)], axis=-1)
     out = np.empty(rgba.shape, dtype=np.uint8)
     out[..., :3] = np.clip(encoded * 255.0 + 0.5, 0, 255).astype(np.uint8)
     out[..., 3] = np.clip(rgba[..., 3] * 255.0 + 0.5, 0, 255).astype(np.uint8)
     return out
 
 
-__all__ = ["shade", "normals_from_positions", "ambient_occlusion", "ao_kernel", "tangent_frame", "box_blur", "NEIGHBOUR_PAIRS", "MAX_LIGHTS"]
+__all__ = ["shade", "background_directions", "hdri_background", "normals_from_positions", "ambient_occlusion", "ao_kernel", "tangent_frame", "box_blur", "NEIGHBOUR_PAIRS", "MAX_LIGHTS"]

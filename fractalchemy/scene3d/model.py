@@ -49,16 +49,19 @@ class Material:
 
 @dataclass
 class DistantLight:
-    """A directional light placed relative to the camera.
+    """A light: distant (directional, placed relative to the camera) or a point light in the fractal's space.
 
     Attributes:
-        altitude: Degrees above the view plane (90 = from the camera, 0 = along the view plane).
-        azimuth: Degrees around the view axis (0 = from the right, 90 = from above).
+        altitude: Degrees above the view plane (90 = from the camera, 0 = along the view plane) — distant lights.
+        azimuth: Degrees around the view axis (0 = from the right, 90 = from above) — distant lights.
         color: Light colour.
         intensity: Strength.
-        shadows: Whether it casts shadows (a shadow map rendered from the light).
+        shadows: Whether it casts shadows (a shadow map rendered from the light; distant lights only).
         shadow_intensity: How dark its shadows are (0 = none, 1 = black).
         shadow_softness: Blur of the shadow edge in shadow-map pixels.
+        kind: `distant` or `point`.
+        position: World position of a point light (fractal coordinates).
+        radius: Distance at which a point light's strength has fallen to a half (inverse-square falloff).
     """
     altitude: float = 55.0
     azimuth: float = -22.0
@@ -67,6 +70,18 @@ class DistantLight:
     shadows: bool = True
     shadow_intensity: float = 0.7
     shadow_softness: float = 1.5
+    kind: str = "distant"
+    position: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    radius: float = 1.0
+
+    @property
+    def is_point(self) -> bool:
+        return self.kind == "point"
+
+    @property
+    def casts_shadows(self) -> bool:
+        """Shadow maps are directional: only distant lights cast them."""
+        return self.shadows and not self.is_point
 
     def copy(self) -> "DistantLight":
         return replace(self)
@@ -74,20 +89,28 @@ class DistantLight:
 
 @dataclass
 class Environment:
-    """What surrounds the object: the background and the ambient light (an HDRI comes in a later phase).
+    """What surrounds the object: the background and the ambient light — a colour, or an HDRI.
 
     Attributes:
-        color: Background colour (also the ambient light's colour).
-        ambient: Ambient light strength.
+        color: Background colour (also the ambient light's colour when there is no HDRI).
+        ambient: Ambient light strength (scales the colour, or the HDRI's irradiance).
         exposure: Multiplier on the shaded image before gamma.
         visible: Draw the background (else transparent).
-        hdri: Path of an equirectangular HDR image (reserved: read in phase 4).
+        hdri: Path of an equirectangular image (`.hdr`, `.exr`, or an LDR image); "" = none.
+        hdri_rotation: Turn of the map about the vertical (z) axis, degrees.
+        hdri_strength: How strongly the HDRI lights the surface (diffuse irradiance and specular reflections).
+        hdri_blur: Blur of the HDRI as the background (0 = sharp … 1 = very soft).
+        hdri_background: Show the HDRI as the background (off: the colour, with the HDRI still lighting).
     """
     color: RGB = (30, 32, 40)
     ambient: float = 0.6
     exposure: float = 1.0
     visible: bool = True
     hdri: str = ""
+    hdri_rotation: float = 0.0
+    hdri_strength: float = 1.0
+    hdri_blur: float = 0.0
+    hdri_background: bool = True
 
     def copy(self) -> "Environment":
         return replace(self)
@@ -420,6 +443,8 @@ def _load(cls, data: dict | None):
             continue
         if key.endswith("color") or key == "fog_color":
             value = tuple(int(v) for v in value)
+        elif key == "position":
+            value = tuple(float(v) for v in value)
         elif key == "formats":
             value = [str(v) for v in value]
         values[key] = value

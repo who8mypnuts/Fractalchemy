@@ -8,12 +8,15 @@ updates from echoing back as edits.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QPushButton,
+import numpy as np
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QPushButton,
                                QSpinBox, QVBoxLayout, QWidget)
 
 from ...scene3d.model import DistantLight
 from ...widgets.float_row import FloatRow
+from ...widgets.images import rgba_to_qimage
 from ...widgets.silent import blocked, updating
 from ..image_panel import ColorButton
 from .document import MAX_LIGHTS, Scene3DDocument
@@ -342,7 +345,15 @@ class LightsPanel(_Panel):
         self.list = QListWidget(self)
         self.list.setMaximumHeight(110)
         self.add_button = QPushButton("Add light", self)
+        self.add_point_button = QPushButton("Add point light", self)
         self.remove_button = QPushButton("Remove", self)
+        self.kind_box = QComboBox(self)
+        self.kind_box.addItem("Distant (sun-like, placed relative to the camera)", "distant")
+        self.kind_box.addItem("Point (in the fractal's space, with falloff)", "point")
+        self.pos_x = self._row("X", -5.0, 5.0, 2, "Position of the point light in fractal coordinates", self._light_position(0), "pos_x")
+        self.pos_y = self._row("Y", -5.0, 5.0, 2, "Position of the point light in fractal coordinates", self._light_position(1), "pos_y")
+        self.pos_z = self._row("Z", -5.0, 5.0, 2, "Position of the point light in fractal coordinates", self._light_position(2), "pos_z")
+        self.radius = self._row("Radius", 0.01, 5.0, 2, "Distance at which the light has fallen to half (inverse-square falloff)", self._light_field("radius"), "radius")
         self.altitude = self._row("Altitude", -90.0, 90.0, 1, "Height above the view plane (90° = from the camera)", self._light_field("altitude"), "altitude", "°")
         self.azimuth = self._row("Azimuth", -180.0, 180.0, 1, "Direction around the view axis (0° = from the right, 90° = from above)", self._light_field("azimuth"), "azimuth", "°")
         self.intensity = self._row("Intensity", 0.0, 3.0, 2, "Strength of the light", self._light_field("intensity"), "intensity")
@@ -354,18 +365,22 @@ class LightsPanel(_Panel):
         self._build()
         self.list.currentRowChanged.connect(lambda _row: self._show_current())
         self.add_button.clicked.connect(self._add)
+        self.add_point_button.clicked.connect(self._add_point)
         self.remove_button.clicked.connect(lambda: self._document.remove_light(self.current_index()) if self._document else None)
         self.shadows_check.toggled.connect(lambda on: None if self._updating else self._light(None, shadows=on))
+        self.kind_box.currentIndexChanged.connect(lambda _i: None if self._updating else self._light(None, kind=self.kind_box.currentData()))
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
         layout.addWidget(self.list)
         buttons = QHBoxLayout()
         buttons.addWidget(self.add_button)
+        buttons.addWidget(self.add_point_button)
         buttons.addWidget(self.remove_button)
         buttons.addStretch(1)
         layout.addLayout(buttons)
-        for row in (self.altitude, self.azimuth, self.intensity):
+        layout.addWidget(self.kind_box)
+        for row in (self.altitude, self.azimuth, self.pos_x, self.pos_y, self.pos_z, self.radius, self.intensity):
             layout.addWidget(row)
         colour = QHBoxLayout()
         colour.addWidget(QLabel("Colour", self))
@@ -382,6 +397,28 @@ class LightsPanel(_Panel):
 
     def _light_field(self, field: str):
         return lambda value, key: self._light(key, **{field: value})
+
+    def _light_position(self, axis: int):
+        def setter(value, key):
+            light = self._current_light()
+            if light is not None:
+                position = list(light.position)
+                position[axis] = float(value)
+                self._light(key, position=tuple(position))
+        return setter
+
+    def _current_light(self):
+        index = self.current_index()
+        lights = self._document.scene.lights if self._document is not None else []
+        return lights[index] if 0 <= index < len(lights) else None
+
+    def _add_point(self) -> None:
+        if self._document is None:
+            return
+        index = self._document.add_light(DistantLight(kind="point", position=(0.0, 0.0, 1.0), radius=1.0, intensity=1.0, shadows=False,
+                                                      color=(255, 240, 220)))
+        if index >= 0:
+            self.list.setCurrentRow(index)
 
     def _light(self, merge_key, **fields) -> None:
         if self._document is not None and self.current_index() >= 0:
@@ -411,7 +448,9 @@ class LightsPanel(_Panel):
         with blocked(self.list):
             self.list.clear()
             for i, light in enumerate(lights):
-                self.list.addItem(f"Light {i + 1}  ({light.altitude:g}°, {light.azimuth:g}°)" + ("  · shadows" if light.shadows else ""))
+                where = (f"point at {light.position[0]:g}, {light.position[1]:g}, {light.position[2]:g}" if light.is_point
+                         else f"{light.altitude:g}°, {light.azimuth:g}°")
+                self.list.addItem(f"Light {i + 1}  ({where})" + ("  · shadows" if light.casts_shadows else ""))
             if lights:
                 self.list.setCurrentRow(min(max(0, current), len(lights) - 1))
         self.add_button.setEnabled(len(lights) < MAX_LIGHTS)
@@ -424,34 +463,84 @@ class LightsPanel(_Panel):
         index = self.current_index()
         lights = self._document.scene.lights
         has = 0 <= index < len(lights)
-        for w in (self.altitude, self.azimuth, self.intensity, self.color, self.shadows_check, self.shadow_intensity, self.shadow_softness):
+        for w in (self.kind_box, self.altitude, self.azimuth, self.pos_x, self.pos_y, self.pos_z, self.radius, self.intensity, self.color,
+                  self.shadows_check, self.shadow_intensity, self.shadow_softness):
             w.setEnabled(has)
         if not has:
             return
         light = lights[index]
-        with updating(self), blocked(self.shadows_check):
+        with updating(self), blocked(self.shadows_check, self.kind_box):
+            self.kind_box.setCurrentIndex(max(0, self.kind_box.findData(light.kind)))
             self.altitude.set_value(light.altitude)
             self.azimuth.set_value(light.azimuth)
+            self.pos_x.set_value(light.position[0])
+            self.pos_y.set_value(light.position[1])
+            self.pos_z.set_value(light.position[2])
+            self.radius.set_value(light.radius)
             self.intensity.set_value(light.intensity)
             self.color.set_color(light.color)
             self.shadows_check.setChecked(light.shadows)
             self.shadow_intensity.set_value(light.shadow_intensity)
             self.shadow_softness.set_value(light.shadow_softness)
-        self.shadow_intensity.setEnabled(light.shadows)
-        self.shadow_softness.setEnabled(light.shadows)
+        point = light.is_point
+        for w in (self.altitude, self.azimuth):
+            w.setVisible(not point)
+        for w in (self.pos_x, self.pos_y, self.pos_z, self.radius):
+            w.setVisible(point)
+        self.shadows_check.setEnabled(not point)
+        self.shadows_check.setToolTip("Point lights cast no shadows (shadow maps are directional)" if point
+                                      else "Render a shadow map from this light (the surface shades itself)")
+        self.shadow_intensity.setEnabled(light.casts_shadows)
+        self.shadow_softness.setEnabled(light.casts_shadows)
 
 
 # --- environment ----------------------------------------------------------------------------------------------------
 class EnvironmentPanel(_Panel):
-    """Background colour and visibility, ambient light, exposure."""
+    """Background colour and visibility, ambient light, exposure, and the HDRI: file, rotation, strength, blur,
+    whether it is the background, a thumbnail, and *Extract key lights* (the brightest regions become distant lights).
+
+    Signals:
+        status(str): A message for the status bar.
+    """
+    status = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.color = self._color("Background colour", lambda c: self._document.update_environment("color", color=c))
         self.visible_check = QCheckBox("Show the background", self)
         self.visible_check.setToolTip("Off: the background is transparent (renders keep the alpha channel)")
-        self.ambient = self._row("Ambient", 0.0, 2.0, 2, "Strength of the ambient light (its colour is the background's)", self._env_field("ambient"), "ambient")
+        self.ambient = self._row("Ambient", 0.0, 2.0, 2, "Strength of the ambient light (the background colour's, or the HDRI's irradiance)",
+                                 self._env_field("ambient"), "ambient")
         self.exposure = self._row("Exposure", 0.1, 4.0, 2, "Brightness multiplier on the shaded image", self._env_field("exposure"), "exposure")
+        self.hdri_path = QLabel("none", self)
+        self.hdri_path.setStyleSheet("color: #808080;")
+        self.hdri_path.setWordWrap(True)
+        self.browse_button = QPushButton("Choose HDRI…", self)
+        self.clear_button = QPushButton("Clear", self)
+        self.thumbnail = QLabel(self)
+        self.thumbnail.setFixedSize(240, 120)
+        self.thumbnail.setStyleSheet("background: #181818; color: #666;")
+        self.thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thumbnail.setText("No HDRI")
+        self.rotation = self._row("Rotation", -180.0, 180.0, 1, "Turn the map about the vertical axis", self._env_field("hdri_rotation"), "hdri_rotation", "°")
+        self.strength = self._row("Light", 0.0, 4.0, 2, "How strongly the HDRI lights the surface (diffuse and reflections)",
+                                  self._env_field("hdri_strength"), "hdri_strength")
+        self.blur = self._row("Blur", 0.0, 1.0, 2, "Blur of the HDRI as the background", self._env_field("hdri_blur"), "hdri_blur")
+        self.background_check = QCheckBox("HDRI as the background", self)
+        self.background_check.setToolTip("Off: the background colour shows while the HDRI still lights the scene")
+        self.key_count = QSpinBox(self)
+        self.key_count.setRange(1, 6)
+        self.key_count.setValue(2)
+        self.extract_button = QPushButton("Extract key lights", self)
+        self.extract_button.setToolTip("Add the HDRI's brightest regions as distant lights (the first casts shadows) — HDRI lighting with shadows")
+        self._build()
+        self.visible_check.toggled.connect(lambda on: None if self._updating else self._document.update_environment(None, visible=on))
+        self.background_check.toggled.connect(lambda on: None if self._updating else self._document.update_environment(None, hdri_background=on))
+        self.browse_button.clicked.connect(self.choose_hdri)
+        self.clear_button.clicked.connect(lambda: self._document.update_environment(None, hdri="") if self._document else None)
+        self.extract_button.clicked.connect(lambda: self.extract_key_lights(self.key_count.value()))
+
+    def _build(self) -> None:
         layout = QVBoxLayout(self)
         colour = QHBoxLayout()
         colour.addWidget(QLabel("Background", self))
@@ -461,15 +550,57 @@ class EnvironmentPanel(_Panel):
         layout.addWidget(self.visible_check)
         layout.addWidget(self.ambient)
         layout.addWidget(self.exposure)
-        note = QLabel("An HDRI environment (image-based lighting) comes in a later phase.", self)
-        note.setWordWrap(True)
-        note.setStyleSheet("color: #808080;")
-        layout.addWidget(note)
+        group = QGroupBox("HDRI environment", self)
+        g = QVBoxLayout(group)
+        row = QHBoxLayout()
+        row.addWidget(self.browse_button)
+        row.addWidget(self.clear_button)
+        row.addStretch(1)
+        g.addLayout(row)
+        g.addWidget(self.hdri_path)
+        g.addWidget(self.thumbnail, 0, Qt.AlignmentFlag.AlignHCenter)
+        g.addWidget(self.rotation)
+        g.addWidget(self.strength)
+        g.addWidget(self.blur)
+        g.addWidget(self.background_check)
+        keys = QHBoxLayout()
+        keys.addWidget(self.extract_button)
+        keys.addWidget(self.key_count)
+        keys.addWidget(QLabel("lights", group))
+        keys.addStretch(1)
+        g.addLayout(keys)
+        layout.addWidget(group)
         layout.addStretch(1)
-        self.visible_check.toggled.connect(lambda on: None if self._updating else self._document.update_environment(None, visible=on))
 
     def _env_field(self, field: str):
         return lambda value, key: self._document.update_environment(key, **{field: value})
+
+    def choose_hdri(self, path=None) -> bool:
+        """Pick an HDRI (`.hdr`, `.exr` or an LDR image); a dialog when no path is given."""
+        if self._document is None:
+            return False
+        if path is None:
+            chosen, _filter = QFileDialog.getOpenFileName(self, "Choose an HDRI", "",
+                                                          "Environment images (*.hdr *.exr *.png *.jpg *.jpeg *.tif *.tiff);;All files (*)")
+            if not chosen:
+                return False
+            path = chosen
+        from ...solid import hdri
+        try:
+            hdri.load_environment(path)
+        except (OSError, hdri.HdriError) as exc:
+            self.status.emit(f"Could not read the HDRI: {exc}")
+            return False
+        self._document.update_environment(None, hdri=str(path))
+        return True
+
+    def extract_key_lights(self, count: int = 2) -> int:
+        """Add the HDRI's brightest regions as distant lights; returns how many were added."""
+        if self._document is None:
+            return 0
+        added = self._document.add_key_lights(count)
+        self.status.emit(f"Added {added} light{'s' if added != 1 else ''} from the HDRI" if added else "No HDRI to take lights from")
+        return added
 
     def bind(self, document: Scene3DDocument) -> None:
         self._document = document
@@ -481,11 +612,40 @@ class EnvironmentPanel(_Panel):
         if self._document is None:
             return
         env = self._document.scene.environment
-        with updating(self), blocked(self.visible_check):
+        with updating(self), blocked(self.visible_check, self.background_check):
             self.color.set_color(env.color)
             self.visible_check.setChecked(env.visible)
             self.ambient.set_value(env.ambient)
             self.exposure.set_value(env.exposure)
+            self.rotation.set_value(env.hdri_rotation)
+            self.strength.set_value(env.hdri_strength)
+            self.blur.set_value(env.hdri_blur)
+            self.background_check.setChecked(env.hdri_background)
+        has = bool(env.hdri)
+        for w in (self.rotation, self.strength, self.blur, self.background_check, self.extract_button, self.key_count, self.clear_button):
+            w.setEnabled(has)
+        self.hdri_path.setText(env.hdri if has else "none")
+        self._show_thumbnail(env.hdri if has else "")
+
+    def _show_thumbnail(self, path: str) -> None:
+        if not path:
+            self.thumbnail.setPixmap(QPixmap())
+            self.thumbnail.setText("No HDRI")
+            return
+        from ...solid import hdri
+        env_map = hdri.environment_for(self._document.scene.environment)
+        if env_map is None:
+            self.thumbnail.setPixmap(QPixmap())
+            self.thumbnail.setText("Cannot read the HDRI")
+            return
+        image = env_map.levels[min(1, len(env_map.levels) - 1)]
+        tone = image / (1.0 + image)                               # Reinhard, then sRGB: a glance at the map
+        srgb = np.where(tone <= 0.0031308, tone * 12.92, 1.055 * np.power(np.maximum(tone, 1e-9), 1 / 2.4) - 0.055)
+        rgba = np.empty(image.shape[:2] + (4,), dtype=np.uint8)
+        rgba[..., :3] = np.clip(srgb * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        rgba[..., 3] = 255
+        pixmap = QPixmap.fromImage(rgba_to_qimage(np.ascontiguousarray(rgba)))
+        self.thumbnail.setPixmap(pixmap.scaled(self.thumbnail.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
 
 
 __all__ = ["RenderPanel", "CameraPanel", "MaterialsPanel", "LightsPanel", "EnvironmentPanel", "DEGREES"]

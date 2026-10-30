@@ -419,6 +419,8 @@ def report_markdown(result: MeshResult, scene: Scene3D, export: ExportSettings, 
                   f"| size | {size[0]:.4g} × {size[1]:.4g} × {size[2]:.4g} units |"]
         if rep.thin_wall is not None:
             lines.append(f"| thinnest wall (lower-bound estimate) | {rep.thin_wall:.4g} units |")
+        if rep.self_intersections is not None:
+            lines.append(f"| self-intersections | {rep.self_intersections} in {rep.pairs_checked:,} nearby pairs |")
         lines += ["", f"**{rep.recommendation()}**", ""]
         if rep.notes:
             lines += ["Clean-up: " + "; ".join(rep.notes), ""]

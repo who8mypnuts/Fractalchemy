@@ -108,6 +108,14 @@ for index, (direction, colour, energy, shadows) in enumerate({lights!r}):
     bpy.context.scene.collection.objects.link(obj)
     obj.location = centre + Vector(direction) * {distance}
     obj.rotation_euler = Vector(direction).to_track_quat("Z", "Y").to_euler()
+for index, (position, colour, energy, radius) in enumerate({point_lights!r}):
+    lamp = bpy.data.lights.new("Fractalchemy point light %d" % (index + 1), type="POINT")
+    lamp.color = colour
+    lamp.energy = energy
+    lamp.shadow_soft_size = radius * 0.1
+    obj = bpy.data.objects.new(lamp.name, lamp)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.location = Vector(position)
 
 # --- the world ------------------------------------------------------------------------------------------------------
 world = bpy.context.scene.world or bpy.data.worlds.new("Fractalchemy world")
@@ -138,13 +146,17 @@ def blender_script(scene: Scene3D, asset_name: str, mesh_centre, mesh_extent: fl
     else:
         distance = extent * 3.0
         fov = math.radians(40.0)
-    lights = []
+    lights, point_lights = [], []
     for light in scene.lights:
+        if light.is_point:
+            point_lights.append((tuple(round(float(v), 6) for v in light.position), tuple(round(c / 255.0, 4) for c in light.color),
+                                 round(float(light.intensity) * 50.0 * light.radius ** 2, 4), round(float(light.radius), 4)))
+            continue
         d_view = light_direction(light.altitude, light.azimuth)
         d_world = d_view @ m.T
         lights.append((tuple(round(float(v), 6) for v in d_world), tuple(round(c / 255.0, 4) for c in light.color),
                        round(float(light.intensity) * 3.0, 4), bool(light.shadows)))
-    material = scene.material_for(0)
+    material = scene.material_for_transform(0)
     env = scene.environment
     centre = tuple(round(float(v), 6) for v in np.asarray(mesh_centre, dtype=np.float64))
     return TEMPLATE.format(
@@ -153,7 +165,7 @@ def blender_script(scene: Scene3D, asset_name: str, mesh_centre, mesh_extent: fl
         centre=centre, right=tuple(round(float(v), 6) for v in right), up=tuple(round(float(v), 6) for v in up),
         back=tuple(round(float(v), 6) for v in back), distance=round(distance, 6), perspective=round(camera.perspective, 6),
         fov=round(fov, 6), visible_width=round(visible_width, 6), width=max(1, camera.width), height=max(1, camera.height),
-        lights=lights, bg_r=round(env.color[0] / 255.0, 4), bg_g=round(env.color[1] / 255.0, 4), bg_b=round(env.color[2] / 255.0, 4),
+        lights=lights, point_lights=point_lights, bg_r=round(env.color[0] / 255.0, 4), bg_g=round(env.color[1] / 255.0, 4), bg_b=round(env.color[2] / 255.0, 4),
         ambient=round(env.ambient, 4), transparent=not env.visible, light_count=len(lights))
 
 
@@ -303,6 +315,14 @@ for index, (direction, colour, energy, shadows) in enumerate(DATA["lights"]):
     bpy.context.scene.collection.objects.link(obj)
     obj.location = centre + Vector(direction) * DATA["distance"]
     obj.rotation_euler = Vector(direction).to_track_quat("Z", "Y").to_euler()
+for index, (position, colour, energy, radius) in enumerate(DATA.get("point_lights", [])):
+    lamp = bpy.data.lights.new("Fractalchemy point light %d" % (index + 1), type="POINT")
+    lamp.color = colour
+    lamp.energy = energy
+    lamp.shadow_soft_size = radius * 0.1
+    obj = bpy.data.objects.new(lamp.name, lamp)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.location = Vector(position)
 world = bpy.context.scene.world or bpy.data.worlds.new("Fractalchemy world")
 bpy.context.scene.world = world
 world.use_nodes = True
@@ -353,8 +373,12 @@ def write_blender_instances(scene: Scene3D, path: Path, instancers: list, mesh_c
     else:
         distance = extent * 3.0
         fov = math.radians(40.0)
-    lights = []
+    lights, point_lights = [], []
     for light in scene.lights:
+        if light.is_point:
+            point_lights.append([[round(float(v), 6) for v in light.position], [round(c / 255.0, 4) for c in light.color],
+                                 round(float(light.intensity) * 50.0 * light.radius ** 2, 4), round(float(light.radius), 4)])
+            continue
         d_world = light_direction(light.altitude, light.azimuth) @ m.T
         lights.append([[round(float(v), 6) for v in d_world], [round(c / 255.0, 4) for c in light.color], round(float(light.intensity) * 3.0, 4), bool(light.shadows)])
     env = scene.environment
@@ -367,7 +391,7 @@ def write_blender_instances(scene: Scene3D, path: Path, instancers: list, mesh_c
         "centre": [round(float(v), 6) for v in np.asarray(mesh_centre, dtype=np.float64)],
         "right": [round(float(v), 6) for v in m[:, 0]], "up": [round(float(v), 6) for v in -m[:, 1]], "back": [round(float(v), 6) for v in m[:, 2]],
         "distance": round(distance, 6), "perspective": round(camera.perspective, 6), "fov": round(fov, 6), "visible_width": round(visible_width, 6),
-        "lights": lights, "background": [round(c / 255.0, 4) for c in env.color], "ambient": round(env.ambient, 4), "transparent": not env.visible,
+        "lights": lights, "point_lights": point_lights, "background": [round(c / 255.0, 4) for c in env.color], "ambient": round(env.ambient, 4), "transparent": not env.visible,
     }
     import json
     data_path = path.with_name(f"{path.stem.removesuffix('_blender')}_instances.json")

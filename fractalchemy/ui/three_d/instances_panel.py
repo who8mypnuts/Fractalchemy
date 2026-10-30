@@ -41,9 +41,11 @@ class InstancesPanel(_Panel):
     Signals:
         flame_sent(object): *Send own IFS to main window*: a `Flame`.
         status(str): A message for the status bar.
+        formulas_changed(): A mesh formula was registered (every formula list is stale).
     """
     flame_sent = Signal(object)
     status = Signal(str)
+    formulas_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -62,6 +64,9 @@ class InstancesPanel(_Panel):
         self.from_mesh_button = QPushButton("From the clean mesh", self)
         self.from_mesh_button.setToolTip("Save the Mesh tab's clean mesh as a PLY and use it as an asset")
         self.remove_asset_button = QPushButton("Remove", self)
+        self.formula_button = QPushButton("Use as formula", self)
+        self.formula_button.setToolTip("Register mesh_<name>: a variation whose points lie on this mesh's surface, usable in any flame "
+                                       "(saved to your formulas folder so it is there next time)")
         self.asset_name = QLineEdit(self)
         self.asset_detail = QSpinBox(self)
         self.asset_detail.setRange(0, 5)
@@ -139,7 +144,7 @@ class InstancesPanel(_Panel):
         al = QVBoxLayout(assets)
         al.addWidget(self.asset_list)
         row = QHBoxLayout()
-        for w in (self.add_primitive_button, self.import_button, self.from_mesh_button, self.remove_asset_button):
+        for w in (self.add_primitive_button, self.import_button, self.from_mesh_button, self.remove_asset_button, self.formula_button):
             row.addWidget(w)
         row.addStretch(1)
         al.addLayout(row)
@@ -197,6 +202,7 @@ class InstancesPanel(_Panel):
         self.import_button.clicked.connect(self.import_mesh)
         self.from_mesh_button.clicked.connect(self.asset_from_clean_mesh)
         self.remove_asset_button.clicked.connect(lambda: self._document.remove_asset(self.asset_list.currentRow()) if self._document else None)
+        self.formula_button.clicked.connect(lambda: self.register_formula())
         self.asset_name.editingFinished.connect(lambda: None if self._updating else self._asset(name=self.asset_name.text().strip() or "asset"))
         self.asset_detail.valueChanged.connect(lambda v: None if self._updating else self._asset(detail=int(v)))
         self.asset_normalize.toggled.connect(lambda on: None if self._updating else self._asset(normalize=bool(on)))
@@ -301,6 +307,26 @@ class InstancesPanel(_Panel):
         self.status.emit(f"Saved the clean mesh as {target.name}")
         return True
 
+    def register_formula(self, folder: Path | None = None) -> str | None:
+        """Register the selected asset as a `mesh_…` formula and save its source; returns the formula's name (None on failure)."""
+        row = self.asset_list.currentRow()
+        if self._document is None or not 0 <= row < len(self._document.scene.assets):
+            return None
+        asset = self._document.scene.assets[row]
+        if asset.mesh is None:
+            self.status.emit(f"{asset.name}: no geometry loaded")
+            return None
+        from ...solid.mesh_formula import register_mesh_formula, write_mesh_formula
+        try:
+            var = register_mesh_formula(asset.mesh, asset.name)
+            path = write_mesh_formula(asset.mesh, asset.name, folder)
+        except (ValueError, OSError) as exc:
+            self.status.emit(f"Could not make a formula of {asset.name}: {exc}")
+            return None
+        self.formulas_changed.emit()
+        self.status.emit(f"Registered the formula {var.name} (saved as {path.name})")
+        return var.name
+
     def _refresh_assets(self) -> None:
         scene = self._document.scene
         current = self.asset_list.currentRow()
@@ -313,6 +339,7 @@ class InstancesPanel(_Panel):
             if scene.assets:
                 self.asset_list.setCurrentRow(min(max(0, current), len(scene.assets) - 1))
         self.remove_asset_button.setEnabled(bool(scene.assets))
+        self.formula_button.setEnabled(bool(scene.assets))
         self.from_mesh_button.setEnabled(self._document.mesh_result is not None)
         with blocked(self.asset_box):
             chosen = self.asset_box.currentData()

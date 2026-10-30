@@ -56,9 +56,11 @@ class ThreeDWindow(QMainWindow):
     Signals:
         flame_sent(object): *Send to the main window*: a `Flame` for the main window to show.
         status(str): A message for the status bar.
+        formulas_changed(): A mesh formula was registered from an asset (formula lists elsewhere are stale).
     """
     flame_sent = Signal(object)
     status = Signal(str)
+    formulas_changed = Signal()
 
     def __init__(self, service: RenderService, parent: QWidget | None = None, settings: QSettings | None = None,
                  main_document: FractalDocument | None = None, prefer_gpu: bool = True):
@@ -202,6 +204,8 @@ class ThreeDWindow(QMainWindow):
         self.export_panel.export_requested.connect(self.export_mesh)
         self.instances_panel.flame_sent.connect(self.flame_sent)
         self.instances_panel.status.connect(self.status)
+        self.instances_panel.formulas_changed.connect(self.formulas_changed)
+        self.environment_panel.status.connect(self.status)
         self.document.mesh_changed.connect(self._on_mesh_changed)
         self.document.solid_changed.connect(self._sync_display_choice)
         if self._main is not None:

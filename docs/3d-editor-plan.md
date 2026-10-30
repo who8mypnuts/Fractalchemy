@@ -17,7 +17,7 @@ manifold, thin walls, size) with a recommendation and **buttons** for each repai
 remesh as the last resort); the flame's 3D camera fields stay the one camera, driven by an orbit rig; **phase 1
 is the solid renderer without meshing**; the scene lives in its own **`.fa3d`** file with Open / Save in the 3D
 Editor from the start (materials, lights, assets and instancers will be embedded there, which `.fa` should not
-carry). **Phases 1 to 3 are implemented** (§11 marks them); the rest is the design to build on. Where JWildfire is
+carry). **All four phases are implemented** (§11 marks them, with what each left out). Where JWildfire is
 referenced, the relevant code was read (`create/tina/base/solidrender`, `base/raster/NormalsCalculator`, `render/LogDensityFilter`,
 `meshgen/*`), so the techniques named are ones known to work on fractal point clouds.
 
@@ -224,9 +224,10 @@ reference and the fallback (slower, not interactive).
    sets* of edges in vectorised rounds (link condition, face-flip test, cost bands with a random order inside so
    the selection does not chain), `fast-simplification` when installed — then normals; **print checks**:
    watertight, manifold edges, orientation, pieces, volume, area, size, a thin-wall lower-bound estimate from the
-   voxel distance transform; scale to millimetres with a target size. Three levels: *simple*, *aggressive*, and
-   *remesh* (the occupancy closed, cavities filled, largest blob, re-extracted). The report goes in the export
-   beside the files (`name_report.md`). Not done: a self-intersection check.
+   voxel distance transform, a sampled self-intersection count (nearby triangle pairs, edge against triangle);
+   scale to millimetres with a target size. Three levels: *simple*, *aggressive*, and *remesh* (the occupancy
+   closed, cavities filled, largest blob, re-extracted). The report goes in the export beside the files
+   (`name_report.md`).
 
 ---
 
@@ -331,7 +332,7 @@ cannot show to advantage become worthwhile (see `proposed_variations.md` and `do
 | **1. Solid render + window** ✓ done | `scene3d` model + `.fa3d`; `solid/` capture / zbuffer / normals / shading (numpy); `render/gpu_solid.py` G-buffer + shading on the GPU; `ThreeDWindow` with the viewport (points + solid, orbit rig), Render / Camera / Materials / Lights / Environment tabs; *Render…* in the Render 3D Image window; *Use main fractal* / follow / send back; a **density threshold** (`SolidSettings.min_hits`: samples per G-buffer pixel a surface needs — removes the haze blur variations scatter) | numpy vs GPU agreement on the G-buffer and shaded image (`test_solid.py`); camera maths; window opens / pulls / renders on the CPU engine; the render to file |
 | **2. Mesh + export** ✓ done | capture → voxelise → filters → surface nets → the clean-up pipeline with the report (three levels), OBJ / STL / PLY / GLB / USD (usda, usdc, usdz) writers + readers, UV projections + texture bake, Blender script export; the Mesh (log-histogram threshold, cached capture, mesh display in the viewport) and Export tabs; jobs on QThreads | `tests/test_mesh.py`: every format round-trips; watertight / manifold / orientation on a sphere shell; decimation reaches its target and keeps the volume within 5 %; the pipeline stages, cancellation and the report; the tabs end to end |
 | **3. Holon IFS** ✓ done | frames along the orbit by local Jacobians (exact for affine maps; a *scale only* mode), chaos and tree modes with size rules, primitives / imported / fractal-mesh assets, instances in the same G-buffer as the fractal on both engines (point splats of the asset surfaces with interpolated normals — not instanced rasterisation, since the viewport is image-based), PointInstancer / `EXT_mesh_gpu_instancing` / Blender Geometry Nodes / baked exports; the Instances tab with an own 3D IFS edited as a table of 3D affine maps (no viewport gizmos) | `tests/test_holon.py`: Jacobian and frame against closed forms, tree counts `n^d`, chaos determinism, primitives watertight, CPU / GPU agreement, export round trips, the tab end to end |
-| **4. Environment + polish** | HDRI readers, IBL (SH9 + prefiltered), key-light extraction, shadow softness, fog, the `mesh_points` formula, the 3D formula imports from §9, documentation | HDRI decode against known images; IBL energy tests; the formulas through `test_variations` |
+| **4. Environment + polish** ✓ done | `.hdr` / `.exr` / LDR readers (`solid/hdri.py`), the equirect `EnvironmentMap` (SH9 irradiance, prefiltered levels, key-light extraction), IBL on both engines with the map as background, the Environment tab; the `mesh_<asset>` formula (`solid/mesh_formula.py`: the mesh as tables in the parameter texture); twelve JWildfire SDF primitives hand-translated into the library (`box3D` … `rhombus3D`); documentation. Then (a round of leftovers): point lights (inverse-square, no shadows), the flame's tone curves on solid renders, `affine3D` / `pre_affine3D` / `post_affine3D`, the Mandelbulb / Mandelbox / Aexion crops, the `dla` asset generator (vectorised lattice DLA), a sampled self-intersection check in the report. Still not done: JWildfire's `prepost_*` mechanism (a framework feature, not a formula), viewport gizmos for the own IFS (the table stands in) | `tests/test_environment.py`: readers round-trip against our EXR writer and a flat RGBE, SH irradiance of a constant map, key lights find the sun, CPU / GPU agreement under an HDRI, the formula on both engines, the primitives' shapes, the tab |
 
 Each phase is shippable on its own; phase 1 alone already gives JWildfire-style solid renders of every existing
 fractal.
