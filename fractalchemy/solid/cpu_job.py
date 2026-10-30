@@ -20,8 +20,12 @@ from ..render.cpu_engine import ITERATIONS_PER_CHUNK, PointPopulation, apply_xfo
 from ..render.settings import RenderSettings, RenderStats
 from ..scene3d.model import Scene3D
 from .gbuffer import GBuffer, ShadowMap
+from .holon import scene_instance_cloud
 from .shading import MAX_LIGHTS, shade
 from .view import View
+
+INSTANCE_BUDGET = 1_500_000
+INSTANCE_COUNT = 1_000_000      # the hit count instance pixels get: they always pass the density threshold
 
 SHADOW_MAP_SIZE = 1024
 RANGE_SAMPLES = 4          # iterations of the population used to size the depth range and the shadow maps
@@ -44,7 +48,11 @@ class SolidCpuJob:
         self._workers = [SolidPopulation(self.compiled, per_thread, settings.seed * 7919 + i, self.view, flame)
                          for i in range(self.threads)]
         self._pool = ThreadPoolExecutor(max_workers=self.threads, thread_name_prefix="render-solid")
-        self.gbuffer = GBuffer(*self.view.size)
+        self.instances = scene_instance_cloud(scene, INSTANCE_BUDGET, self.compiled.count + (1 if self.compiled.final is not None else 0))
+        self.show_fractal = scene.solid.show_fractal
+        if self.instances is not None:
+            self.stats.notes.append(f"{self.instances.count:,} instances")
+        self.gbuffer = GBuffer(*self.view.size, with_normals=self.instances is not None)
         self.depth_range: tuple[float, float] = (-1.0, 1.0)
         self.bounds = np.array([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]])
         self.shadow_maps: dict[int, ShadowMap] = {}
@@ -55,10 +63,15 @@ class SolidCpuJob:
     def _prepare(self) -> None:
         """Warm the populations up and size the depth range / shadow maps from where the points are."""
         list(self._pool.map(lambda w: w.fuse(self.settings.fuse), self._workers))
-        samples = [w.sample_view(RANGE_SAMPLES) for w in self._workers]
-        vx = np.concatenate([s[0] for s in samples])
-        vy = np.concatenate([s[1] for s in samples])
-        vz = np.concatenate([s[2] for s in samples])
+        samples = [w.sample_view(RANGE_SAMPLES) for w in self._workers] if self.show_fractal else []
+        vx = np.concatenate([s[0] for s in samples]) if samples else np.zeros(0)
+        vy = np.concatenate([s[1] for s in samples]) if samples else np.zeros(0)
+        vz = np.concatenate([s[2] for s in samples]) if samples else np.zeros(0)
+        instance_view = None
+        if self.instances is not None:
+            ix, iy, iz = self.view.to_view(self.instances.xyz[:, 0], self.instances.xyz[:, 1], self.instances.xyz[:, 2])
+            instance_view = (ix, iy, iz)
+            vx, vy, vz = np.concatenate([vx, ix]), np.concatenate([vy, iy]), np.concatenate([vz, iz])
         self.depth_range = self.view.depth_range(vz)
         self.bounds = self.view.bounds(vx, vy, vz)
         for index, light in enumerate(self.scene.lights[:MAX_LIGHTS]):
@@ -66,7 +79,21 @@ class SolidCpuJob:
                 self.shadow_maps[index] = ShadowMap(light.altitude, light.azimuth, self.bounds, SHADOW_MAP_SIZE)
         for w in self._workers:
             w.set_targets(self.shadow_maps)
+        if instance_view is not None:
+            self._splat_instances(*instance_view)
         self._fused = True
+
+    def _splat_instances(self, ix: np.ndarray, iy: np.ndarray, iz: np.ndarray) -> None:
+        """The instancers' surface points go into the G-buffer (with their normals) and the shadow maps once."""
+        m = self.view.matrix
+        normals = (self.instances.normals @ m).astype(np.float32)
+        px, py = self.view.project(ix, iy, iz)
+        self.gbuffer.splat(px, py, ix, iy, iz, self.instances.color, self.instances.material, normals)
+        landed = self.gbuffer.hits
+        self.gbuffer.count[landed] = INSTANCE_COUNT
+        self.gbuffer.fill_gaps(1)
+        for shadow in self.shadow_maps.values():
+            shadow.splat(ix, iy, iz)
 
     # --- rendering ----------------------------------------------------------------------------------------------
     def run_pass(self, cancelled: Callable[[], bool] = lambda: False) -> np.ndarray | None:
@@ -76,9 +103,11 @@ class SolidCpuJob:
             self._prepare()
         wanted = self.settings.next_pass_samples(self.stats.passes_done, self.stats.samples)
         per_worker = max(1, -(-wanted // self.threads))
-        results = list(self._pool.map(lambda w: w.run(per_worker, cancelled), self._workers))
+        results = list(self._pool.map(lambda w: w.run(per_worker, cancelled), self._workers)) if self.show_fractal else []
         if cancelled():
             return None
+        if not self.show_fractal:
+            self.stats.samples += wanted                  # nothing to iterate: the instances are the whole picture
         for samples, hits, gbuffer, maps in results:
             self.stats.samples += samples
             self.stats.hits += hits

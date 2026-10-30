@@ -15,7 +15,7 @@ from ...fractal.scene import Camera, Flame
 from ...scene3d.model import ExportSettings, MeshSettings, Scene3D
 from ...solid.mesh import Mesh
 from ...solid.mesh_preview import render_mesh
-from ...solid.pipeline import MeshResult, VoxelStage, build_mesh, capture_stage, export_result
+from ...solid.pipeline import MeshResult, VoxelStage, build_mesh, capture_stage, export_instances, export_result
 
 
 class MeshJob(QThread):
@@ -79,7 +79,7 @@ class ExportJob(QThread):
     finished_with = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, result: MeshResult, scene: Scene3D, settings: ExportSettings, folder: Path, name: str,
+    def __init__(self, result: MeshResult | None, scene: Scene3D, settings: ExportSettings, folder: Path, name: str,
                  parent: QObject | None = None):
         super().__init__(parent)
         self.result = result
@@ -90,8 +90,13 @@ class ExportJob(QThread):
 
     def run(self) -> None:  # noqa: D401 - QThread entry point
         try:
-            outcome = export_result(self.result, self.scene, self.settings, self.folder, self.name,
-                                    lambda f, m: self.progressed.emit(f, m))
+            if self.settings.subject != "mesh":
+                outcome = export_instances(self.scene, self.settings, self.folder, self.name, lambda f, m: self.progressed.emit(f, m))
+            elif self.result is None:
+                raise ValueError("generate a mesh on the Mesh tab first")
+            else:
+                outcome = export_result(self.result, self.scene, self.settings, self.folder, self.name,
+                                        lambda f, m: self.progressed.emit(f, m))
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc) or exc.__class__.__name__)
             return

@@ -396,6 +396,13 @@ class ExportPanel(_Panel):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self.subject_mesh = QRadioButton("The Mesh tab's mesh", self)
+        self.subject_instances = QRadioButton("The instancers, instanced", self)
+        self.subject_instances.setToolTip("USD PointInstancer, glTF instancing and the Blender script keep the instances; other formats get the baked mesh")
+        self.subject_baked = QRadioButton("The instancers baked into one mesh", self)
+        self.subject_group = QButtonGroup(self)
+        for button in (self.subject_mesh, self.subject_instances, self.subject_baked):
+            self.subject_group.addButton(button)
         self.form_clean = QRadioButton("Clean mesh (print-ready)", self)
         self.form_full = QRadioButton("Full mesh (every triangle)", self)
         self.form_group = QButtonGroup(self)
@@ -455,11 +462,17 @@ class ExportPanel(_Panel):
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
+        subject_box = QGroupBox("What to export", self)
+        sb = QVBoxLayout(subject_box)
+        for button in (self.subject_mesh, self.subject_instances, self.subject_baked):
+            sb.addWidget(button)
+        layout.addWidget(subject_box)
         form_box = QGroupBox("Which mesh", self)
         fb = QHBoxLayout(form_box)
         fb.addWidget(self.form_clean)
         fb.addWidget(self.form_full)
         layout.addWidget(form_box)
+        self.form_box = form_box
         formats = QGroupBox("Formats", self)
         fl = QVBoxLayout(formats)
         for box in self.format_checks.values():
@@ -499,6 +512,9 @@ class ExportPanel(_Panel):
         self.hint_label.setText(" ".join(optional_dependency_hints()))
 
     def _connect(self) -> None:
+        self.subject_mesh.toggled.connect(lambda on: None if self._updating or not on else self._set(subject="mesh"))
+        self.subject_instances.toggled.connect(lambda on: None if self._updating or not on else self._set(subject="instances"))
+        self.subject_baked.toggled.connect(lambda on: None if self._updating or not on else self._set(subject="baked"))
         self.form_clean.toggled.connect(lambda on: None if self._updating or not on else self._set(form="clean"))
         self.form_full.toggled.connect(lambda on: None if self._updating or not on else self._set(form="full"))
         for box in self.format_checks.values():
@@ -532,9 +548,19 @@ class ExportPanel(_Panel):
 
     def bind(self, document: Scene3DDocument) -> None:
         self._document = document
-        for signal in (document.scene_replaced, document.scene_restored, document.export_settings_changed, document.mesh_changed):
+        for signal in (document.scene_replaced, document.scene_restored, document.export_settings_changed, document.mesh_changed,
+                       document.instancers_changed, document.assets_changed):
             signal.connect(self.refresh)
         self.refresh()
+
+    def can_export(self) -> bool:
+        """Whether there is something to write for the chosen subject."""
+        if self._document is None:
+            return False
+        e = self._document.scene.export
+        if e.subject == "mesh":
+            return self._document.mesh_result is not None
+        return bool(self._document.scene.visible_instancers())
 
     def refresh(self) -> None:
         if self._document is None:
@@ -542,7 +568,9 @@ class ExportPanel(_Panel):
         e = self._document.scene.export
         with updating(self), blocked(self.form_group, self.form_clean, self.form_full, self.materials_box, self.uv_box, self.texture_box,
                                      self.units_group, self.units_world, self.units_mm, self.size_mm, self.blender_check, self.report_check,
-                                     self.folder, self.name, *self.format_checks.values()):
+                                     self.folder, self.name, self.subject_group, self.subject_mesh, self.subject_instances, self.subject_baked,
+                                     *self.format_checks.values()):
+            {"mesh": self.subject_mesh, "instances": self.subject_instances, "baked": self.subject_baked}.get(e.subject, self.subject_mesh).setChecked(True)
             (self.form_full if e.form == "full" else self.form_clean).setChecked(True)
             for key, box in self.format_checks.items():
                 box.setChecked(key in e.formats)
@@ -558,15 +586,17 @@ class ExportPanel(_Panel):
             if not self.name.hasFocus():
                 self.name.setText(e.name)
         textured = e.materials == "texture"
-        self.uv_box.setEnabled(textured)
-        self.texture_box.setEnabled(textured)
+        self.form_box.setEnabled(e.subject == "mesh")
+        self.materials_box.setEnabled(e.subject == "mesh")
+        self.uv_box.setEnabled(textured and e.subject == "mesh")
+        self.texture_box.setEnabled(textured and e.subject == "mesh")
         self.size_mm.setEnabled(e.units == "mm")
-        self.export_button.setEnabled(self._document.mesh_result is not None and bool(e.formats) and not self._running)
-        self.export_button.setToolTip("" if self._document.mesh_result is not None else "Generate a mesh first")
+        self.export_button.setEnabled(self.can_export() and bool(e.formats) and not self._running)
+        self.export_button.setToolTip("" if self.can_export() else ("Generate a mesh first" if e.subject == "mesh" else "Add a visible instancer with an asset first"))
 
     def set_running(self, running: bool) -> None:
         self._running = running
-        self.export_button.setEnabled(not running and self._document is not None and self._document.mesh_result is not None)
+        self.export_button.setEnabled(not running and self.can_export())
         if not running:
             self.progress.setValue(0)
 

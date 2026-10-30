@@ -16,8 +16,9 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
-from ...fractal.scene import Flame
-from ...scene3d.model import DistantLight, Material, Scene3D, materials_for
+from ...fractal.scene import Flame, XForm
+from ...scene3d.model import DistantLight, Instancer, Material, MeshAsset, Scene3D, materials_for
+from ...solid import holon
 
 UNDO_LIMIT = 200
 MAX_LIGHTS = 8
@@ -38,6 +39,9 @@ class Scene3DDocument(QObject):
         mesh_settings_changed(): The Mesh tab's settings.
         export_settings_changed(): The Export tab's settings.
         mesh_changed(): A mesh was generated (or dropped): `mesh_result` is new.
+        assets_changed(): The asset list or an asset changed.
+        instancers_changed(): The instancer list, an instancer or its own IFS changed.
+        asset_failed(str): An asset's file could not be read (the message).
         modified_changed(bool): The dirty flag flipped.
         undo_changed(bool, bool): (can undo, can redo) after every history change.
         path_changed(object): The scene's file (`Path` or None) changed.
@@ -53,6 +57,9 @@ class Scene3DDocument(QObject):
     mesh_settings_changed = Signal()
     export_settings_changed = Signal()
     mesh_changed = Signal()
+    assets_changed = Signal()
+    instancers_changed = Signal()
+    asset_failed = Signal(str)
     modified_changed = Signal(bool)
     undo_changed = Signal(bool, bool)
     path_changed = Signal(object)
@@ -67,6 +74,7 @@ class Scene3DDocument(QObject):
         self._last_merge_key: object = None
         self.mesh_result = None                        # solid.pipeline.MeshResult of the last *Generate mesh* (not in the history)
         self.voxel_stage = None                        # its capture, reused while the fractal and the capture settings stay
+        self._mesh_cache: dict[tuple, object] = {}     # asset geometry by (kind, primitive, detail, path): survives undo / redo
 
     # --- state ------------------------------------------------------------------------------------------------
     @property
@@ -107,6 +115,7 @@ class Scene3DDocument(QObject):
         self._redo.clear()
         self._last_merge_key = None
         self.drop_mesh()
+        self.ensure_asset_meshes()
         self._set_path(path)
         self._modified = modified
         self.modified_changed.emit(modified)
@@ -157,6 +166,7 @@ class Scene3DDocument(QObject):
         self.scene = Scene3D.from_dict(snapshot)
         if snapshot.get("fractal") != old_fractal:
             self.drop_mesh()                            # the mesh belonged to another fractal
+        self.ensure_asset_meshes()
         self._last_merge_key = None
         self._set_modified(True)
         self.undo_changed.emit(self.can_undo, self.can_redo)
@@ -309,6 +319,167 @@ class Scene3DDocument(QObject):
             self.mesh_result = None
             self.voxel_stage = None
             self.mesh_changed.emit()
+
+    # --- assets and instancers (the Holon IFS) ----------------------------------------------------------------------------
+    def ensure_asset_meshes(self) -> None:
+        """Load the geometry of every asset that has none (primitives are built, files read; failures are reported)."""
+        for asset in self.scene.assets:
+            if asset.mesh is not None:
+                continue
+            key = (asset.kind, asset.primitive, asset.detail, asset.path)
+            mesh = self._mesh_cache.get(key)
+            if mesh is None:
+                try:
+                    if asset.kind == "primitive":
+                        mesh = holon.primitive(asset.primitive, asset.detail)
+                    else:
+                        from ...solid.io import read_mesh
+                        mesh = read_mesh(asset.path)
+                except (OSError, ValueError) as exc:
+                    self.asset_failed.emit(f"{asset.name}: {exc}")
+                    continue
+                self._mesh_cache[key] = mesh
+            asset.mesh = mesh
+
+    def unique_asset_name(self, base: str) -> str:
+        names = {a.name for a in self.scene.assets}
+        if base not in names:
+            return base
+        index = 2
+        while f"{base} {index}" in names:
+            index += 1
+        return f"{base} {index}"
+
+    def add_asset(self, asset: MeshAsset) -> int:
+        """Add an asset (its name made unique, its geometry loaded); returns its index."""
+        self._record("Add asset")
+        asset.name = self.unique_asset_name(asset.name or "asset")
+        self.scene.assets.append(asset)
+        if asset.mesh is not None:
+            self._mesh_cache[(asset.kind, asset.primitive, asset.detail, asset.path)] = asset.mesh
+        self.ensure_asset_meshes()
+        self._set_modified(True)
+        self.assets_changed.emit()
+        return len(self.scene.assets) - 1
+
+    def remove_asset(self, index: int) -> None:
+        """Remove an asset; instancers using it lose their asset."""
+        if not 0 <= index < len(self.scene.assets):
+            return
+        self._record("Remove asset")
+        name = self.scene.assets[index].name
+        del self.scene.assets[index]
+        for inst in self.scene.instancers:
+            if inst.asset == name:
+                inst.asset = ""
+        self._set_modified(True)
+        self.assets_changed.emit()
+        self.instancers_changed.emit()
+
+    def update_asset(self, index: int, merge_key: object = None, **fields) -> None:
+        if not 0 <= index < len(self.scene.assets):
+            return
+        asset = self.scene.assets[index]
+        if all(getattr(asset, k) == v for k, v in fields.items()):
+            return
+        self._record("Edit asset", merge_key)
+        old_name = asset.name
+        for key, value in fields.items():
+            setattr(asset, key, value)
+        if "name" in fields and asset.name != old_name:
+            asset.name = self.unique_asset_name(asset.name)
+            for inst in self.scene.instancers:
+                if inst.asset == old_name:
+                    inst.asset = asset.name
+        if {"primitive", "detail", "path", "kind"} & set(fields):
+            asset.mesh = None
+            self.ensure_asset_meshes()
+        self._set_modified(True)
+        self.assets_changed.emit()
+        self.instancers_changed.emit()
+
+    def add_instancer(self, instancer: Instancer | None = None) -> int:
+        """Append an instancer (a default one on the first asset when None); returns its index."""
+        self._record("Add instancer")
+        if instancer is None:
+            instancer = Instancer(asset=self.scene.assets[0].name if self.scene.assets else "")
+        names = {i.name for i in self.scene.instancers}
+        base = instancer.name or "instancer"
+        name, index = base, 2
+        while name in names:
+            name, index = f"{base} {index}", index + 1
+        instancer.name = name
+        self.scene.instancers.append(instancer)
+        self._set_modified(True)
+        self.instancers_changed.emit()
+        return len(self.scene.instancers) - 1
+
+    def remove_instancer(self, index: int) -> None:
+        if not 0 <= index < len(self.scene.instancers):
+            return
+        self._record("Remove instancer")
+        del self.scene.instancers[index]
+        self._set_modified(True)
+        self.instancers_changed.emit()
+
+    def update_instancer(self, index: int, merge_key: object = None, **fields) -> None:
+        if not 0 <= index < len(self.scene.instancers):
+            return
+        inst = self.scene.instancers[index]
+        if all(getattr(inst, k) == v for k, v in fields.items()):
+            return
+        self._record("Edit instancer", merge_key)
+        for key, value in fields.items():
+            setattr(inst, key, value)
+        if inst.source == "own" and inst.flame is None:
+            inst.flame = holon.default_own_ifs()
+        self._set_modified(True)
+        self.instancers_changed.emit()
+
+    def update_instancer_material(self, index: int, merge_key: object = None, **fields) -> None:
+        if not 0 <= index < len(self.scene.instancers):
+            return
+        material = self.scene.instancers[index].material
+        if all(getattr(material, k) == v for k, v in fields.items()):
+            return
+        self._record("Edit instancer material", merge_key)
+        for key, value in fields.items():
+            setattr(material, key, value)
+        self._set_modified(True)
+        self.instancers_changed.emit()
+
+    def set_own_ifs(self, index: int, flame: Flame | None, label: str = "Own IFS") -> None:
+        """Give instancer `index` its own fractal (None: the starter IFS)."""
+        if not 0 <= index < len(self.scene.instancers):
+            return
+        self._record(label)
+        inst = self.scene.instancers[index]
+        inst.flame = flame.copy() if flame is not None else holon.default_own_ifs()
+        inst.source = "own"
+        self._set_modified(True)
+        self.instancers_changed.emit()
+
+    def set_own_xform(self, index: int, xform_index: int, xform: XForm | None, merge_key: object = None) -> None:
+        """Replace (or append when `xform_index` is past the end, or remove when `xform` is None) a transform of an own IFS."""
+        if not 0 <= index < len(self.scene.instancers):
+            return
+        inst = self.scene.instancers[index]
+        if inst.flame is None:
+            inst.flame = holon.default_own_ifs()
+        xforms = inst.flame.xforms
+        if xform is None:
+            if not 0 <= xform_index < len(xforms) or len(xforms) <= 1:
+                return
+            self._record("Remove transform")
+            del xforms[xform_index]
+        elif 0 <= xform_index < len(xforms):
+            self._record("Edit transform", merge_key)
+            xforms[xform_index] = xform
+        else:
+            self._record("Add transform")
+            xforms.append(xform)
+        self._set_modified(True)
+        self.instancers_changed.emit()
 
     def set_follow(self, follow: bool) -> None:
         """The *follow the main window* flag (not an undo step)."""

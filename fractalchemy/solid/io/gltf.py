@@ -89,13 +89,87 @@ def write_glb(mesh: Mesh, path: Path, texture: np.ndarray | None = None, name: s
     return [path]
 
 
-def read_gltf(path: Path) -> Mesh:
-    """Read the first mesh of a `.glb` or `.gltf` (all its triangle primitives merged).
+def write_glb_instances(instancers: list, path: Path, name: str = "holon") -> list[Path]:
+    """A GLB with one node per instancer carrying `EXT_mesh_gpu_instancing` (TRANSLATION / ROTATION / SCALE) over its
+    asset mesh: `instancers` is a list of `(label, asset Mesh, positions (N, 3), quaternions (N, 4) xyzw, scales (N,),
+    colour (r, g, b) in 0..1 or None)`."""
+    path = Path(path)
+    buffer = bytearray()
+    views, accessors, meshes, materials, nodes = [], [], [], [], []
+
+    def add(array: np.ndarray, component: int, kind: str, target: int | None, minmax: bool = False) -> int:
+        nonlocal buffer
+        data = np.ascontiguousarray(array).tobytes()
+        offset = len(buffer)
+        buffer += _pad(data)
+        view = {"buffer": 0, "byteOffset": offset, "byteLength": len(data)}
+        if target is not None:
+            view["target"] = target
+        views.append(view)
+        accessor = {"bufferView": len(views) - 1, "componentType": component, "count": int(array.shape[0]), "type": kind}
+        if minmax:
+            accessor["min"] = [float(v) for v in array.min(axis=0)]
+            accessor["max"] = [float(v) for v in array.max(axis=0)]
+        accessors.append(accessor)
+        return len(accessors) - 1
+
+    for index, (label, mesh, positions, quaternions, scales, color) in enumerate(instancers):
+        attributes = {"POSITION": add(mesh.vertices.astype(np.float32), FLOAT, "VEC3", 34962, minmax=True)}
+        if mesh.normals is not None:
+            attributes["NORMAL"] = add(mesh.normals.astype(np.float32), FLOAT, "VEC3", 34962)
+        if mesh.colors is not None and color is None:
+            attributes["COLOR_0"] = add(np.clip(mesh.colors, 0, 1).astype(np.float32), FLOAT, "VEC3", 34962)
+        indices = add(mesh.faces.astype(np.uint32).reshape(-1), UNSIGNED_INT, "SCALAR", 34963)
+        base = [float(c) for c in color] + [1.0] if color is not None else [1.0, 1.0, 1.0, 1.0]
+        materials.append({"name": f"{label} material", "pbrMetallicRoughness": {"baseColorFactor": base, "metallicFactor": 0.0, "roughnessFactor": 0.6}})
+        meshes.append({"name": f"{label} asset", "primitives": [{"attributes": attributes, "indices": indices, "material": index, "mode": 4}]})
+        translation = add(positions.astype(np.float32), FLOAT, "VEC3", None, minmax=True)
+        rotation = add(quaternions.astype(np.float32), FLOAT, "VEC4", None)
+        scale = add(np.repeat(scales.astype(np.float32)[:, None], 3, axis=1), FLOAT, "VEC3", None)
+        nodes.append({"name": label, "mesh": index,
+                      "extensions": {"EXT_mesh_gpu_instancing": {"attributes": {"TRANSLATION": translation, "ROTATION": rotation, "SCALE": scale}}}})
+    doc = {"asset": {"version": "2.0", "generator": "Fractalchemy"}, "scene": 0, "scenes": [{"nodes": list(range(len(nodes)))}],
+           "nodes": nodes, "meshes": meshes, "materials": materials, "bufferViews": views, "accessors": accessors,
+           "buffers": [{"byteLength": len(buffer)}], "extensionsUsed": ["EXT_mesh_gpu_instancing"],
+           "extensionsRequired": ["EXT_mesh_gpu_instancing"]}
+    json_bytes = _pad(json.dumps(doc, separators=(",", ":")).encode("utf-8"), fill=b" ")
+    bin_bytes = _pad(bytes(buffer))
+    total = 12 + 8 + len(json_bytes) + 8 + len(bin_bytes)
+    with open(path, "wb") as fh:
+        fh.write(MAGIC + struct.pack("<II", 2, total))
+        fh.write(struct.pack("<II", len(json_bytes), JSON_CHUNK) + json_bytes)
+        fh.write(struct.pack("<II", len(bin_bytes), BIN_CHUNK) + bin_bytes)
+    return [path]
+
+
+def read_gltf_instances(path: Path) -> list[tuple[np.ndarray, np.ndarray, np.ndarray, int]]:
+    """(translations, rotations xyzw, uniform scales, the mesh's face count) of every instanced node in a GLB / glTF.
 
     Raises:
-        ValueError: When the file is not glTF or has no triangle mesh.
+        ValueError: When the file is not glTF or has no instanced node.
     """
-    path = Path(path)
+    doc, buffers, accessor = _open_gltf(Path(path))
+    out = []
+    for node in doc.get("nodes", []):
+        ext = node.get("extensions", {}).get("EXT_mesh_gpu_instancing")
+        if not ext:
+            continue
+        attrs = ext["attributes"]
+        translation = accessor(attrs["TRANSLATION"])
+        rotation = accessor(attrs["ROTATION"]) if "ROTATION" in attrs else np.tile([0.0, 0.0, 0.0, 1.0], (translation.shape[0], 1))
+        scale = accessor(attrs["SCALE"])[:, 0] if "SCALE" in attrs else np.ones(translation.shape[0])
+        faces = 0
+        if "mesh" in node:
+            primitive = doc["meshes"][node["mesh"]]["primitives"][0]
+            faces = doc["accessors"][primitive["indices"]]["count"] // 3 if "indices" in primitive else 0
+        out.append((translation, rotation, scale, faces))
+    if not out:
+        raise ValueError(f"{Path(path).name}: no instanced node")
+    return out
+
+
+def _open_gltf(path: Path):
+    """(document, buffers, accessor reader) of a `.glb` / `.gltf`."""
     raw = path.read_bytes()
     binary = None
     if raw[:4] == MAGIC:
@@ -146,7 +220,17 @@ def read_gltf(path: Path) -> Mesh:
         if acc.get("normalized") and dtype.kind == "u":
             array = array / np.iinfo(dtype).max
         return array
+    return doc, buffers, accessor
 
+
+def read_gltf(path: Path) -> Mesh:
+    """Read the first mesh of a `.glb` or `.gltf` (all its triangle primitives merged).
+
+    Raises:
+        ValueError: When the file is not glTF or has no triangle mesh.
+    """
+    path = Path(path)
+    doc, _buffers, accessor = _open_gltf(path)
     meshes = doc.get("meshes", [])
     if not meshes:
         raise ValueError(f"{path.name}: no mesh")
@@ -188,4 +272,4 @@ def _merge(parts: list[Mesh]) -> Mesh:
     return Mesh(vertices, faces, normals, colors, uvs)
 
 
-__all__ = ["write_glb", "read_gltf"]
+__all__ = ["write_glb", "read_gltf", "write_glb_instances", "read_gltf_instances"]

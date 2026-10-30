@@ -19,7 +19,10 @@ from scipy import ndimage
 from ..fractal.scene import Flame
 from ..scene3d.model import ExportSettings, MeshSettings, Scene3D
 from .capture import capture_points
-from .io.blender import write_blender_script
+from .holon import InstanceSet, bake_instances, scene_instance_sets
+from .io.blender import write_blender_instances, write_blender_script
+from .io.gltf import write_glb_instances
+from .io.usd import write_usd_instances
 from .io.write import export_format, write_mesh
 from .isosurface import surface_nets
 from .mesh import AGGRESSIVE_CLEAN, CleanSettings, Mesh, MeshReport, clean, remesh
@@ -253,6 +256,151 @@ def export_result(result: MeshResult, scene: Scene3D, settings: ExportSettings, 
     return outcome
 
 
+def instance_colour(instancer, palette: np.ndarray | None, instances: InstanceSet) -> tuple[tuple[float, float, float] | None, np.ndarray | None]:
+    """(one colour for the whole instancer or None, per-instance colours `(N, 3)` or None) by the instancer's colour mode."""
+    if instancer.color_mode == "fixed":
+        return tuple(c / 255.0 for c in instancer.material.color), None
+    if instancer.color_mode == "palette" and palette is not None and len(instances):
+        return None, np.asarray(palette, dtype=np.float64)[instances.colors] / 255.0
+    return None, None
+
+
+def baked_scene_mesh(scene: Scene3D, max_faces: int = 5_000_000) -> Mesh:
+    """Every visible instancer baked into one mesh, coloured by the instancers' colour modes."""
+    sets = scene_instance_sets(scene)
+    if not sets:
+        return Mesh.empty()
+    palette = np.asarray(scene.fractal.palette) if scene.fractal is not None else None
+    parts = []
+    budget = max(1, max_faces // len(sets))
+    for _index, inst, instances, mesh in sets:
+        baked = bake_instances(mesh, instances, budget)
+        if baked.face_count == 0:
+            continue
+        fixed, per_instance = instance_colour(inst, palette, instances)
+        if fixed is not None:
+            baked.colors = np.tile(np.asarray(fixed, dtype=np.float32), (baked.vertex_count, 1))
+        elif per_instance is not None and baked.vertex_count:
+            kept = min(len(instances), baked.vertex_count // mesh.vertex_count)
+            order = np.argsort(-instances.scales, kind="stable")[:kept] if len(instances) > kept else np.arange(kept)
+            baked.colors = np.repeat(per_instance[np.sort(order)], mesh.vertex_count, axis=0).astype(np.float32)
+        parts.append(baked)
+    if not parts:
+        return Mesh.empty()
+    offsets = np.cumsum([0] + [p.vertex_count for p in parts[:-1]])
+    out = Mesh(np.concatenate([p.vertices for p in parts]), np.concatenate([p.faces + o for p, o in zip(parts, offsets)]),
+               np.concatenate([p.normals for p in parts]) if all(p.normals is not None for p in parts) else None,
+               np.concatenate([p.colors for p in parts]) if all(p.colors is not None for p in parts) else None)
+    return out
+
+
+def export_instances(scene: Scene3D, settings: ExportSettings, folder: Path, name: str, progress: Progress | None = None) -> ExportOutcome:
+    """Write the instancers: instanced files (USD PointInstancer, glTF EXT_mesh_gpu_instancing, the Blender script with
+    Geometry Nodes) for the formats that can, the baked mesh for the rest — or everything baked when `settings.subject`
+    is `baked`.
+
+    Raises:
+        ValueError: When there are no visible instancers or no format.
+        OSError: When a file cannot be written.
+    """
+    started = time.perf_counter()
+    report = progress or (lambda fraction, message: None)
+    if not settings.formats:
+        raise ValueError("choose at least one format")
+    sets = scene_instance_sets(scene)
+    if not sets:
+        raise ValueError("no visible instancer with an asset — add one on the Instances tab")
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    outcome = ExportOutcome()
+    palette = np.asarray(scene.fractal.palette) if scene.fractal is not None else None
+    # units
+    factor, meters_per_unit = 1.0, 1.0
+    centres = np.concatenate([s.positions for _i, _inst, s, _m in sets])
+    reach = np.concatenate([s.scales for _i, _inst, s, _m in sets]) / 2.0
+    lo = (centres - reach[:, None]).min(axis=0)
+    hi = (centres + reach[:, None]).max(axis=0)
+    extent = float((hi - lo).max()) or 1.0
+    if settings.units == "mm":
+        factor = settings.size_mm / extent
+        meters_per_unit = 0.001
+        outcome.notes.append(f"scaled so the whole scene spans {settings.size_mm:g} mm")
+    entries = []
+    for _index, inst, instances, mesh in sets:
+        fixed, per_instance = instance_colour(inst, palette, instances)
+        entries.append((inst.name, mesh, instances.positions * factor, instances.quaternions(), instances.scales * factor, fixed, per_instance, inst))
+    baked = None
+    formats = [export_format(key) for key in settings.formats]
+    for index, fmt in enumerate(formats):
+        report(0.1 + 0.7 * index / max(1, len(formats)), f"Writing {fmt.label}")
+        target = folder / f"{name}{fmt.extension}"
+        if settings.subject == "instances" and fmt.key == "glb":
+            outcome.files.extend(write_glb_instances([(label, m, p, q, sc, fixed) for label, m, p, q, sc, fixed, _pc, _inst in entries], target, name))
+        elif settings.subject == "instances" and fmt.key in ("usda", "usdc", "usdz"):
+            outcome.files.extend(write_usd_instances([(label, m, p, q, sc, pc) for label, m, p, q, sc, _fixed, pc, _inst in entries], target, name, meters_per_unit))
+        else:
+            if baked is None:
+                report(0.1 + 0.7 * index / max(1, len(formats)), "Baking the instances into one mesh")
+                baked = baked_scene_mesh(scene)
+                if baked.face_count == 0:
+                    raise ValueError("the instances bake to an empty mesh")
+                if factor != 1.0:
+                    baked = baked.transformed(scale=factor)
+                if settings.subject == "instances":
+                    outcome.notes.append(f"{fmt.label} cannot carry instances: the baked mesh was written instead")
+            outcome.files.extend(write_mesh(baked, target, fmt, None, name, meters_per_unit))
+    if settings.blender:
+        report(0.85, "Writing the Blender script")
+        if settings.subject == "instances":
+            asset_files = []
+            for label, m, _p, _q, _sc, _fixed, _pc, _inst in entries:
+                asset_path = write_mesh(m, folder / f"{name}_asset_{_safe(label)}.glb", "glb", None, label)[0]
+                outcome.files.append(asset_path)
+                asset_files.append(asset_path.name)
+            centre = (lo + hi) / 2.0 * factor
+            outcome.files.extend(write_blender_instances(scene, folder / f"{name}_blender.py",
+                                                         [(label, asset_files[i], p, q, sc, fixed, inst.material)
+                                                          for i, (label, _m, p, q, sc, fixed, _pc, inst) in enumerate(entries)],
+                                                         centre, extent * factor, name))
+        else:
+            if baked is None:
+                baked = baked_scene_mesh(scene)
+                if factor != 1.0:
+                    baked = baked.transformed(scale=factor)
+            asset = next((p for p in outcome.files if p.suffix in (".glb", ".ply", ".obj", ".usdc", ".usda", ".stl")), None)
+            if asset is None:
+                asset = write_mesh(baked, folder / f"{name}_blender.glb", "glb", None, name)[0]
+                outcome.files.append(asset)
+            blo, bhi = baked.bounds()
+            outcome.files.extend(write_blender_script(scene, folder / f"{name}_blender.py", asset, (blo + bhi) / 2.0, float((bhi - blo).max()), name))
+    if settings.report:
+        report(0.95, "Writing the report")
+        outcome.report = folder / f"{name}_report.md"
+        outcome.report.write_text(instances_report_markdown(scene, settings, sets, outcome, name), encoding="utf-8")
+    outcome.seconds = time.perf_counter() - started
+    report(1.0, "Export finished")
+    return outcome
+
+
+def _safe(label: str) -> str:
+    import re
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", label).strip("_") or "asset"
+
+
+def instances_report_markdown(scene: Scene3D, export: ExportSettings, sets: list, outcome: ExportOutcome, name: str) -> str:
+    lines = [f"# {name} — holon IFS export", "", f"Fractal: **{scene.fractal.name if scene.fractal else '—'}**  ·  "
+             f"{sum(len(s) for _i, _inst, s, _m in sets):,} instances in {len(sets)} instancer{'s' if len(sets) != 1 else ''}", "",
+             "## Instancers", "", "| instancer | asset | source | mode | instances | faces each | size range |", "|---|---|---|---|---|---|---|"]
+    for _index, inst, instances, mesh in sets:
+        lines.append(f"| {inst.name} | {inst.asset} | {inst.source} | {inst.mode} (depth {inst.depth}) | {len(instances):,} | {mesh.face_count:,} | "
+                     f"{instances.scales.min():.4g} – {instances.scales.max():.4g} |")
+    lines += ["", "## Export", "", f"subject *{export.subject}*, units *{export.units}*" + (f" ({export.size_mm:g} mm)" if export.units == "mm" else ""), ""]
+    lines += [f"* `{p.name}`" for p in outcome.files]
+    if outcome.notes:
+        lines += ["", *[f"_{n}_" for n in outcome.notes]]
+    return "\n".join(lines) + "\n"
+
+
 def report_markdown(result: MeshResult, scene: Scene3D, export: ExportSettings, outcome: ExportOutcome, name: str) -> str:
     """The mesh report beside the export: settings, the full and clean meshes' checks, the files."""
     s = result.settings
@@ -285,4 +433,4 @@ def report_markdown(result: MeshResult, scene: Scene3D, export: ExportSettings, 
 
 
 __all__ = ["VoxelStage", "MeshResult", "ExportOutcome", "capture_stage", "build_mesh", "export_result", "report_markdown",
-           "clean_settings_for", "filtered_grid"]
+           "clean_settings_for", "filtered_grid", "export_instances", "baked_scene_mesh", "instances_report_markdown"]

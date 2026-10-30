@@ -80,8 +80,8 @@ class GBuffer:
         self.pos[nearer] = other.pos[nearer]
         self.color[nearer] = other.color[nearer]
         self.material[nearer] = other.material[nearer]
-        if self.normal is not None and other.normal is not None:
-            self.normal[nearer] = other.normal[nearer]
+        if self.normal is not None:
+            self.normal[nearer] = other.normal[nearer] if other.normal is not None else 0.0   # no given normal: derived later
         self.count += other.count
 
     def fill_gaps(self, passes: int = 1) -> None:

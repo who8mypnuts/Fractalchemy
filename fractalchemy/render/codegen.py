@@ -146,6 +146,51 @@ vec2 perspective_divide(vec3 q, inout uint s) {
 """
 
 
+INSTANCE_PLOT_TEMPLATE = """{prelude}
+uniform vec3 u_cam_x;
+uniform vec3 u_cam_y;
+uniform vec2 u_target;
+uniform vec2 u_depth_range;
+uniform int u_mode;               // 0: the camera's G-buffer; 1: a light's shadow map; 2: the hit count
+uniform mat3 u_light_basis;
+uniform vec2 u_light_origin;
+uniform vec2 u_light_scale;
+uniform float u_light_size;
+uniform uint u_salt;
+uniform float u_count_value;      // what an instance point adds to the hit count (enough to pass any threshold)
+{project}
+in vec3 in_pos;                   // world position
+in float in_code;                 // material · 256 + palette index
+out vec4 v_data;
+void main() {{
+    uint s = hash(uint(gl_VertexID) ^ u_salt);
+    vec3 q = view_position(in_pos);
+    bool ok = abs(q.x) < 1e10 && abs(q.y) < 1e10 && abs(q.z) < 1e10;
+    if (u_mode != 1) {{
+        vec2 f = perspective_divide(q, s);
+        vec2 px = vec2(dot(u_cam_x, vec3(f, 1.0)), dot(u_cam_y, vec3(f, 1.0)));
+        vec2 clip = px / u_target * 2.0 - 1.0;
+        float depth = clamp((-q.z - u_depth_range.x) / (u_depth_range.y - u_depth_range.x), 0.0, 1.0) * 2.0 - 1.0;
+        gl_Position = ok ? vec4(clip, depth, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
+        v_data = u_mode == 0 ? vec4(q, in_code) : vec4(u_count_value, 0.0, 0.0, 1.0);
+    }} else {{
+        vec3 l = u_light_basis * q;
+        vec2 cell = (l.xy - u_light_origin) * u_light_scale;
+        vec2 clip = cell / u_light_size * 2.0 - 1.0;
+        gl_Position = ok ? vec4(clip, 0.0, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
+        v_data = vec4(l.z, 0.0, 0.0, 1.0);
+    }}
+    gl_PointSize = 1.0;
+}}
+"""
+
+
+def instance_plot_shader() -> str:
+    """The vertex shader that splats the instancers' surface points like the solid plot does (no iteration, no final)."""
+    project = GLSL_PROJECT.split("vec2 project3d")[0] + SOLID_VIEW_GLSL
+    return INSTANCE_PLOT_TEMPLATE.format(prelude=_PRELUDE, project=project)
+
+
 def generate_solid(compiled: CompiledFlame) -> GeneratedProgram:
     """Shaders for the solid renderer: the same iterate shader, and a plot shader that emits view-space positions
     (camera mode) or light-space depths (shadow-map mode) instead of palette colours."""

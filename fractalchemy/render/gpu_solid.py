@@ -19,9 +19,10 @@ import numpy as np
 from ..fractal.scene import Flame
 from ..scene3d.model import Scene3D
 from ..solid.gbuffer import ShadowMap
+from ..solid.holon import scene_instance_cloud
 from ..solid.shading import DISCONTINUITY, MAX_LIGHTS, ao_kernel
 from ..solid.view import View, light_direction
-from .codegen import generate_solid
+from .codegen import generate_solid, instance_plot_shader
 from .compiled import CompiledFlame
 from .projection import glsl_uniforms
 from .settings import RenderSettings, RenderStats
@@ -30,6 +31,8 @@ from .tonemap import FULLSCREEN_VERTEX_GLSL
 SHADOW_MAP_SIZE = 1024
 RANGE_SAMPLES = 4
 MAX_AO_SAMPLES = 64
+INSTANCE_BUDGET = 2_500_000
+INSTANCE_COUNT = 1.0e6          # the hit count an instance point adds: always above the density threshold
 
 SOLID_FRAGMENT = """
 #version 330
@@ -288,6 +291,13 @@ class SolidGpuJob:
         self.bounds = np.array([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]])
         self.shadow_maps: dict[int, ShadowMap] = {}
         self.shadow_textures: dict[int, tuple] = {}
+        self.show_fractal = scene.solid.show_fractal
+        self.instances = scene_instance_cloud(scene, INSTANCE_BUDGET, self.compiled.count + (1 if self.compiled.final is not None else 0))
+        self.instance_vbo = None
+        self.instance_vao = None
+        self.instance_prog = None
+        if self.instances is not None:
+            self.stats.notes.append(f"{self.instances.count:,} instances")
         self._programs()
         self._create_targets()
         self._elapsed = 0.0
@@ -304,8 +314,10 @@ class SolidGpuJob:
                 "down": self.ctx.program(vertex_shader=FULLSCREEN_VERTEX_GLSL, fragment_shader=DOWNSAMPLE_GLSL),
             }
             engine._solid_vaos = {name: self.ctx.vertex_array(prog, []) for name, prog in engine._solid_programs.items()}
+            engine._instance_program = self.ctx.program(vertex_shader=instance_plot_shader(), fragment_shader=SOLID_FRAGMENT)
         self.programs = engine._solid_programs
         self.vaos = engine._solid_vaos
+        self.instance_prog = engine._instance_program
 
     def _create_targets(self) -> None:
         w, h = self.view.size
@@ -330,7 +342,7 @@ class SolidGpuJob:
         palette = self.compiled.palette.astype(np.float32)
         self.palette_tex = self.ctx.texture((256, 1), 3, palette.tobytes(), dtype="f4")
         self.palette_tex.filter = (gl.NEAREST, gl.NEAREST)
-        mats = [self.scene.material_for(i) for i in range(max(1, len(self.scene.materials)))]
+        mats = self.scene.render_materials(self.compiled.count + (1 if self.compiled.final is not None else 0))
         table = np.zeros((len(mats) * 3, 4), dtype=np.float32)
         for i, m in enumerate(mats):
             table[i * 3] = (m.diffuse, m.ambient, m.specular, m.shininess)
@@ -345,7 +357,12 @@ class SolidGpuJob:
         self.population.bind()
         self.population.iterate(self.settings.fuse)
         xs, ys, zs = [], [], []
-        for _ in range(RANGE_SAMPLES):
+        if self.instances is not None:
+            ix, iy, iz = self.view.to_view(self.instances.xyz[:, 0], self.instances.xyz[:, 1], self.instances.xyz[:, 2])
+            xs.append(ix)
+            ys.append(iy)
+            zs.append(iz)
+        for _ in range(RANGE_SAMPLES if self.show_fractal else 0):
             self.population.iterate(1)
             state = np.frombuffer(self.population.buffers[self.population.current].read(), dtype=np.float32).reshape(-1, 6)[:, :3]
             x, y, z = state[:, 0].astype(np.float64), state[:, 1].astype(np.float64), state[:, 2].astype(np.float64)
@@ -356,7 +373,9 @@ class SolidGpuJob:
             xs.append(vx)
             ys.append(vy)
             zs.append(vz)
-        vx, vy, vz = np.concatenate(xs), np.concatenate(ys), np.concatenate(zs)
+        vx = np.concatenate(xs) if xs else np.zeros(0)
+        vy = np.concatenate(ys) if ys else np.zeros(0)
+        vz = np.concatenate(zs) if zs else np.zeros(0)
         self.depth_range = self.view.depth_range(vz)
         self.bounds = self.view.bounds(vx, vy, vz)
         for index, light in enumerate(self.scene.lights[:MAX_LIGHTS]):
@@ -369,20 +388,60 @@ class SolidGpuJob:
                 fbo.clear(1e30, 0.0, 0.0, 0.0)
                 self.shadow_textures[index] = (tex, fbo)
         self._set_plot_uniforms()
+        if self.instances is not None:
+            self._draw_instances()
         self._fused = True
 
     def _set_plot_uniforms(self) -> None:
         from .gpu_engine import _set
-        prog = self.population.plot_prog
         a, b, c, d, e, f = self.view.pixel_transform
         w, h = self.view.size
-        _set(prog, "u_cam_x", (a, c, e))
-        _set(prog, "u_cam_y", (b, d, f))
-        _set(prog, "u_target", (float(w), float(h)))
-        _set(prog, "u_depth_range", (float(self.depth_range[0]), float(self.depth_range[1])))
-        for name, value in glsl_uniforms(self.flame.camera).items():
-            _set(prog, name, value)
-        _set(prog, "u_light_size", float(SHADOW_MAP_SIZE))
+        for prog in (self.population.plot_prog, self.instance_prog):
+            _set(prog, "u_cam_x", (a, c, e))
+            _set(prog, "u_cam_y", (b, d, f))
+            _set(prog, "u_target", (float(w), float(h)))
+            _set(prog, "u_depth_range", (float(self.depth_range[0]), float(self.depth_range[1])))
+            for name, value in glsl_uniforms(self.flame.camera).items():
+                _set(prog, name, value)
+            _set(prog, "u_light_size", float(SHADOW_MAP_SIZE))
+        _set(self.instance_prog, "u_count_value", INSTANCE_COUNT)
+        _set(self.instance_prog, "u_salt", 7)
+
+    def _draw_instances(self) -> None:
+        """Splat the instancers' surface points once: into the G-buffer (depth-tested), the hit count and the shadow maps."""
+        from .gpu_engine import _set
+        gl = self.gl
+        cloud = self.instances
+        code = cloud.material.astype(np.float32) * 256.0 + cloud.color.astype(np.float32)
+        data = np.concatenate([cloud.xyz.astype(np.float32), code[:, None]], axis=1)
+        self.instance_vbo = self.ctx.buffer(np.ascontiguousarray(data).tobytes())
+        self.instance_vao = self.ctx.vertex_array(self.instance_prog, [(self.instance_vbo, "3f 1f", "in_pos", "in_code")])
+        w, h = self.view.size
+        self.gbuffer_fbo.use()
+        self.ctx.viewport = (0, 0, w, h)
+        self.ctx.enable(gl.DEPTH_TEST)
+        self.ctx.disable(gl.BLEND)
+        _set(self.instance_prog, "u_mode", 0)
+        self.instance_vao.render(mode=gl.POINTS)
+        self.ctx.disable(gl.DEPTH_TEST)
+        self.count_fbo.use()
+        self.ctx.viewport = (0, 0, w, h)
+        self.ctx.enable(gl.BLEND)
+        self.ctx.blend_func = gl.ONE, gl.ONE
+        _set(self.instance_prog, "u_mode", 2)
+        self.instance_vao.render(mode=gl.POINTS)
+        for index, shadow in self.shadow_maps.items():
+            tex, fbo = self.shadow_textures[index]
+            fbo.use()
+            self.ctx.viewport = (0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE)
+            self.ctx.blend_equation = gl.MIN
+            _set(self.instance_prog, "u_mode", 1)
+            _set(self.instance_prog, "u_light_basis", tuple(float(v) for v in shadow.basis.T.reshape(-1)))
+            _set(self.instance_prog, "u_light_origin", (float(shadow.origin[0]), float(shadow.origin[1])))
+            _set(self.instance_prog, "u_light_scale", (float(shadow.scale[0]), float(shadow.scale[1])))
+            self.instance_vao.render(mode=gl.POINTS)
+            self.ctx.blend_equation = gl.FUNC_ADD
+        self.ctx.disable(gl.BLEND)
 
     # --- rendering ----------------------------------------------------------------------------------------------
     def run_pass(self, cancelled: Callable[[], bool] = lambda: False) -> np.ndarray | None:
@@ -399,7 +458,7 @@ class SolidGpuJob:
         wanted = self.settings.next_pass_samples(self.stats.passes_done, self.stats.samples)
         draws = max(1, -(-wanted // self.settings.points))
         w, h = self.view.size
-        for _ in range(draws):
+        for _ in range(draws if self.show_fractal else 0):
             if cancelled():
                 return None
             self.population.iterate(1)
@@ -436,6 +495,8 @@ class SolidGpuJob:
                 self.ctx.blend_equation = gl.FUNC_ADD
                 self.ctx.disable(gl.BLEND)
             self.stats.samples += self.settings.points
+        if not self.show_fractal:
+            self.stats.samples += wanted
         image = self.image()
         self.stats.passes_done += 1
         self._elapsed += time.perf_counter() - started
@@ -563,6 +624,9 @@ class SolidGpuJob:
         for tex, fbo in self.shadow_textures.values():
             fbo.release()
             tex.release()
+        for obj in (self.instance_vao, self.instance_vbo):
+            if obj is not None:
+                obj.release()
 
 
 __all__ = ["SolidGpuJob", "SOLID_FRAGMENT", "NORMALS_GLSL", "SHADE_GLSL", "DOWNSAMPLE_GLSL", "SHADOW_MAP_SIZE"]

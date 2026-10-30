@@ -82,6 +82,8 @@ def sample_surface(mesh: Mesh, samples: int, seed: int = 1) -> tuple[np.ndarray,
     points = w[:, 0:1] * v[f[:, 0]] + w[:, 1:2] * v[f[:, 1]] + w[:, 2:3] * v[f[:, 2]]
     vn = mesh.normals if mesh.normals is not None else mesh.compute_normals()
     normals = w[:, 0:1] * vn[f[:, 0]] + w[:, 1:2] * vn[f[:, 1]] + w[:, 2:3] * vn[f[:, 2]]
+    length = np.linalg.norm(normals, axis=1, keepdims=True)
+    normals = np.where(length > 1e-12, normals / np.maximum(length, 1e-12), mesh.face_normals()[faces])
     nearest_vertex = f[np.arange(samples), np.argmax(w, axis=1)]
     return points, normals, nearest_vertex, faces
 

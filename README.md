@@ -407,6 +407,20 @@ environments), is `docs/3d-editor-plan.md`.
   clean-up and regenerating takes a moment. *Show* switches the viewport between the solid render and either
   mesh — drawn with the same lights and materials (points sampled on the faces, smooth-shaded), so the mesh lands
   over the render it came from.
+* **Instances** (the *Holon IFS*, in the manner of Xenodream): meshes placed at the points of a fractal's orbit, each
+  turned and scaled by the orbit's accumulated **frame** — the product of the transforms' local Jacobians along
+  the way (exact for affine transforms, sensible for `spherical`, `julia3D` and the rest; or *scale only* to keep
+  them upright). **Assets** are primitives (sphere, cube, torus, tetrahedron, icosahedron, cylinder, with a detail
+  level), imported meshes (OBJ / STL / PLY / glTF / USD) or the Mesh tab's clean mesh saved as a PLY. An
+  **instancer** picks an asset and a fractal — the scene's, or an **own 3D IFS** edited in a table, one row per
+  transform as a 3D affine map (position, rotation, scale, weight, colour; *Add* / *Remove* / *Starter IFS* / *Send
+  to main window* — it is a normal flame underneath: `linear3D` + `zscale` + `ztranslate` + `post_rotate_x/y`) —
+  in **chaos** mode (N orbit samples, frames over the last *depth* transforms, so the sizes are those of depth-*n*
+  holons) or **tree** mode (every composition of the transforms to *depth*, every level or the deepest only —
+  deterministic and gap-free), with a base size, a size falloff, a minimum size, a cap, a colour (the orbit's
+  palette colour, the asset's own colours or a fixed one) and a material. The instances are drawn and rendered
+  with the fractal — same G-buffer, lights, shadows and ambient occlusion, on both engines — or alone (*Show the
+  fractal itself* off).
 * **Export**: the clean or the full mesh as **OBJ** (+ MTL), binary **STL**, binary **PLY**, **glTF** (GLB),
   **OpenUSD** (`.usda` always; `.usdc` / `.usdz` through `usd-core`), with **vertex colours**, or **UVs + a baked
   texture** (box / spherical / cylindrical projection, or an `xatlas` atlas when installed), or geometry only;
@@ -414,7 +428,10 @@ environments), is `docs/3d-editor-plan.md`.
   script** (`name_blender.py`: `blender --python` imports the asset, builds the material from the colours or the
   texture, places the lights as Suns turned as in the editor, the camera as the flame's, the world colour) and a
   Markdown **report** beside the files. Every writer has a reader (`solid.io.read_mesh`) and the tests round-trip
-  them all.
+  them all. **Instanced scenes** export either *instanced* — USD `PointInstancer` (positions, orientations,
+  scales, one prototype per instancer), glTF `EXT_mesh_gpu_instancing`, and a Blender script that places the
+  instances with a Geometry Nodes *Instance on Points* modifier from a JSON of positions / rotations / scales
+  (formats that cannot carry instances get the baked mesh) — or *baked* into one mesh in any format.
 
 ### Render Image window (the final renderer)
 *Windows ▸ Render Image…* (`Ctrl+R`) or the toolbar button opens a non-modal tool window; a render runs on its
@@ -568,8 +585,10 @@ fractalchemy/
                         render/gpu_solid.py is the same pipeline as OpenGL passes. Meshing: capture (orbit points),
                         voxelize (density / colour grids, filters, histogram), isosurface (surface nets), mesh (Mesh,
                         weld / components / orient / holes / Taubin / quadric decimation / report, clean levels, remesh),
-                        uv (projections, texture bake), mesh_preview (a mesh through the solid shader), pipeline (the
-                        stages and the export), io/ (OBJ, STL, PLY, glTF, USD, Blender script, readers)
+                        uv (projections, texture bake), mesh_preview (a mesh through the solid shader), holon (frames
+                        along the orbit, chaos / tree instancing, primitives, the 3D-affine transform representation,
+                        instance point clouds for the renderers, baking), pipeline (the stages and the exports), io/ (OBJ,
+                        STL, PLY, glTF + instancing, USD + PointInstancer, Blender scripts, readers)
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,
@@ -605,8 +624,9 @@ fractalchemy/
                         formula_origins: the origin classification and row colours shared by every formula list),
                         three_d/ (the 3D Editor: Scene3DDocument with its undo history, Viewport3D with the orbit rig
                         and the mesh display, the Render / Camera / Materials / Lights / Environment panels, mesh_panels:
-                        the Mesh and Export tabs with the density histogram, jobs: MeshJob / ExportJob / MeshPreviewJob,
-                        SolidRenderWindow: the render to file on its own thread)
+                        the Mesh and Export tabs with the density histogram, instances_panel: assets, instancers and the
+                        own-IFS table, jobs: MeshJob / ExportJob / MeshPreviewJob, SolidRenderWindow: the render to file
+                        on its own thread)
 tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
                         import_jwf_variations.py + jwf_translate.py (JWildfire *Func.java → formulas), render_logo.py,
                         scripting_reference.py (docs/scripting.md from the scripting documentation database)

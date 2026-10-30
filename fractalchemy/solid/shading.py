@@ -158,8 +158,9 @@ def shade(view: View, gbuffer: GBuffer, scene: Scene3D, flame: Flame, shadow_map
     palette = np.asarray(flame.palette, dtype=np.float64) / 255.0
     color_index = np.clip(gbuffer.color, 0, 255)
     base = palette[color_index]                                   # (H, W, 3)
-    material_index = np.clip(gbuffer.material, 0, max(0, len(scene.materials) - 1))
-    mats = [scene.material_for(i) for i in range(max(1, len(scene.materials)))]
+    transform_count = max(1, len(getattr(flame, "xforms", ())) + (1 if getattr(flame, "final", None) is not None else 0))
+    mats = scene.render_materials(transform_count)
+    material_index = np.clip(gbuffer.material, 0, len(mats) - 1)
     table = np.array([[m.diffuse, m.ambient, m.specular, m.shininess, m.wrap, 1.0 if m.color_mode == "fixed" else 0.0,
                        *(c / 255.0 for c in m.specular_color), *(c / 255.0 for c in m.color)] for m in mats])
     mat = table[material_index]                                   # (H, W, 12)
@@ -172,15 +173,16 @@ def shade(view: View, gbuffer: GBuffer, scene: Scene3D, flame: Flame, shadow_map
     else:
         near, far = depth_range if depth_range is not None else view.depth_range(gbuffer.pos[hits][:, 2] if hits.any() else np.array([0.0]))
         span = max(far - near, 1e-6)
+        normal = normals_from_positions(gbuffer.pos, hits, solid.normal_smoothing, DISCONTINUITY * span)
         if gbuffer.normal is not None:
-            normal = gbuffer.normal.astype(np.float64)        # given with the samples (a mesh): smooth shading
-            length = np.linalg.norm(normal, axis=-1, keepdims=True)
-            normal = np.where(length > 1e-20, normal / np.maximum(length, 1e-20), 0.0)
-            flip = normal[..., 2] < 0
-            normal[flip] = -normal[flip]
-            normal[~hits] = 0.0
-        else:
-            normal = normals_from_positions(gbuffer.pos, hits, solid.normal_smoothing, DISCONTINUITY * span)
+            # normals given with the samples (meshes, instances) take over where there are any: smooth shading
+            given = gbuffer.normal.astype(np.float64)
+            length = np.linalg.norm(given, axis=-1, keepdims=True)
+            has_given = (length[..., 0] > 1e-20) & hits
+            given = np.where(length > 1e-20, given / np.maximum(length, 1e-20), 0.0)
+            flip = given[..., 2] < 0
+            given[flip] = -given[flip]
+            normal = np.where(has_given[..., None], given, normal)
         ao = np.ones((h, w))
         if solid.ao and hits.any():
             ao = ambient_occlusion(view, gbuffer, normal, solid.ao_radius * span * 4.0, solid.ao_samples, solid.ao_falloff, solid.ao_intensity)

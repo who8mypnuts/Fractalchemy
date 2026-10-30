@@ -320,7 +320,7 @@ class MaterialsPanel(_Panel):
     def _show_current(self) -> None:
         if self._document is None or self.current_index() < 0:
             return
-        m = self._document.scene.material_for(self.current_index())
+        m = self._document.scene.material_for_transform(self.current_index())
         with updating(self), blocked(self.mode_box):
             self.mode_box.setCurrentIndex(max(0, self.mode_box.findData(m.color_mode)))
             self.color.set_color(m.color)

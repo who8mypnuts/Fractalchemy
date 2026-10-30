@@ -123,7 +123,8 @@ class Viewport3D(QWidget):
         document.fractal_changed.connect(self._on_scene_replaced)
         document.scene_restored.connect(self._on_scene_restored)
         document.camera_changed.connect(self._on_camera_changed)
-        for signal in (document.materials_changed, document.lights_changed, document.environment_changed, document.solid_changed):
+        for signal in (document.materials_changed, document.lights_changed, document.environment_changed, document.solid_changed,
+                       document.assets_changed, document.instancers_changed):
             signal.connect(self._render_after_edit)
         document.mesh_changed.connect(self._on_mesh_changed)
 

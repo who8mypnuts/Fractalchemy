@@ -17,7 +17,7 @@ manifold, thin walls, size) with a recommendation and **buttons** for each repai
 remesh as the last resort); the flame's 3D camera fields stay the one camera, driven by an orbit rig; **phase 1
 is the solid renderer without meshing**; the scene lives in its own **`.fa3d`** file with Open / Save in the 3D
 Editor from the start (materials, lights, assets and instancers will be embedded there, which `.fa` should not
-carry). **Phases 1 and 2 are implemented** (§11 marks them); the rest is the design to build on. Where JWildfire is
+carry). **Phases 1 to 3 are implemented** (§11 marks them); the rest is the design to build on. Where JWildfire is
 referenced, the relevant code was read (`create/tina/base/solidrender`, `base/raster/NormalsCalculator`, `render/LogDensityFilter`,
 `meshgen/*`), so the techniques named are ones known to work on fractal point clouds.
 
@@ -254,12 +254,13 @@ and keeps the export independent of Blender versions.
 
 ## 7. Holon IFS — instancing meshes along a fractal
 
-* **Frames.** The chaos game is extended to carry a 3×3 frame per point: `F' = J(p)·F`, where `J` is the
-  transform's affine (exact for affine / linear transforms — Xenodream's holons are affine) or the local Jacobian
-  of the full transform by finite differences (so variations like `spherical` or `julia3D` still turn and squash
-  the instances sensibly). The frame's scale is the instance size; a *size falloff* and a *minimum size* cap
-  the count of visible instances. Frames are orthonormalised with the scale kept separately (so skew stays
-  optional).
+* **Frames.** The chaos game is extended to carry a 3×3 frame per point: `F' = J(p)·F`, where `J` is the local
+  Jacobian of the full transform by central differences (`solid/holon.py`; exact for affine maps — Xenodream's
+  holons are affine — and sensible for `spherical`, `julia3D` and the rest; the same random stream on both sides
+  of the difference keeps random variations from swamping it). The polar decomposition (SVD) splits each
+  Jacobian into a rotation and a uniform scale (∛|det|), so skew is dropped. In chaos mode a frame is the product
+  of the last *depth* Jacobians — the size of a depth-*n* holon; the orbit position is the attractor's. A *size
+  falloff*, a *minimum size* and a *cap* keep the count in hand.
 * **Tree mode.** Enumerate every composition `T_i1 ∘ … ∘ T_id` of the transforms to depth `d` (with weights as
   pruning thresholds): deterministic, gap-free, the classic Xenodream structure; `count ≤ n^d`, capped.
 * **Viewport.** Instanced drawing (one VBO of frames, `glDrawArraysInstanced`) with the asset's proxy mesh at
@@ -329,7 +330,7 @@ cannot show to advantage become worthwhile (see `proposed_variations.md` and `do
 |---|---|---|
 | **1. Solid render + window** ✓ done | `scene3d` model + `.fa3d`; `solid/` capture / zbuffer / normals / shading (numpy); `render/gpu_solid.py` G-buffer + shading on the GPU; `ThreeDWindow` with the viewport (points + solid, orbit rig), Render / Camera / Materials / Lights / Environment tabs; *Render…* in the Render 3D Image window; *Use main fractal* / follow / send back; a **density threshold** (`SolidSettings.min_hits`: samples per G-buffer pixel a surface needs — removes the haze blur variations scatter) | numpy vs GPU agreement on the G-buffer and shaded image (`test_solid.py`); camera maths; window opens / pulls / renders on the CPU engine; the render to file |
 | **2. Mesh + export** ✓ done | capture → voxelise → filters → surface nets → the clean-up pipeline with the report (three levels), OBJ / STL / PLY / GLB / USD (usda, usdc, usdz) writers + readers, UV projections + texture bake, Blender script export; the Mesh (log-histogram threshold, cached capture, mesh display in the viewport) and Export tabs; jobs on QThreads | `tests/test_mesh.py`: every format round-trips; watertight / manifold / orientation on a sphere shell; decimation reaches its target and keeps the volume within 5 %; the pipeline stages, cancellation and the report; the tabs end to end |
-| **3. Holon IFS** | frames in the chaos game (affine + Jacobian), tree mode, mesh import + proxies, instanced viewport, instances in the G-buffer, PointInstancer / Geometry Nodes / glTF instancing export; the Instances tab with 3D affine gizmos | frame accumulation against closed forms; instance counts; export round trips |
+| **3. Holon IFS** ✓ done | frames along the orbit by local Jacobians (exact for affine maps; a *scale only* mode), chaos and tree modes with size rules, primitives / imported / fractal-mesh assets, instances in the same G-buffer as the fractal on both engines (point splats of the asset surfaces with interpolated normals — not instanced rasterisation, since the viewport is image-based), PointInstancer / `EXT_mesh_gpu_instancing` / Blender Geometry Nodes / baked exports; the Instances tab with an own 3D IFS edited as a table of 3D affine maps (no viewport gizmos) | `tests/test_holon.py`: Jacobian and frame against closed forms, tree counts `n^d`, chaos determinism, primitives watertight, CPU / GPU agreement, export round trips, the tab end to end |
 | **4. Environment + polish** | HDRI readers, IBL (SH9 + prefiltered), key-light extraction, shadow softness, fog, the `mesh_points` formula, the 3D formula imports from §9, documentation | HDRI decode against known images; IBL energy tests; the formulas through `test_variations` |
 
 Each phase is shippable on its own; phase 1 alone already gives JWildfire-style solid renders of every existing

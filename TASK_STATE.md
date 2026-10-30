@@ -398,3 +398,22 @@ history (`git show 13a9126:TASK_STATE.md`).
 * Fixed a real race: `variations._Registry.ensure_loaded` let a second thread read a half-loaded registry (a flame compiled on
   the render thread while the mesh thread compiled too lost `linear3D`); now an RLock with the loader marking its own thread.
 * `ambient_occlusion` works on the hit pixels only (same result, less work). Tests: `tests/test_mesh.py` (17).
+
+### Round 7: the 3D Editor, phase 3 (Holon IFS)
+* Model: `MeshAsset` (primitive / file / fractal; run-time `mesh`), `Instancer` (asset, source main / own `flame`, chaos / tree, depth,
+  frame mode, size rules, colour mode, material, seed), `SolidSettings.show_fractal`; `Scene3D.render_materials(transform_count)`
+  (transforms first, then the instancers' — `Instancer.render_material()` follows the colour mode), `instancer_material_index`,
+  `visible_instancers`; all in `.fa3d`.
+* `solid/holon.py`: `apply_with_jacobian` (central differences, same RNG stream both sides), `polar_decompose`, `rotation_to_quaternion`,
+  `_FramePopulation`, `chaos_instances` (frames reset every `depth` steps), `tree_instances` (levels all / leaves, cap), `InstanceSet`
+  (`sized`, `transforms`, `quaternions`), `primitive()` (icosphere, cube, torus, tetrahedron, icosahedron, cylinder), `instance_points`
+  (area-weighted surface samples), `bake_instances`, `affine3d_xform` / `read_affine3d` (3D affine as `linear3D + zscale + ztranslate +
+  post_rotate_x/y` — the post rotations turn by −weight·90°), `default_own_ifs`, `scene_instance_cloud` with a content-keyed cache.
+* Renderers: CPU job splats the instance cloud (with normals; `INSTANCE_COUNT` hits) into the G-buffer and shadow maps at prepare,
+  `GBuffer.merge` zeroes given normals where the fractal wins, `shade` mixes given and derived normals; GPU job uploads the cloud
+  to a VBO and draws it once with `codegen.instance_plot_shader()` (modes camera / shadow / count). `show_fractal` skips the fractal.
+* Exports: `usd.write_usd_instances` / `read_usd_instances` (PointInstancer, quath orientations), `gltf.write_glb_instances` /
+  `read_gltf_instances` (`EXT_mesh_gpu_instancing`), `blender.write_blender_instances` (script + `_instances.json`, Geometry Nodes
+  Instance on Points, Euler XYZ from quaternions), `pipeline.export_instances` (instanced or baked, mm scaling, report).
+* UI: `instances_panel.py` (assets, instancers, own-IFS table), document methods for assets / instancers / own transforms (meshes
+  survive undo through a cache), Export tab subject (mesh / instances / baked), ExportJob dispatch. Tests: `tests/test_holon.py` (9).

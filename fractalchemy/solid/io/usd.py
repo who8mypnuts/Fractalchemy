@@ -211,4 +211,88 @@ def _identifier(name: str) -> str:
     return ident if not ident[0].isdigit() else "_" + ident
 
 
-__all__ = ["usda_text", "write_usd", "read_usd", "usd_core_available"]
+
+
+# --- instanced scenes -----------------------------------------------------------------------------------------------------
+def usda_instances_text(instancers: list, name: str = "holon", meters_per_unit: float = 1.0) -> str:
+    """A `.usda` with one `PointInstancer` per instancer: `instancers` is a list of
+    `(label, asset Mesh (unit-sized), positions (N, 3), quaternions (N, 4) as (x, y, z, w), scales (N,), colours (N, 3) or None)`."""
+    prim = _identifier(name)
+    lines = ["#usda 1.0", "(", f'    defaultPrim = "{prim}"', f"    metersPerUnit = {meters_per_unit:g}", '    upAxis = "Z"',
+             '    doc = "Fractalchemy holon IFS export"', ")", "", f'def Xform "{prim}"', "{"]
+    for index, (label, mesh, positions, quaternions, scales, colors) in enumerate(instancers):
+        pi = _identifier(label) or f"instancer{index}"
+        lines += [f'    def PointInstancer "{pi}"', "    {",
+                  f"        rel prototypes = </{prim}/{pi}/Prototypes/asset>",
+                  f"        int[] protoIndices = [{', '.join(['0'] * positions.shape[0])}]",
+                  f"        point3f[] positions = [{_tuples(positions)}]",
+                  # quath is (real, i, j, k)
+                  f"        quath[] orientations = [{', '.join('(' + ', '.join(f'{v:.5g}' for v in (q[3], q[0], q[1], q[2])) + ')' for q in quaternions.tolist())}]",
+                  f"        float3[] scales = [{_tuples(np.repeat(scales[:, None], 3, axis=1), 6)}]"]
+        if colors is not None:
+            lines += [f"        color3f[] primvars:displayColor = [{_tuples(np.clip(colors, 0, 1), 4)}] (", '            interpolation = "vertex"', "        )"]
+        lines += ['        def Scope "Prototypes"', "        {", '            def Mesh "asset"', "            {",
+                  f"                int[] faceVertexCounts = [{', '.join(['3'] * mesh.face_count)}]",
+                  f"                int[] faceVertexIndices = [{', '.join(map(str, mesh.faces.reshape(-1).tolist()))}]",
+                  f"                point3f[] points = [{_tuples(mesh.vertices)}]"]
+        if mesh.normals is not None:
+            lines += [f"                normal3f[] normals = [{_tuples(mesh.normals, 5)}] (", '                    interpolation = "vertex"', "                )"]
+        if mesh.colors is not None and colors is None:
+            lines += [f"                color3f[] primvars:displayColor = [{_tuples(np.clip(mesh.colors, 0, 1), 4)}] (",
+                      '                    interpolation = "vertex"', "                )"]
+        lines += ['                uniform token subdivisionScheme = "none"', "            }", "        }", "    }", ""]
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def write_usd_instances(instancers: list, path: Path, name: str = "holon", meters_per_unit: float = 1.0) -> list[Path]:
+    """Write an instanced scene as `.usda` (or `.usdc` / `.usdz` through usd-core)."""
+    path = Path(path)
+    text = usda_instances_text(instancers, name, meters_per_unit)
+    suffix = path.suffix.lower()
+    if suffix == ".usda" or not usd_core_available():
+        target = path if suffix == ".usda" else path.with_suffix(".usda")
+        target.write_text(text, encoding="utf-8")
+        return [target]
+    from pxr import Usd, UsdUtils  # type: ignore
+    with tempfile.TemporaryDirectory() as folder:
+        source = Path(folder) / f"{_identifier(name)}.usda"
+        source.write_text(text, encoding="utf-8")
+        if suffix == ".usdz":
+            if not UsdUtils.CreateNewUsdzPackage(str(source), str(path)):
+                raise OSError(f"could not write {path.name}")
+        else:
+            Usd.Stage.Open(str(source)).Export(str(path))
+    return [path]
+
+
+def read_usd_instances(path: Path) -> list[tuple[np.ndarray, np.ndarray, np.ndarray, int]]:
+    """(positions, quaternions (x, y, z, w), scales, prototype face count) of every PointInstancer (usd-core needed).
+
+    Raises:
+        ValueError: Without usd-core or when the file has no PointInstancer.
+    """
+    if not usd_core_available():
+        raise ValueError("reading instanced USD needs the usd-core package")
+    from pxr import Usd, UsdGeom  # type: ignore
+    stage = Usd.Stage.Open(str(path))
+    out = []
+    for prim in stage.Traverse():
+        if prim.IsA(UsdGeom.PointInstancer):
+            pi = UsdGeom.PointInstancer(prim)
+            positions = np.asarray(pi.GetPositionsAttr().Get(), dtype=np.float64)
+            orientations = pi.GetOrientationsAttr().Get()
+            quats = np.array([[q.GetImaginary()[0], q.GetImaginary()[1], q.GetImaginary()[2], q.GetReal()] for q in orientations], dtype=np.float64)
+            scales = np.asarray(pi.GetScalesAttr().Get(), dtype=np.float64)[:, 0]
+            faces = 0
+            for target in pi.GetPrototypesRel().GetTargets():
+                proto = stage.GetPrimAtPath(target)
+                if proto.IsA(UsdGeom.Mesh):
+                    faces = len(UsdGeom.Mesh(proto).GetFaceVertexCountsAttr().Get())
+            out.append((positions, quats, scales, faces))
+    if not out:
+        raise ValueError(f"{Path(path).name}: no PointInstancer")
+    return out
+
+
+__all__ = ["usda_text", "write_usd", "read_usd", "usd_core_available", "usda_instances_text", "write_usd_instances", "read_usd_instances"]

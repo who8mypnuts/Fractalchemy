@@ -343,7 +343,7 @@ def editor_with_mesh_settings(win):
 def test_mesh_tab_generates_shows_and_regenerates_from_the_cached_capture(main):
     editor = editor_with_mesh_settings(main)
     panel = editor.mesh_panel
-    assert [editor.tabs.tabText(i) for i in range(editor.tabs.count())][-2:] == ["Mesh", "Export"]
+    assert [editor.tabs.tabText(i) for i in range(editor.tabs.count())][-3:] == ["Mesh", "Instances", "Export"]
     assert panel.result_label.text() == "No mesh yet." and not panel.show_clean.isEnabled() and panel.generate_button.isEnabled()
     panel.generate_button.click()
     assert editor.meshing and not panel.generate_button.isEnabled() and panel.cancel_button.isEnabled()

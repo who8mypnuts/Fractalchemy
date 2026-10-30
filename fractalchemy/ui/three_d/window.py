@@ -38,6 +38,7 @@ from ...widgets.icons import action_icon, editor_icon, three_d_icon
 from ..fractal_document import FractalDocument
 from .document import Scene3DDocument
 from .jobs import ExportJob, MeshJob
+from .instances_panel import InstancesPanel
 from .mesh_panels import ExportPanel, MeshPanel
 from .panels import CameraPanel, EnvironmentPanel, LightsPanel, MaterialsPanel, RenderPanel
 from .render_window import SolidRenderWindow
@@ -45,7 +46,7 @@ from .viewport import DEFAULT_QUALITY, Viewport3D, quality_named
 
 WINDOW_TITLE = "3D Editor"
 SETTINGS_GROUP = "three_d"
-SIDE_PANEL_WIDTH = 500
+SIDE_PANEL_WIDTH = 600
 FOLLOW_DELAY_MS = config.EDIT_RENDER_DELAY_MS
 
 
@@ -83,6 +84,7 @@ class ThreeDWindow(QMainWindow):
         self.materials_panel = MaterialsPanel(self)
         self.lights_panel = LightsPanel(self)
         self.environment_panel = EnvironmentPanel(self)
+        self.instances_panel = InstancesPanel(self)
         self.mesh_panel = MeshPanel(self)
         self.export_panel = ExportPanel(self)
         self._mesh_job: MeshJob | None = None
@@ -99,7 +101,7 @@ class ThreeDWindow(QMainWindow):
         self._connect()
         self.viewport.bind(self.document, service)
         for panel in (self.render_panel, self.camera_panel, self.materials_panel, self.lights_panel, self.environment_panel,
-                      self.mesh_panel, self.export_panel):
+                      self.instances_panel, self.mesh_panel, self.export_panel):
             panel.bind(self.document)
         self._restore_state()
         self._on_undo_changed(False, False)
@@ -166,9 +168,9 @@ class ThreeDWindow(QMainWindow):
         self.tabs.addTab(self.lights_panel, "Lights")
         self.tabs.addTab(self.environment_panel, "Environment")
         self.tabs.addTab(self.mesh_panel, "Mesh")
+        self.tabs.addTab(self.instances_panel, "Instances")
         self.tabs.addTab(self.export_panel, "Export")
         self.tabs.setMinimumWidth(SIDE_PANEL_WIDTH - 20)
-        self.tabs.setUsesScrollButtons(False)
         self.splitter.addWidget(self.viewport)
         self.splitter.addWidget(self.tabs)
         self.splitter.setStretchFactor(0, 1)
@@ -180,7 +182,7 @@ class ThreeDWindow(QMainWindow):
         bar.addPermanentWidget(self.file_label)
         bar.addPermanentWidget(self.engine_label)
         self.setStatusBar(bar)
-        self.resize(1400, 860)
+        self.resize(1500, 900)
 
     def _connect(self) -> None:
         self.document.undo_changed.connect(self._on_undo_changed)
@@ -198,6 +200,8 @@ class ThreeDWindow(QMainWindow):
         self.mesh_panel.cancel_requested.connect(self.cancel_mesh)
         self.mesh_panel.display_requested.connect(self._on_display_requested)
         self.export_panel.export_requested.connect(self.export_mesh)
+        self.instances_panel.flame_sent.connect(self.flame_sent)
+        self.instances_panel.status.connect(self.status)
         self.document.mesh_changed.connect(self._on_mesh_changed)
         self.document.solid_changed.connect(self._sync_display_choice)
         if self._main is not None:
@@ -370,9 +374,9 @@ class ThreeDWindow(QMainWindow):
         return re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "fractal"
 
     def export_mesh(self) -> None:
-        """Write the generated mesh in the chosen formats on a worker thread."""
+        """Write the generated mesh — or the instancers — in the chosen formats on a worker thread."""
         result = self.document.mesh_result
-        if result is None or self._export_job is not None:
+        if self._export_job is not None or not self.export_panel.can_export():
             return
         folder, name = self.export_folder(), self.export_name()
         job = ExportJob(result, self.document.scene, self.document.scene.export, folder, name, self)
