@@ -24,15 +24,18 @@ class GBuffer:
         color: `(H, W)` int16 palette index (0..255), −1 where empty.
         material: `(H, W)` int16 material (transform) index, −1 where empty.
         count: `(H, W)` int32 number of samples that landed in the pixel (the density threshold reads it).
+        normal: `(H, W, 3)` float32 surface normals given with the samples (a mesh preview), or None — then the
+            shader derives normals from the positions.
     """
 
-    def __init__(self, width: int, height: int):
+    def __init__(self, width: int, height: int, with_normals: bool = False):
         self.width, self.height = int(width), int(height)
         self.depth = np.full((self.height, self.width), EMPTY_DEPTH, dtype=np.float32)
         self.pos = np.zeros((self.height, self.width, 3), dtype=np.float32)
         self.color = np.full((self.height, self.width), -1, dtype=np.int16)
         self.material = np.full((self.height, self.width), -1, dtype=np.int16)
         self.count = np.zeros((self.height, self.width), dtype=np.int32)
+        self.normal = np.zeros((self.height, self.width, 3), dtype=np.float32) if with_normals else None
 
     @property
     def hits(self) -> np.ndarray:
@@ -45,8 +48,9 @@ class GBuffer:
         return float(self.hits.mean()) if self.depth.size else 0.0
 
     def splat(self, px: np.ndarray, py: np.ndarray, vx: np.ndarray, vy: np.ndarray, vz: np.ndarray,
-              color: np.ndarray, material: np.ndarray) -> int:
-        """Depth-test points into the buffer (pixel coordinates `px, py` as floats); returns how many landed inside."""
+              color: np.ndarray, material: np.ndarray, normal: np.ndarray | None = None) -> int:
+        """Depth-test points into the buffer (pixel coordinates `px, py` as floats); returns how many landed inside.
+        `normal` (`(N, 3)` view-space) is stored for the winning samples when the buffer carries normals."""
         inside = (px >= 0) & (px < self.width) & (py >= 0) & (py < self.height) & np.isfinite(vz) & np.isfinite(px) & np.isfinite(py)
         if not inside.any():
             return 0
@@ -65,6 +69,8 @@ class GBuffer:
         pos[wi, 2] = vz[w]
         self.color.reshape(-1)[wi] = color[w]
         self.material.reshape(-1)[wi] = material[w]
+        if self.normal is not None and normal is not None:
+            self.normal.reshape(-1, 3)[wi] = normal[w]
         return int(sel.size)
 
     def merge(self, other: "GBuffer") -> None:
@@ -74,7 +80,41 @@ class GBuffer:
         self.pos[nearer] = other.pos[nearer]
         self.color[nearer] = other.color[nearer]
         self.material[nearer] = other.material[nearer]
+        if self.normal is not None and other.normal is not None:
+            self.normal[nearer] = other.normal[nearer]
         self.count += other.count
+
+    def fill_gaps(self, passes: int = 1) -> None:
+        """Fill empty pixels from their nearest (in depth) filled 8-neighbour — closes the holes of a sparse point splat."""
+        for _ in range(passes):
+            empty = ~self.hits
+            if not empty.any():
+                return
+            best_depth = np.full_like(self.depth, EMPTY_DEPTH)
+            best_src = np.full(self.depth.shape + (2,), -1, dtype=np.int64)
+            ys, xs = np.indices(self.depth.shape)
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dy == 0 and dx == 0:
+                        continue
+                    sy = np.clip(ys + dy, 0, self.height - 1)
+                    sx = np.clip(xs + dx, 0, self.width - 1)
+                    d = self.depth[sy, sx]
+                    better = empty & (d < best_depth)
+                    best_depth[better] = d[better]
+                    best_src[better, 0] = sy[better]
+                    best_src[better, 1] = sx[better]
+            fill = empty & np.isfinite(best_depth)
+            if not fill.any():
+                return
+            sy, sx = best_src[fill, 0], best_src[fill, 1]
+            self.depth[fill] = self.depth[sy, sx]
+            self.pos[fill] = self.pos[sy, sx]
+            self.color[fill] = self.color[sy, sx]
+            self.material[fill] = self.material[sy, sx]
+            self.count[fill] = self.count[sy, sx]
+            if self.normal is not None:
+                self.normal[fill] = self.normal[sy, sx]
 
     def thresholded(self, min_hits: int) -> "GBuffer":
         """A copy with every pixel that collected fewer than `min_hits` samples emptied (the density threshold)."""
@@ -88,6 +128,7 @@ class GBuffer:
         out.color = np.where(sparse, -1, self.color).astype(np.int16)
         out.material = np.where(sparse, -1, self.material).astype(np.int16)
         out.count = self.count
+        out.normal = self.normal
         return out
 
 
@@ -112,6 +153,7 @@ class ShadowMap:
         self.scale = (self.size - 1) / (hi[:2] - lo[:2] + 2 * pad)
         self.depth = np.full((self.size, self.size), EMPTY_DEPTH, dtype=np.float32)
         self.extent = float((hi - lo).max())
+        self.bias_scale = 1.0          # multiplies the default depth bias (mesh previews use more: their maps are point-sampled)
 
     def light_coords(self, vx: np.ndarray, vy: np.ndarray, vz: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Grid coordinates (u, v) and the distance along the light of view-space points."""
@@ -135,6 +177,7 @@ class ShadowMap:
         clone = ShadowMap.__new__(ShadowMap)
         clone.direction, clone.size, clone.basis = self.direction, self.size, self.basis
         clone.origin, clone.scale, clone.extent = self.origin, self.scale, self.extent
+        clone.bias_scale = self.bias_scale
         clone.depth = np.full((self.size, self.size), EMPTY_DEPTH, dtype=np.float32)
         return clone
 
@@ -147,7 +190,7 @@ class ShadowMap:
         `softness`-cell box blur (percentage-closer filtering)."""
         flat = pos.reshape(-1, 3)
         u, v, along = self.light_coords(flat[:, 0], flat[:, 1], flat[:, 2])
-        bias = self.extent * 0.004 if bias is None else bias
+        bias = self.extent * 0.004 * self.bias_scale if bias is None else bias
         taps = max(1, int(round(softness)))
         offsets = range(-taps, taps + 1)
         total = np.zeros(flat.shape[0], dtype=np.float32)

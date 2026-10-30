@@ -10,17 +10,20 @@ flame, the materials (one per transform), the lights, the environment and the re
 its own `.fa3d` file with *New / Open / Save / Save as* here; it is a `Scene3DDocument` with an undo history.
 
 Layout: the toolbar, the viewport (left, the solid render, progressive, through the shared render service)
-and the property tabs (right: Render, Camera, Materials, Lights, Environment). *Render…* opens the
-`SolidRenderWindow` for a render to file with its own size, quality and output options. The status bar
-shows the render engine and progress.
+and the property tabs (right: Render, Camera, Materials, Lights, Environment, Mesh, Export). *Render…* opens
+the `SolidRenderWindow` for a render to file with its own size, quality and output options. The Mesh tab's
+*Generate mesh* runs a `MeshJob` (capture → voxels → isosurface → clean-up) and the viewport can show the
+result; the Export tab's *Export* runs an `ExportJob` writing the files. The status bar shows the render engine
+and progress.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QSettings, QStandardPaths, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (QFileDialog, QLabel, QMainWindow, QMessageBox, QSplitter, QStatusBar, QTabWidget, QToolBar,
                                QWidget)
@@ -34,13 +37,15 @@ from ...scene3d.model import Scene3D
 from ...widgets.icons import action_icon, editor_icon, three_d_icon
 from ..fractal_document import FractalDocument
 from .document import Scene3DDocument
+from .jobs import ExportJob, MeshJob
+from .mesh_panels import ExportPanel, MeshPanel
 from .panels import CameraPanel, EnvironmentPanel, LightsPanel, MaterialsPanel, RenderPanel
 from .render_window import SolidRenderWindow
 from .viewport import DEFAULT_QUALITY, Viewport3D, quality_named
 
 WINDOW_TITLE = "3D Editor"
 SETTINGS_GROUP = "three_d"
-SIDE_PANEL_WIDTH = 420
+SIDE_PANEL_WIDTH = 500
 FOLLOW_DELAY_MS = config.EDIT_RENDER_DELAY_MS
 
 
@@ -78,6 +83,10 @@ class ThreeDWindow(QMainWindow):
         self.materials_panel = MaterialsPanel(self)
         self.lights_panel = LightsPanel(self)
         self.environment_panel = EnvironmentPanel(self)
+        self.mesh_panel = MeshPanel(self)
+        self.export_panel = ExportPanel(self)
+        self._mesh_job: MeshJob | None = None
+        self._export_job: ExportJob | None = None
         self.tabs = QTabWidget(self)
         self.splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.engine_label = QLabel(self)
@@ -89,7 +98,8 @@ class ThreeDWindow(QMainWindow):
         self._build_layout()
         self._connect()
         self.viewport.bind(self.document, service)
-        for panel in (self.render_panel, self.camera_panel, self.materials_panel, self.lights_panel, self.environment_panel):
+        for panel in (self.render_panel, self.camera_panel, self.materials_panel, self.lights_panel, self.environment_panel,
+                      self.mesh_panel, self.export_panel):
             panel.bind(self.document)
         self._restore_state()
         self._on_undo_changed(False, False)
@@ -155,7 +165,10 @@ class ThreeDWindow(QMainWindow):
         self.tabs.addTab(self.materials_panel, "Materials")
         self.tabs.addTab(self.lights_panel, "Lights")
         self.tabs.addTab(self.environment_panel, "Environment")
-        self.tabs.setMinimumWidth(SIDE_PANEL_WIDTH - 40)
+        self.tabs.addTab(self.mesh_panel, "Mesh")
+        self.tabs.addTab(self.export_panel, "Export")
+        self.tabs.setMinimumWidth(SIDE_PANEL_WIDTH - 20)
+        self.tabs.setUsesScrollButtons(False)
         self.splitter.addWidget(self.viewport)
         self.splitter.addWidget(self.tabs)
         self.splitter.setStretchFactor(0, 1)
@@ -167,7 +180,7 @@ class ThreeDWindow(QMainWindow):
         bar.addPermanentWidget(self.file_label)
         bar.addPermanentWidget(self.engine_label)
         self.setStatusBar(bar)
-        self.resize(1280, 800)
+        self.resize(1400, 860)
 
     def _connect(self) -> None:
         self.document.undo_changed.connect(self._on_undo_changed)
@@ -181,6 +194,12 @@ class ThreeDWindow(QMainWindow):
         self.viewport.render_failed.connect(lambda message: self.progress_label.setText(f"Cannot render: {message}"))
         self.render_panel.quality_changed.connect(self._on_quality_chosen)
         self.camera_panel.reset_requested.connect(self.viewport.reset_view)
+        self.mesh_panel.generate_requested.connect(self.generate_mesh)
+        self.mesh_panel.cancel_requested.connect(self.cancel_mesh)
+        self.mesh_panel.display_requested.connect(self._on_display_requested)
+        self.export_panel.export_requested.connect(self.export_mesh)
+        self.document.mesh_changed.connect(self._on_mesh_changed)
+        self.document.solid_changed.connect(self._sync_display_choice)
         if self._main is not None:
             for signal in (self._main.flame_replaced, self._main.flame_restored, self._main.xform_changed, self._main.transforms_changed,
                            self._main.palette_changed, self._main.camera_changed, self._main.coloring_changed):
@@ -272,6 +291,123 @@ class ThreeDWindow(QMainWindow):
 
     def _set_points_display(self, on: bool) -> None:
         self.document.update_solid(None, display="points" if on else "solid")
+
+    def _on_display_requested(self, display: str, form: str) -> None:
+        """The Mesh tab's *Show* buttons: the solid render, the clean mesh or the full mesh."""
+        self.viewport.set_mesh_form(form)
+        self.document.update_solid(None, display=display)
+
+    def _sync_display_choice(self) -> None:
+        self.mesh_panel.sync_display(self.document.scene.solid.display, self.viewport.mesh_form)
+
+    def _on_mesh_changed(self) -> None:
+        if self.document.mesh_result is None and self.document.scene.solid.display == "mesh":
+            self.document.update_solid(None, display="solid")     # the mesh went: back to the fractal
+        self._sync_display_choice()
+
+    # --- meshing and export -----------------------------------------------------------------------------------------
+    @property
+    def meshing(self) -> bool:
+        """True while a mesh is being generated."""
+        return self._mesh_job is not None
+
+    def generate_mesh(self) -> None:
+        """Run the meshing pipeline on a worker thread (the capture is reused when its settings did not change)."""
+        flame = self.document.flame
+        if flame is None or self._mesh_job is not None:
+            return
+        job = MeshJob(flame, self.document.scene.mesh, self.document.voxel_stage, self)
+        job.progressed.connect(self._on_mesh_progress)
+        job.finished_with.connect(self._on_mesh_finished)
+        job.failed.connect(self._on_mesh_failed)
+        job.cancelled_signal.connect(lambda: self.status.emit("Mesh generation cancelled"))
+        job.finished.connect(self._on_mesh_job_done)
+        self._mesh_job = job
+        self.mesh_panel.set_running(True)
+        self.mesh_panel.show_progress(0.0, "Starting")
+        job.start()
+
+    def cancel_mesh(self) -> None:
+        if self._mesh_job is not None:
+            self._mesh_job.cancel()
+
+    def _on_mesh_progress(self, fraction: float, message: str) -> None:
+        self.mesh_panel.show_progress(fraction, message)
+        self.progress_label.setText(f"Mesh: {message}")
+
+    def _on_mesh_finished(self, result, stage) -> None:
+        self.document.set_mesh_result(result, stage)
+        rep = result.clean_report
+        self.status.emit(f"Mesh ready: {result.full_report.faces:,} faces, clean {rep.faces:,} — {rep.recommendation()}")
+        self.mesh_panel.show_progress(1.0, "Mesh ready")
+
+    def _on_mesh_failed(self, message: str) -> None:
+        self.mesh_panel.show_progress(0.0, f"Failed: {message}")
+        self.status.emit(f"Mesh generation failed: {message}")
+
+    def _on_mesh_job_done(self) -> None:
+        job = self._mesh_job
+        self._mesh_job = None
+        if job is not None:
+            job.deleteLater()
+        self.mesh_panel.set_running(False)
+
+    @property
+    def exporting(self) -> bool:
+        return self._export_job is not None
+
+    def export_folder(self) -> Path:
+        """Where the export goes: the Export tab's folder, else the last one used, else Documents."""
+        e = self.document.scene.export
+        if e.folder.strip():
+            return Path(e.folder.strip())
+        stored = self._settings.value(f"{SETTINGS_GROUP}/export_folder", "")
+        return Path(str(stored)) if stored else Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation) or Path.home())
+
+    def export_name(self) -> str:
+        e = self.document.scene.export
+        name = e.name.strip() or (self.document.flame.name if self.document.flame is not None else "scene")
+        return re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "fractal"
+
+    def export_mesh(self) -> None:
+        """Write the generated mesh in the chosen formats on a worker thread."""
+        result = self.document.mesh_result
+        if result is None or self._export_job is not None:
+            return
+        folder, name = self.export_folder(), self.export_name()
+        job = ExportJob(result, self.document.scene, self.document.scene.export, folder, name, self)
+        job.progressed.connect(self.export_panel.show_progress)
+        job.finished_with.connect(self._on_export_finished)
+        job.failed.connect(self._on_export_failed)
+        job.finished.connect(self._on_export_job_done)
+        self._export_job = job
+        self.export_panel.set_running(True)
+        self.export_panel.show_progress(0.0, "Starting")
+        self._settings.setValue(f"{SETTINGS_GROUP}/export_folder", str(folder))
+        job.start()
+
+    def _on_export_finished(self, outcome) -> None:
+        self.export_panel.show_outcome(outcome)
+        self.export_panel.show_progress(1.0, "Export finished")
+        self.status.emit(f"Exported {len(outcome.files)} files to {outcome.files[0].parent if outcome.files else ''}")
+
+    def _on_export_failed(self, message: str) -> None:
+        self.export_panel.show_failure(message)
+        self.export_panel.show_progress(0.0, "Failed")
+        self.status.emit(f"Export failed: {message}")
+
+    def _on_export_job_done(self) -> None:
+        job = self._export_job
+        self._export_job = None
+        if job is not None:
+            job.deleteLater()
+        self.export_panel.set_running(False)
+
+    def wait_for_jobs(self, timeout_ms: int = 60000) -> None:
+        """Block until the mesh / export jobs have exited (tests and quitting)."""
+        for job in (self._mesh_job, self._export_job):
+            if job is not None:
+                job.wait(timeout_ms)
 
     def _on_quality_chosen(self, name: str) -> None:
         self.viewport.set_quality(quality_named(name))
@@ -403,8 +539,13 @@ class ThreeDWindow(QMainWindow):
         self.render_window.bring_to_front()
 
     def confirm_quit(self) -> bool:
-        """Ask about a running render to file before quitting; False = keep going."""
-        return self._render_window is None or self._render_window.confirm_quit()
+        """Ask about a running render to file before quitting; False = keep going. Mesh / export jobs are stopped."""
+        if self._render_window is not None and not self._render_window.confirm_quit():
+            return False
+        if self._mesh_job is not None:
+            self._mesh_job.cancel()
+        self.wait_for_jobs()
+        return True
 
     # --- convenience ---------------------------------------------------------------------------------------------------
     def load_flame(self, flame: Flame, label: str = "Use fractal") -> None:

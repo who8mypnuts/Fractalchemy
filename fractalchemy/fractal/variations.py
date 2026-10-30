@@ -28,6 +28,7 @@ GLSL conventions (inside a generated per-xform function):
 from __future__ import annotations
 
 import math
+import threading
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -198,18 +199,35 @@ class Variation:
 
 
 class _Registry(dict):
-    """The catalogue; fills itself from `fractalchemy.formulas` on first read."""
+    """The catalogue; fills itself from `fractalchemy.formulas` on first read.
+
+    Thread-safe: the first reader loads under `lock` while other threads wait for it (a render thread and a
+    meshing thread compiling the same flame at once must both see the complete registry); reads made by the
+    loading thread itself (aliases, depth rules) pass straight through.
+    """
     _loading = False
+    _owner: int | None = None
+    lock = threading.RLock()
 
     def ensure_loaded(self) -> None:
-        if self._loading or dict.__len__(self):
+        if self._loading and _Registry._owner == threading.get_ident():
+            return                                   # a read from inside the load itself
+        if dict.__len__(self) and not self._loading:
             return
-        _Registry._loading = True
-        try:
+        with _Registry.lock:
+            if dict.__len__(self):
+                return
             from ..formulas import load_all   # imported here: formulas depends on this module
             load_all()
-        finally:
-            _Registry._loading = False
+
+    def begin_load(self) -> None:
+        """Mark a (re)load in progress on the calling thread (the loader calls this under `lock`)."""
+        _Registry._loading = True
+        _Registry._owner = threading.get_ident()
+
+    def end_load(self) -> None:
+        _Registry._loading = False
+        _Registry._owner = None
 
     def __getitem__(self, key):
         self.ensure_loaded()

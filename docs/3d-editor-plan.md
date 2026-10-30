@@ -17,7 +17,7 @@ manifold, thin walls, size) with a recommendation and **buttons** for each repai
 remesh as the last resort); the flame's 3D camera fields stay the one camera, driven by an orbit rig; **phase 1
 is the solid renderer without meshing**; the scene lives in its own **`.fa3d`** file with Open / Save in the 3D
 Editor from the start (materials, lights, assets and instancers will be embedded there, which `.fa` should not
-carry). **Phase 1 is implemented** (§11 marks it); the rest is the design to build on. Where JWildfire is
+carry). **Phases 1 and 2 are implemented** (§11 marks them); the rest is the design to build on. Where JWildfire is
 referenced, the relevant code was read (`create/tina/base/solidrender`, `base/raster/NormalsCalculator`, `render/LogDensityFilter`,
 `meshgen/*`), so the techniques named are ones known to work on fractal point clouds.
 
@@ -210,20 +210,23 @@ reference and the fallback (slower, not interactive).
    index weighted by density) and, optionally, a material grid.
 2. **Filter** — Gaussian smoothing (radius in voxels), dilate / erode (morphological), a density **threshold**
    chosen on a log-histogram (the UI shows it) — JWildfire's pre-filters, vectorised.
-3. **Marching cubes** — numpy implementation over all cubes at once (the classic 256-entry edge / triangle
-   tables), interpolated vertices, normals from the density gradient (central differences), vertex colours from
-   the colour grid. (`scikit-image` has `marching_cubes`; keeping our own avoids a dependency and lets the GPU
-   later do it in compute-less OpenGL via a two-pass transform feedback — not needed in phase 1.)
+3. **Isosurface** — built as *naive surface nets* rather than marching cubes (`solid/isosurface.py`): one vertex
+   per surface cube at the mean of its edge crossings, one quad per crossing grid edge. No 256-case tables, no
+   ambiguous cases (diagonal 2 × 2 voxel patterns are filled first so every cube edge is shared by at most two
+   quads), watertight by construction, and smoother vertices for the clean-up to start from. Vertex colours from
+   the colour grid (trilinear), normals from the faces.
 4. **The full mesh** — exactly that: every triangle, vertex normals, vertex colours. Large (millions of
    triangles at 256³), faithful.
-5. **The clean mesh** — a pipeline with a report at each step: weld vertices (tolerance), drop degenerate faces,
-   drop components under N triangles (or keep the largest K), fill small holes, **orient** faces consistently
-   (propagate winding across adjacency, flip outward by volume sign), Taubin smoothing (λ/μ, iterations), quadric
-   edge-collapse **decimation** to a target triangle count (own implementation; `fast-simplification` used when
-   installed), recompute normals; **print checks**: watertight, manifold edges, self-intersections (sampled),
-   scale to millimetres with a target size, volume and bounding box in mm, thin-wall estimate (distance from
-   surface through the voxel field). The report goes in the export beside the files (`name_report.md`, like the
-   render reports).
+5. **The clean mesh** — a pipeline with a report (`solid/mesh.py`): weld vertices, drop degenerate faces, drop
+   components under N triangles (or keep the largest K), fill small holes (boundary loops, touching holes split),
+   **orient** faces consistently (propagated over the edge graph, each piece outward by volume sign), Taubin
+   smoothing, quadric edge-collapse **decimation** to a target count — the built-in one collapses *independent
+   sets* of edges in vectorised rounds (link condition, face-flip test, cost bands with a random order inside so
+   the selection does not chain), `fast-simplification` when installed — then normals; **print checks**:
+   watertight, manifold edges, orientation, pieces, volume, area, size, a thin-wall lower-bound estimate from the
+   voxel distance transform; scale to millimetres with a target size. Three levels: *simple*, *aggressive*, and
+   *remesh* (the occupancy closed, cavities filled, largest blob, re-extracted). The report goes in the export
+   beside the files (`name_report.md`). Not done: a self-intersection check.
 
 ---
 
@@ -325,7 +328,7 @@ cannot show to advantage become worthwhile (see `proposed_variations.md` and `do
 | phase | delivers | tests |
 |---|---|---|
 | **1. Solid render + window** ✓ done | `scene3d` model + `.fa3d`; `solid/` capture / zbuffer / normals / shading (numpy); `render/gpu_solid.py` G-buffer + shading on the GPU; `ThreeDWindow` with the viewport (points + solid, orbit rig), Render / Camera / Materials / Lights / Environment tabs; *Render…* in the Render 3D Image window; *Use main fractal* / follow / send back; a **density threshold** (`SolidSettings.min_hits`: samples per G-buffer pixel a surface needs — removes the haze blur variations scatter) | numpy vs GPU agreement on the G-buffer and shaded image (`test_solid.py`); camera maths; window opens / pulls / renders on the CPU engine; the render to file |
-| **2. Mesh + export** | voxelise, filters, marching cubes, the clean-up pipeline with the report, OBJ / STL / PLY / glTF / USDA writers + readers, UV projections, Blender script export; the Mesh and Export tabs | round-trip every format; watertight / manifold checks on known shapes (sphere, torus point clouds); decimation preserves volume within tolerance |
+| **2. Mesh + export** ✓ done | capture → voxelise → filters → surface nets → the clean-up pipeline with the report (three levels), OBJ / STL / PLY / GLB / USD (usda, usdc, usdz) writers + readers, UV projections + texture bake, Blender script export; the Mesh (log-histogram threshold, cached capture, mesh display in the viewport) and Export tabs; jobs on QThreads | `tests/test_mesh.py`: every format round-trips; watertight / manifold / orientation on a sphere shell; decimation reaches its target and keeps the volume within 5 %; the pipeline stages, cancellation and the report; the tabs end to end |
 | **3. Holon IFS** | frames in the chaos game (affine + Jacobian), tree mode, mesh import + proxies, instanced viewport, instances in the G-buffer, PointInstancer / Geometry Nodes / glTF instancing export; the Instances tab with 3D affine gizmos | frame accumulation against closed forms; instance counts; export round trips |
 | **4. Environment + polish** | HDRI readers, IBL (SH9 + prefiltered), key-light extraction, shadow softness, fog, the `mesh_points` formula, the 3D formula imports from §9, documentation | HDRI decode against known images; IBL energy tests; the formulas through `test_variations` |
 

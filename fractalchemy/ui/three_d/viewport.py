@@ -5,6 +5,10 @@ otherwise) under this widget's own key, progressively: the first pass lands quic
 surface in. While the mouse drags, renders are made at `INTERACTIVE_SCALE` with a single pass so the view
 keeps up; the full render follows once the drag settles.
 
+When the display mode is *mesh* and a mesh has been generated, the picture is the mesh instead: points sampled
+on its faces through the same shader (`solid.mesh_preview`), rendered by a `MeshPreviewJob` thread rather than
+the render service — the camera, lights and materials are the same, so the mesh lands over the solid render.
+
 Mouse: **left-drag** orbits (yaw with horizontal motion, pitch with vertical), **right-** or **middle-drag**
 pans (moves the camera centre in the view plane), the **wheel** zooms (the flame's `zoom`, powers of two),
 **Ctrl+wheel** changes the perspective strength, and **double-click** resets the view to the flame's own
@@ -28,6 +32,10 @@ from ...render.settings import RenderSettings, RenderStats
 from ...widgets.fractal_preview import fitted_rect
 from ...widgets.images import rgba_to_qimage
 from .document import Scene3DDocument
+from .jobs import MeshPreviewJob
+
+MESH_SAMPLES_PER_PIXEL = 3       # the mesh preview splats about this many surface points per G-buffer pixel
+MESH_SAMPLES_MIN, MESH_SAMPLES_MAX = 200_000, 2_000_000
 
 BACKGROUND = QColor(24, 24, 24)
 TEXT = QColor(110, 110, 110)
@@ -89,6 +97,9 @@ class Viewport3D(QWidget):
         self._drag: _Drag | None = None
         self._own_move = False           # a camera change made by the rig (renders interactively, not fully)
         self._home: Camera | None = None
+        self._mesh_job: MeshPreviewJob | None = None
+        self._mesh_pending: tuple | None = None
+        self.mesh_form = "clean"         # which generated mesh the *mesh* display shows: "clean" or "full"
         self.quality = DEFAULT_QUALITY
         self.placeholder = "No fractal — use the main window's, or open a scene"
         self._settle = QTimer(self, singleShot=True, interval=SETTLE_MS)
@@ -114,6 +125,7 @@ class Viewport3D(QWidget):
         document.camera_changed.connect(self._on_camera_changed)
         for signal in (document.materials_changed, document.lights_changed, document.environment_changed, document.solid_changed):
             signal.connect(self._render_after_edit)
+        document.mesh_changed.connect(self._on_mesh_changed)
 
     # --- state ------------------------------------------------------------------------------------------------
     @property
@@ -135,7 +147,20 @@ class Viewport3D(QWidget):
         """True when the picture shown is the finished render of the latest request."""
         return (self._stats is not None and self._stats.finished and self._stats_key == self._current_key
                 and self._current_key is not None and not self._edit_timer.isActive() and not self._settle.isActive()
-                and not self._resize_timer.isActive())
+                and not self._resize_timer.isActive() and self._mesh_job is None and self._mesh_pending is None)
+
+    @property
+    def showing_mesh(self) -> bool:
+        """True when the picture is the generated mesh rather than the fractal."""
+        return (self._document is not None and self._document.scene.solid.display == "mesh"
+                and self._document.mesh_result is not None)
+
+    def set_mesh_form(self, form: str) -> None:
+        """Show the `clean` or the `full` mesh in the mesh display."""
+        if form != self.mesh_form:
+            self.mesh_form = form
+            if self.showing_mesh:
+                self.render_full()
 
     def set_quality(self, level: PreviewQuality | str) -> None:
         level = level if isinstance(level, PreviewQuality) else quality_named(level)
@@ -198,13 +223,63 @@ class Viewport3D(QWidget):
         flame = flame.copy()
         flame.camera = flame.camera.at_size(width, height)
         level = self.quality
+        scene = self._document.scene.copy()
+        self._generation += 1
+        if scene.solid.display == "mesh":
+            if self._document.mesh_result is not None:
+                self._current_key = ("3d-mesh", id(self), self._generation)
+                mesh = self._document.mesh_result.mesh(self.mesh_form)
+                oversample = 2 if (scale == 1.0 and level.name == "Fine") else 1
+                samples = int(min(MESH_SAMPLES_MAX, max(MESH_SAMPLES_MIN, MESH_SAMPLES_PER_PIXEL * width * height * oversample ** 2)))
+                self._start_mesh_job((mesh, flame.camera, scene, width, height, oversample, samples, self._current_key))
+                return
+            scene.solid.display = "solid"                  # no mesh yet: show the fractal
         passes = 1 if scale < 1.0 else level.passes
         settings = RenderSettings(width, height, passes=passes, quality=level.quality if scale == 1.0 else level.quality / 2,
                                   points=level.points, fuse=config.PREVIEW_FUSE, oversample=level.oversample if scale == 1.0 else 1,
-                                  filter_radius=0.0, refine_to=0.0).with_solid(self._document.scene.copy())
-        self._generation += 1
+                                  filter_radius=0.0, refine_to=0.0).with_solid(scene)
         self._current_key = ("3d-viewport", id(self), self._generation)
         self._service.submit(self._current_key, flame, settings, PRIORITY_VIEWPORT)
+
+    # --- the mesh display --------------------------------------------------------------------------------------------
+    def _on_mesh_changed(self) -> None:
+        if self._document is not None and self._document.scene.solid.display == "mesh":
+            self.render_full()
+
+    def _start_mesh_job(self, request: tuple) -> None:
+        """Run one mesh preview at a time; a request arriving while one runs replaces any waiting one."""
+        if self._mesh_job is not None:
+            self._mesh_pending = request
+            return
+        mesh, camera, scene, width, height, oversample, samples, key = request
+        job = MeshPreviewJob(mesh, camera, scene, width, height, oversample, samples, key, self)
+        job.finished_with.connect(self._on_mesh_image)
+        job.failed.connect(self._on_mesh_failed)
+        job.finished.connect(self._on_mesh_job_done)
+        self._mesh_job = job
+        job.start()
+
+    def _on_mesh_job_done(self) -> None:
+        job = self._mesh_job
+        self._mesh_job = None
+        if job is not None:
+            job.deleteLater()
+        if self._mesh_pending is not None:
+            request, self._mesh_pending = self._mesh_pending, None
+            self._start_mesh_job(request)
+
+    def _on_mesh_image(self, image: np.ndarray, key: object) -> None:
+        if key != self._current_key:
+            return
+        mesh_result = self._document.mesh_result if self._document is not None else None
+        faces = mesh_result.mesh(self.mesh_form).face_count if mesh_result is not None else 0
+        samples = int(min(MESH_SAMPLES_MAX, max(MESH_SAMPLES_MIN, MESH_SAMPLES_PER_PIXEL * image.shape[0] * image.shape[1])))
+        stats = RenderStats(engine="mesh preview (CPU)", passes_done=1, passes_total=1, samples=samples, hits=samples,
+                            width=image.shape[1], height=image.shape[0], notes=[f"{faces:,} faces"])
+        self._on_pass(key, image, stats)
+
+    def _on_mesh_failed(self, message: str) -> None:
+        self.render_failed.emit(message)
 
     def _on_pass(self, key: object, image: np.ndarray, stats: RenderStats) -> None:
         if key != self._current_key:

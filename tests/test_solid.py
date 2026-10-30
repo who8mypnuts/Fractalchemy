@@ -267,7 +267,7 @@ def test_three_d_editor_opens_from_the_windows_menu_and_pulls_the_main_fractal(m
     assert editor.parent() is main and editor.isWindow() and editor.windowTitle().startswith("3D Editor — tetrahedron")
     assert editor.document.flame is not None and editor.document.flame is not main.document.flame
     assert len(editor.document.scene.materials) == 4 and editor.materials_panel.list.count() == 4
-    assert [editor.tabs.tabText(i) for i in range(editor.tabs.count())] == ["Render", "Camera", "Materials", "Lights", "Environment"]
+    assert [editor.tabs.tabText(i) for i in range(editor.tabs.count())] == ["Render", "Camera", "Materials", "Lights", "Environment", "Mesh", "Export"]
     wait_rendered(editor)
     stats = editor.viewport.stats
     assert stats.engine.startswith("CPU solid") and "pass" in editor.progress_label.text() and editor.engine_label.text() == stats.engine

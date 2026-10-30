@@ -9,3 +9,6 @@ usd-core>=23.5         # OpenUSD: .usda / .usdc / .usdz export from the 3D Edito
 # optional extras for the Render Image window's denoisers:
 #   opencv-python-headless   non-local means denoiser
 #   oidn                     Intel Open Image Denoise (needs the OIDN library)
+# optional extras for the 3D Editor's mesh export:
+#   fast-simplification      quicker quadric decimation of very large meshes
+#   xatlas                   UV atlases (the projections are used otherwise)

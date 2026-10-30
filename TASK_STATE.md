@@ -380,3 +380,21 @@ history (`git show 13a9126:TASK_STATE.md`).
   Glyphs: three-d, pull/push-fractal, follow, render-3d, reset-view, points.
 * Tests: `tests/test_solid.py` (15: model / file, geometry, CPU job, GPU vs CPU on the same G-buffer, service, the window,
   files + persistence, the render to file). README section "3D Editor window"; plan §11 marks phase 1 done.
+
+### Round 6: the 3D Editor, phase 2 (meshing and export)
+* `solid/capture.py` (orbit points on threads, deterministic), `voxelize.py` (density + colour grids, scipy.ndimage filters,
+  normalisation, log histogram), `isosurface.py` (**surface nets** instead of marching cubes; `resolve_ambiguities` fills diagonal
+  2×2 voxel patterns so edges stay manifold; vertices at the mean edge crossing; colours trilinear), `mesh.py` (`Mesh`, weld,
+  components, `oriented`, boundary loops with figure-of-eight splitting, `fill_holes`, Taubin, **`quadric_decimate`**: batched
+  independent-set edge collapse with link condition, flip test with midpoint retry, cost bands + random order; `MeshReport`,
+  `clean()` levels, `remesh()`, `thin_wall_estimate` lower bound), `uv.py` (box / spherical / cylindrical / xatlas, texture bake),
+  `mesh_preview.py` (points sampled on faces with interpolated normals → G-buffer with a normal channel → `shade`; palette
+  quantisation to the flame's palette; `GBuffer.fill_gaps`), `pipeline.py` (`capture_stage` cached by `VoxelStage.matches`,
+  `build_mesh`, `export_result`, `report_markdown`), `io/` (OBJ+MTL, STL, PLY, GLB, USD via usd-core or text, Blender script,
+  `read_mesh`). Model: `MeshSettings`, `ExportSettings` in `Scene3D` / `.fa3d`.
+* UI: `three_d/jobs.py` (MeshJob / ExportJob / MeshPreviewJob), `mesh_panels.py` (MeshPanel with `DensityHistogram`, ExportPanel),
+  document `mesh_result` / `voxel_stage` + `mesh_changed`, viewport *mesh* display (oversample 1, ~3 samples per pixel), window
+  wiring (Generate / Cancel / Export, status, quit waits for jobs). Render panel gained the *Mesh* display.
+* Fixed a real race: `variations._Registry.ensure_loaded` let a second thread read a half-loaded registry (a flame compiled on
+  the render thread while the mesh thread compiled too lost `linear3D`); now an RLock with the loader marking its own thread.
+* `ambient_occlusion` works on the hit pixels only (same result, less work). Tests: `tests/test_mesh.py` (17).

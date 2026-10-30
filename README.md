@@ -393,6 +393,28 @@ environments), is `docs/3d-editor-plan.md`.
   `.fa3d` beside the image) with its own quality — samples per pixel, passes, supersampling, AO samples — and the
   same Start / Pause / Stop life cycle on a worker thread with its own engine (the GPU when available), a live
   preview and a link to the file when done.
+* **Mesh**: turns the fractal into a printable object. *Generate mesh* captures orbit points (100 k – 8 M), builds a
+  voxel **density grid** (16 – 512 voxels along the longest side) and extracts the **isosurface** at a threshold you
+  set on a log-**histogram** of the density (drag the marker: what is denser becomes solid; Gaussian smoothing,
+  dilate / erode and vertex colours from the palette are the other knobs). The surface is *naive surface nets*
+  — no marching-cubes tables, no ambiguous cases (diagonal voxel patterns are resolved first), watertight by
+  construction. Two meshes come out: the **full** one (every triangle) and the **clean** one at a repair level —
+  *simple* (weld, drop debris, consistent outward orientation), *aggressive* (largest piece, fill holes,
+  Taubin smoothing, decimation to a target face count by quadric edge collapse — the built-in batched collapser,
+  or `fast-simplification` when installed) or *remesh* (the voxel occupancy closed and cavity-filled, the last
+  resort). Each carries a **print report**: pieces, open and non-manifold edges, orientation, watertight, volume,
+  area, size, a thin-wall estimate, and a recommendation. The capture is cached, so changing the threshold or the
+  clean-up and regenerating takes a moment. *Show* switches the viewport between the solid render and either
+  mesh — drawn with the same lights and materials (points sampled on the faces, smooth-shaded), so the mesh lands
+  over the render it came from.
+* **Export**: the clean or the full mesh as **OBJ** (+ MTL), binary **STL**, binary **PLY**, **glTF** (GLB),
+  **OpenUSD** (`.usda` always; `.usdc` / `.usdz` through `usd-core`), with **vertex colours**, or **UVs + a baked
+  texture** (box / spherical / cylindrical projection, or an `xatlas` atlas when installed), or geometry only;
+  in flame units or scaled to a size in **millimetres** (USD carries `metersPerUnit`); plus a **Blender scene
+  script** (`name_blender.py`: `blender --python` imports the asset, builds the material from the colours or the
+  texture, places the lights as Suns turned as in the editor, the camera as the flame's, the world colour) and a
+  Markdown **report** beside the files. Every writer has a reader (`solid.io.read_mesh`) and the tests round-trip
+  them all.
 
 ### Render Image window (the final renderer)
 *Windows ▸ Render Image…* (`Ctrl+R`) or the toolbar button opens a non-modal tool window; a render runs on its
@@ -543,7 +565,11 @@ fractalchemy/
                         settings) and the .fa3d file
   solid/                the solid renderer on the CPU: View (the 3D camera as a view transform), GBuffer + ShadowMap,
                         shading (normals, ambient occlusion, lights, shadows, fog), SolidCpuJob (the engine job);
-                        render/gpu_solid.py is the same pipeline as OpenGL passes
+                        render/gpu_solid.py is the same pipeline as OpenGL passes. Meshing: capture (orbit points),
+                        voxelize (density / colour grids, filters, histogram), isosurface (surface nets), mesh (Mesh,
+                        weld / components / orient / holes / Taubin / quadric decimation / report, clean levels, remesh),
+                        uv (projections, texture bake), mesh_preview (a mesh through the solid shader), pipeline (the
+                        stages and the export), io/ (OBJ, STL, PLY, glTF, USD, Blender script, readers)
   model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,
@@ -577,9 +603,10 @@ fractalchemy/
                         compiles, formula_editor_actions, formula_list_panel, formula_editor_panels: preview
                         options / variable tools / presets, formula_drawer: reference / compiler output / probe,
                         formula_origins: the origin classification and row colours shared by every formula list),
-                        three_d/ (the 3D Editor: Scene3DDocument with its undo history, Viewport3D with the orbit rig,
-                        the Render / Camera / Materials / Lights / Environment panels, SolidRenderWindow: the render to
-                        file on its own thread)
+                        three_d/ (the 3D Editor: Scene3DDocument with its undo history, Viewport3D with the orbit rig
+                        and the mesh display, the Render / Camera / Materials / Lights / Environment panels, mesh_panels:
+                        the Mesh and Export tabs with the density histogram, jobs: MeshJob / ExportJob / MeshPreviewJob,
+                        SolidRenderWindow: the render to file on its own thread)
 tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
                         import_jwf_variations.py + jwf_translate.py (JWildfire *Func.java → formulas), render_logo.py,
                         scripting_reference.py (docs/scripting.md from the scripting documentation database)

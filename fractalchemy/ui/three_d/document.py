@@ -35,6 +35,9 @@ class Scene3DDocument(QObject):
         lights_changed(): A light edit.
         environment_changed(): Background / ambient / exposure.
         solid_changed(): Renderer settings (display mode, AO, fog, smoothing).
+        mesh_settings_changed(): The Mesh tab's settings.
+        export_settings_changed(): The Export tab's settings.
+        mesh_changed(): A mesh was generated (or dropped): `mesh_result` is new.
         modified_changed(bool): The dirty flag flipped.
         undo_changed(bool, bool): (can undo, can redo) after every history change.
         path_changed(object): The scene's file (`Path` or None) changed.
@@ -47,6 +50,9 @@ class Scene3DDocument(QObject):
     lights_changed = Signal()
     environment_changed = Signal()
     solid_changed = Signal()
+    mesh_settings_changed = Signal()
+    export_settings_changed = Signal()
+    mesh_changed = Signal()
     modified_changed = Signal(bool)
     undo_changed = Signal(bool, bool)
     path_changed = Signal(object)
@@ -59,6 +65,8 @@ class Scene3DDocument(QObject):
         self._undo: list[tuple[str, dict]] = []       # (label, snapshot before the edit)
         self._redo: list[tuple[str, dict]] = []
         self._last_merge_key: object = None
+        self.mesh_result = None                        # solid.pipeline.MeshResult of the last *Generate mesh* (not in the history)
+        self.voxel_stage = None                        # its capture, reused while the fractal and the capture settings stay
 
     # --- state ------------------------------------------------------------------------------------------------
     @property
@@ -98,6 +106,7 @@ class Scene3DDocument(QObject):
         self._undo.clear()
         self._redo.clear()
         self._last_merge_key = None
+        self.drop_mesh()
         self._set_path(path)
         self._modified = modified
         self.modified_changed.emit(modified)
@@ -144,7 +153,10 @@ class Scene3DDocument(QObject):
         self._restore(snapshot)
 
     def _restore(self, snapshot: dict) -> None:
+        old_fractal = self.scene.fractal.to_dict() if self.scene.fractal is not None else None
         self.scene = Scene3D.from_dict(snapshot)
+        if snapshot.get("fractal") != old_fractal:
+            self.drop_mesh()                            # the mesh belonged to another fractal
         self._last_merge_key = None
         self._set_modified(True)
         self.undo_changed.emit(self.can_undo, self.can_redo)
@@ -167,6 +179,7 @@ class Scene3DDocument(QObject):
                 setattr(new.camera, field, getattr(old.camera, field))
         self.scene.fractal = new
         self.scene.materials = materials_for(new, self.scene.materials)
+        self.drop_mesh()                                # the mesh belonged to the old fractal
         if new is not None and (self.scene.name in ("scene", "") or (old is not None and self.scene.name == old.name)):
             self.scene.name = new.name
         self._set_modified(True)
@@ -263,6 +276,39 @@ class Scene3DDocument(QObject):
             setattr(solid, key, value)
         self._set_modified(True)
         self.solid_changed.emit()
+
+    def update_mesh_settings(self, merge_key: object = None, **fields) -> None:
+        mesh = self.scene.mesh
+        if all(getattr(mesh, k) == v for k, v in fields.items()):
+            return
+        self._record("Mesh settings", merge_key)
+        for key, value in fields.items():
+            setattr(mesh, key, value)
+        self._set_modified(True)
+        self.mesh_settings_changed.emit()
+
+    def update_export_settings(self, **fields) -> None:
+        """Export options (not an undo step: they describe where files go, not the scene)."""
+        export = self.scene.export
+        if all(getattr(export, k) == v for k, v in fields.items()):
+            return
+        for key, value in fields.items():
+            setattr(export, key, value)
+        self._set_modified(True)
+        self.export_settings_changed.emit()
+
+    def set_mesh_result(self, result, stage) -> None:
+        """A generated mesh (and the capture it came from) — kept beside the scene, outside the history."""
+        self.mesh_result = result
+        self.voxel_stage = stage
+        self.mesh_changed.emit()
+
+    def drop_mesh(self) -> None:
+        """Forget the generated mesh (the fractal changed, or a new scene)."""
+        if self.mesh_result is not None or self.voxel_stage is not None:
+            self.mesh_result = None
+            self.voxel_stage = None
+            self.mesh_changed.emit()
 
     def set_follow(self, follow: bool) -> None:
         """The *follow the main window* flag (not an undo step)."""

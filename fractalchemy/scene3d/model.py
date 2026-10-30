@@ -128,6 +128,74 @@ class SolidSettings:
 
 
 @dataclass
+class MeshSettings:
+    """How the point cloud becomes a mesh (the Mesh tab).
+
+    Attributes:
+        points: Orbit points captured for the voxel grid.
+        resolution: Voxels along the longest side of the bounding box.
+        threshold: Iso-level on the normalized density (0..1; the histogram shows where the mass is).
+        smoothing: Gaussian blur of the density in voxels before the isosurface.
+        dilate, erode: Morphological radius in voxels (thicken / thin).
+        colors: Carry the palette colours to the vertices.
+        clean: The repair level of the clean mesh: `simple`, `aggressive` or `remesh`.
+        min_piece_faces: Pieces with fewer faces are dropped by the clean-up.
+        fill_holes: Boundary loops up to this many edges are closed (aggressive and remesh levels).
+        smooth_iterations: Taubin smoothing passes on the clean mesh.
+        target_faces: Decimate the clean mesh to about this many faces (0 = none).
+        seed: Random seed of the capture.
+    """
+    points: int = 1_000_000
+    resolution: int = 128
+    threshold: float = 0.15
+    smoothing: float = 1.0
+    dilate: int = 0
+    erode: int = 0
+    colors: bool = True
+    clean: str = "simple"
+    min_piece_faces: int = 50
+    fill_holes: int = 200
+    smooth_iterations: int = 4
+    target_faces: int = 200_000
+    seed: int = 1
+
+    def copy(self) -> "MeshSettings":
+        return replace(self)
+
+
+@dataclass
+class ExportSettings:
+    """What *Export* writes (the Export tab).
+
+    Attributes:
+        form: `clean` (the print-ready mesh) or `full` (every triangle the isosurface produced).
+        formats: Format keys (`solid.io.EXPORT_FORMATS`).
+        materials: `vertex` (vertex colours), `texture` (UVs + a baked PNG) or `none` (geometry only).
+        uv_mode: `box`, `spherical`, `cylindrical` or `atlas` (xatlas when installed).
+        texture_size: Side of the baked texture in pixels.
+        units: `world` (the flame's units as metres) or `mm` (scaled so the longest side is `size_mm`).
+        size_mm: Target longest side in millimetres for `mm` units.
+        blender: Also write the Blender scene script.
+        report: Also write the mesh report (`name_report.md`).
+        folder, name: Destination folder and base file name ("" = ask / the scene's name).
+    """
+    form: str = "clean"
+    formats: list[str] = field(default_factory=lambda: ["glb"])
+    materials: str = "vertex"
+    uv_mode: str = "box"
+    texture_size: int = 1024
+    units: str = "world"
+    size_mm: float = 100.0
+    blender: bool = True
+    report: bool = True
+    folder: str = ""
+    name: str = ""
+
+    def copy(self) -> "ExportSettings":
+        return replace(self, formats=list(self.formats))
+
+
+@dataclass
 class Scene3D:
     """A 3D Editor scene (see the module docstring).
 
@@ -139,6 +207,8 @@ class Scene3D:
         materials: Per-transform materials (index = transform index; the last one repeats).
         lights: The distant lights.
         environment: Background and ambient light.
+        mesh: Meshing settings.
+        export: Export settings.
     """
     name: str = "scene"
     fractal: Flame | None = None
@@ -147,6 +217,8 @@ class Scene3D:
     materials: list[Material] = field(default_factory=lambda: [Material()])
     lights: list[DistantLight] = field(default_factory=lambda: [DistantLight(), DistantLight(30.0, 150.0, (190, 205, 255), 0.35, False)])
     environment: Environment = field(default_factory=Environment)
+    mesh: MeshSettings = field(default_factory=MeshSettings)
+    export: ExportSettings = field(default_factory=ExportSettings)
 
     def material_for(self, index: int) -> Material:
         """The material of transform `index` (the last material repeats for transforms beyond the list)."""
@@ -157,7 +229,8 @@ class Scene3D:
     def copy(self) -> "Scene3D":
         """Independent copy (the flame, every material and light duplicated)."""
         return Scene3D(self.name, self.fractal.copy() if self.fractal else None, self.follow_main, self.solid.copy(),
-                       [m.copy() for m in self.materials], [li.copy() for li in self.lights], self.environment.copy())
+                       [m.copy() for m in self.materials], [li.copy() for li in self.lights], self.environment.copy(),
+                       self.mesh.copy(), self.export.copy())
 
     # --- serialisation (the .fa3d format and tests use this) -----------------------------------------------------
     def to_dict(self) -> dict:
@@ -170,6 +243,8 @@ class Scene3D:
             "materials": [asdict(m) for m in self.materials],
             "lights": [asdict(li) for li in self.lights],
             "environment": asdict(self.environment),
+            "mesh": asdict(self.mesh),
+            "export": asdict(self.export),
         }
 
     @classmethod
@@ -183,6 +258,8 @@ class Scene3D:
             materials=[_load(Material, m) for m in data.get("materials", [])] or [Material()],
             lights=[_load(DistantLight, li) for li in data.get("lights", [])],
             environment=_load(Environment, data.get("environment")),
+            mesh=_load(MeshSettings, data.get("mesh")),
+            export=_load(ExportSettings, data.get("export")),
         )
 
 
@@ -195,7 +272,11 @@ def _load(cls, data: dict | None):
     for key, value in data.items():
         if key not in known:
             continue
-        values[key] = tuple(int(v) for v in value) if key.endswith("color") or key == "fog_color" else value
+        if key.endswith("color") or key == "fog_color":
+            value = tuple(int(v) for v in value)
+        elif key == "formats":
+            value = [str(v) for v in value]
+        values[key] = value
     return cls(**values)
 
 
@@ -208,4 +289,5 @@ def materials_for(flame: Flame | None, existing: list[Material] | None = None) -
     return out
 
 
-__all__ = ["Scene3D", "Material", "DistantLight", "Environment", "SolidSettings", "materials_for", "FORMAT_VERSION", "RGB"]
+__all__ = ["Scene3D", "Material", "DistantLight", "Environment", "SolidSettings", "MeshSettings", "ExportSettings", "materials_for",
+           "FORMAT_VERSION", "RGB"]

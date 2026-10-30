@@ -118,31 +118,33 @@ def tangent_frame(normal: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def ambient_occlusion(view: View, gbuffer: GBuffer, normal: np.ndarray, radius: float, samples: int, falloff: float,
                       intensity: float) -> np.ndarray:
     """`(H, W)` occlusion factor in 0..1 (1 = open): hemisphere samples of world radius `radius` around each surface
-    point, each an occluder when the G-buffer surface at its pixel is nearer to the camera than the sample."""
+    point, each an occluder when the G-buffer surface at its pixel is nearer to the camera than the sample.
+    Computed for the hit pixels only (the rest is open)."""
     hits = gbuffer.hits
-    pos = gbuffer.pos.astype(np.float64)
-    t, b = tangent_frame(normal)
+    h, w = hits.shape
+    ao = np.ones((h, w))
+    if not hits.any():
+        return ao
+    pos = gbuffer.pos[hits].astype(np.float64)                # (N, 3): the surface points
+    n = normal[hits]
+    t, b = tangent_frame(n)
     kernel = ao_kernel(samples)
     depth = gbuffer.depth.astype(np.float64)
-    occluded = np.zeros(pos.shape[:2])
-    h, w = pos.shape[:2]
+    occluded = np.zeros(pos.shape[0])
     for kx, ky, kz in kernel:
-        sample = pos + radius * (kx * t + ky * b + kz * normal)
-        px, py = view.project(sample[..., 0].reshape(-1), sample[..., 1].reshape(-1), sample[..., 2].reshape(-1))
-        xi = np.clip(np.rint(px).astype(np.intp), 0, w - 1).reshape(h, w)
-        yi = np.clip(np.rint(py).astype(np.intp), 0, h - 1).reshape(h, w)
+        sample = pos + radius * (kx * t + ky * b + kz * n)
+        px, py = view.project(sample[:, 0], sample[:, 1], sample[:, 2])
+        xi = np.clip(np.rint(px).astype(np.intp), 0, w - 1)
+        yi = np.clip(np.rint(py).astype(np.intp), 0, h - 1)
         surface = depth[yi, xi]
-        sample_depth = -sample[..., 2]
-        diff = sample_depth - surface                         # > 0: the surface is in front of the sample
+        diff = -sample[:, 2] - surface                        # > 0: the surface is in front of the sample
         inside = np.isfinite(surface) & (diff > AO_BIAS * radius) & (diff < radius)
         weight = np.where(inside, 1.0 - np.clip(diff / radius, 0.0, 1.0) ** max(falloff, 1e-3), 0.0)   # near occluders count most
         occluded += weight
-    ao = 1.0 - intensity * occluded / max(1, samples)
-    ao[~hits] = 1.0
+    ao[hits] = 1.0 - intensity * occluded / max(1, samples)
     return box_blur(ao[..., None], 1, hits)[..., 0]
 
 
-# --- lighting ----------------------------------------------------------------------------------------------------
 def shade(view: View, gbuffer: GBuffer, scene: Scene3D, flame: Flame, shadow_maps: dict[int, ShadowMap] | None = None,
           depth_range: tuple[float, float] | None = None) -> np.ndarray:
     """The lit image `(height, width, 4)` uint8 of the G-buffer (downsampled from the supersampled size).
@@ -170,7 +172,15 @@ def shade(view: View, gbuffer: GBuffer, scene: Scene3D, flame: Flame, shadow_map
     else:
         near, far = depth_range if depth_range is not None else view.depth_range(gbuffer.pos[hits][:, 2] if hits.any() else np.array([0.0]))
         span = max(far - near, 1e-6)
-        normal = normals_from_positions(gbuffer.pos, hits, solid.normal_smoothing, DISCONTINUITY * span)
+        if gbuffer.normal is not None:
+            normal = gbuffer.normal.astype(np.float64)        # given with the samples (a mesh): smooth shading
+            length = np.linalg.norm(normal, axis=-1, keepdims=True)
+            normal = np.where(length > 1e-20, normal / np.maximum(length, 1e-20), 0.0)
+            flip = normal[..., 2] < 0
+            normal[flip] = -normal[flip]
+            normal[~hits] = 0.0
+        else:
+            normal = normals_from_positions(gbuffer.pos, hits, solid.normal_smoothing, DISCONTINUITY * span)
         ao = np.ones((h, w))
         if solid.ao and hits.any():
             ao = ambient_occlusion(view, gbuffer, normal, solid.ao_radius * span * 4.0, solid.ao_samples, solid.ao_falloff, solid.ao_intensity)

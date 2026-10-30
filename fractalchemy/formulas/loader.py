@@ -213,28 +213,31 @@ def load_all(user_dirs: list[Path] | None = None, force: bool = False, use_cache
     global _loaded
     if _loaded is not None and not force:
         return _loaded
-    started = time.perf_counter()
-    report = LoadReport()
-    cache = _Cache(cache_file() if use_cache else None)
-    V.REGISTRY._loading = True   # registry reads during loading must not re-enter
-    try:
-        dict.clear(V.REGISTRY)
-        V.ALIASES.clear()
-        load_builtin_modules(report)
-        if LIBRARY_DIR.is_dir():
-            load_directory(LIBRARY_DIR, report, override=False, cache=cache)
-        for directory in (user_formula_dirs() if user_dirs is None else user_dirs):
-            load_directory(directory, report, cache=cache)
-        from .apophysis_depth import apply_depth_rules
-        apply_depth_rules()
-    finally:
-        V.REGISTRY._loading = False
+    with V.REGISTRY.lock:                 # other threads reading the registry wait until the load is complete
+        if _loaded is not None and not force:
+            return _loaded
+        started = time.perf_counter()
+        report = LoadReport()
+        cache = _Cache(cache_file() if use_cache else None)
+        V.REGISTRY.begin_load()           # registry reads during loading must not re-enter
+        try:
+            dict.clear(V.REGISTRY)
+            V.ALIASES.clear()
+            load_builtin_modules(report)
+            if LIBRARY_DIR.is_dir():
+                load_directory(LIBRARY_DIR, report, override=False, cache=cache)
+            for directory in (user_formula_dirs() if user_dirs is None else user_dirs):
+                load_directory(directory, report, cache=cache)
+            from .apophysis_depth import apply_depth_rules
+            apply_depth_rules()
+        finally:
+            V.REGISTRY.end_load()
+        _loaded = report
     cache.save()
     report.seconds = time.perf_counter() - started
     for source, message in report.errors:
         log.warning("formula %s: %s", source, message)
     log.info("%s", report.summary())
-    _loaded = report
     return report
 
 

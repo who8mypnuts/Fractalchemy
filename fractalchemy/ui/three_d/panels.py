@@ -59,6 +59,7 @@ class RenderPanel(_Panel):
         self.display_box = QComboBox(self)
         self.display_box.addItem("Solid (lit surface)", "solid")
         self.display_box.addItem("Points (palette colours, unlit)", "points")
+        self.display_box.addItem("Mesh (generated on the Mesh tab)", "mesh")
         self.display_box.setToolTip("How the viewport and renders draw the fractal")
         self.quality_box = QComboBox(self)
         for level in QUALITIES:
@@ -159,7 +160,7 @@ class RenderPanel(_Panel):
             self.fog_start.set_value(s.fog_start)
             self.fog_end.set_value(s.fog_end)
             self.fog_color.set_color(s.fog_color)
-        lit = s.display == "solid"
+        lit = s.display != "points"
         for w in (self.ao_check, self.ao_radius, self.ao_intensity, self.ao_samples, self.ao_falloff, self.smoothing, self.fog_check,
                   self.fog_start, self.fog_end, self.fog_color):
             w.setEnabled(lit)
