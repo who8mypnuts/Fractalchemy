@@ -140,6 +140,10 @@ class FragDocument(QObject):
             self._modified = modified
             self.modified_changed.emit(modified)
 
+    def mark_modified(self) -> None:
+        """Flag unsaved edits (a recovered session's text that never reached its file)."""
+        self._set_modified(True)
+
     def mark_saved(self, path: Path) -> None:
         if path != self.path:
             self.path = path

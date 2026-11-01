@@ -1,29 +1,32 @@
-"""The Parameters dock — FragM's `VariableEditor`: a preset chooser and one tab of widgets per `#group`.
+"""The Parameters dock — FragM's `VariableEditor`: a preset chooser and the widgets of every `#group`.
 
 Widgets are created from the document's parameters after every build; one whose `unique_name` (group, name and
 range) is unchanged is kept, so values and lock states survive an edit-and-build cycle. A parameter the compiler
-optimised away is hidden (unless locked — FragM's rule), and a tab that ends up empty hides too. The preset combo
-applies a preset when chosen (and *Apply* re-applies it). The group tabs sit at the top when the dock is wide and
-on the right when it is tall, as FragM's do. The panel routes every edit to the document and refreshes from its
+optimised away is hidden (unless locked — FragM's rule), and a group that ends up empty hides too. The preset combo
+applies a preset when chosen (and *Apply* re-applies it). The groups are arranged by a `parameter_groups` view —
+collapsible sections on one page (default) or FragM's tabs — chosen with the ⊞ button; extra pages such as the
+grading controls join the same arrangement. Parameters pinned from their row menu gather in a *★ Favourites* group
+at the top (the list travels in the `.fafrag`). The panel routes every edit to the document and refreshes from its
 signals; it never touches the renderer.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QScrollArea, QTabWidget, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from ...fragments.files import IMAGE_SUFFIXES, FileManager
 from ...fragments.parameters import LockType
 from ...fragments.state import CAMERA_2D, CAMERA_3D, ParameterState
-
-CAMERA_NAMES = set(CAMERA_3D) | set(CAMERA_2D)
 from ...widgets.silent import blocked
 from .document import FragDocument
+from .parameter_groups import MODES, make_groups
 from .parameter_widgets import SamplerWidget, VariableWidget, make_widget
 
+CAMERA_NAMES = set(CAMERA_3D) | set(CAMERA_2D)
 DEFAULT_GROUP = "Default"
+FAVOURITES_GROUP = "★ Favourites"
+FAVOURITES_KEY = "favourites"
 
 
 class ParameterPanel(QWidget):
@@ -38,6 +41,7 @@ class ParameterPanel(QWidget):
     select_source_requested = Signal(str)
     bounds_edit_requested = Signal(str, int, int, float)
     group_preset_requested = Signal(str)
+    mode_changed = Signal(str)
     status = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
@@ -46,8 +50,6 @@ class ParameterPanel(QWidget):
         self.hide_unused = True
         self.last_edited_slider = ""            # `Power1`, `JuliaC2`: what F7 edits by default
         self.widgets: dict[str, VariableWidget] = {}
-        self._tabs: dict[str, QWidget] = {}
-        self._layouts: dict[str, QVBoxLayout] = {}
         self.filter = QLineEdit(self)
         self.filter.setPlaceholderText("Filter parameters…")
         self.filter.setClearButtonEnabled(True)
@@ -55,8 +57,15 @@ class ParameterPanel(QWidget):
         self.preset_combo = QComboBox(self)
         self.preset_combo.setToolTip("The fragment's presets (#preset blocks); choosing one applies it")
         self.apply_button = QPushButton("Apply", self)
-        self.tabs = QTabWidget(self)
-        self.tabs.setDocumentMode(True)
+        self.mode = "sections"
+        self.extra_pages: list[tuple[str, QWidget]] = []
+        self.groups = make_groups(self.mode, self)
+        self.groups.menu_requested.connect(self._group_menu)
+        self.mode_button = QToolButton(self)
+        self.mode_button.setText("⊞")
+        self.mode_button.setAutoRaise(True)
+        self.mode_button.setToolTip("Arrange the groups as sections on one page or as tabs")
+        self.mode_button.clicked.connect(lambda: self.set_mode("tabs" if self.mode == "sections" else "sections"))
         self.empty = QLabel("No parameters — build a fragment with annotated uniforms", self)
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)
@@ -64,17 +73,42 @@ class ParameterPanel(QWidget):
         top.addWidget(QLabel("Preset:", self))
         top.addWidget(self.preset_combo, 1)
         top.addWidget(self.apply_button)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addLayout(top)
-        layout.addWidget(self.filter)
-        layout.addWidget(self.tabs, 1)
-        layout.addWidget(self.empty, 1)
-        self.tabs.hide()
+        top.addWidget(self.mode_button)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(4, 4, 4, 4)
+        self._layout.addLayout(top)
+        self._layout.addWidget(self.filter)
+        self._layout.addWidget(self.groups, 1)
+        self._layout.addWidget(self.empty, 1)
         self.preset_combo.currentTextChanged.connect(self._on_preset_chosen)
         self.apply_button.clicked.connect(self.apply_current_preset)
-        self.tabs.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tabs.customContextMenuRequested.connect(self._tab_menu)
+
+    # --- arrangement --------------------------------------------------------------------------------------------------
+    def set_mode(self, mode: str) -> None:
+        """`sections` or `tabs` (the widgets are rebuilt into the new view)."""
+        if mode not in MODES or mode == self.mode:
+            return
+        fold_state = getattr(self.groups, "fold_state", {})
+        self.mode = mode
+        for widget in self.widgets.values():
+            widget.setParent(None)
+        for _title, page in self.extra_pages:
+            page.setParent(None)
+        self.groups.clear()
+        self._layout.removeWidget(self.groups)
+        self.groups.deleteLater()
+        self.groups = make_groups(mode, self)
+        if hasattr(self.groups, "fold_state"):
+            self.groups.fold_state = dict(fold_state)
+        self.groups.menu_requested.connect(self._group_menu)
+        self._layout.insertWidget(2, self.groups, 1)
+        self.rebuild()
+        self.mode_changed.emit(mode)
+
+    def add_page(self, title: str, widget: QWidget) -> None:
+        """A page that is not a group (the grading controls); shown after the groups in either arrangement."""
+        self.extra_pages.append((title, widget))
+        self.rebuild()
 
     # --- the document -------------------------------------------------------------------------------------------------
     def set_document(self, document: FragDocument | None) -> None:
@@ -102,9 +136,16 @@ class ParameterPanel(QWidget):
         old = self.widgets
         self.widgets = {}
         params = document.state.params if document is not None and document.source is not None else {}
-        current_tab = self.tabs.tabText(self.tabs.currentIndex()) if self.tabs.count() else ""
-        self._clear_tabs()
+        current = self.groups.current_group()
+        for widget in old.values():
+            widget.setParent(None)
+        for _title, page in self.extra_pages:
+            page.setParent(None)
+        self.groups.clear()
         files = FileManager(original=document.path).image_files() if document is not None else []
+        favourites = self.favourites()
+        if favourites:
+            self.groups.layout_for(FAVOURITES_GROUP)           # first, so it sits on top
         for name, param in params.items():
             widget = old.pop(name, None)
             if widget is None or widget.param.unique_name != param.unique_name:
@@ -112,49 +153,22 @@ class ParameterPanel(QWidget):
                 self._connect_widget(widget)
             widget.param = param
             self.widgets[name] = widget
-            self._layout_for(param.group or DEFAULT_GROUP).addWidget(widget)
+            self.groups.layout_for(self._group_of(widget)).addWidget(widget)
         for widget in old.values():
-            widget.setParent(None)
             widget.deleteLater()
-        for layout in self._layouts.values():
-            layout.addStretch(1)
+        self.groups.finish()
+        for title, page in self.extra_pages:
+            self.groups.add_page(title, page)
         self.refresh_values()
         self._refresh_presets()
-        self.tabs.setVisible(bool(self.widgets))
+        self.groups.setVisible(bool(self.widgets) or bool(self.extra_pages))
         self.empty.setVisible(not self.widgets)
-        self._select_tab(current_tab)
+        if current:
+            self.groups.set_current(current)
         self._apply_unused()
 
-    def _clear_tabs(self) -> None:
-        while self.tabs.count():
-            self.tabs.removeTab(0)
-        for tab in self._tabs.values():
-            tab.deleteLater()
-        self._tabs.clear()
-        self._layouts.clear()
-
-    def _layout_for(self, group: str) -> QVBoxLayout:
-        if group not in self._tabs:
-            page = QWidget()
-            layout = QVBoxLayout(page)
-            layout.setContentsMargins(4, 4, 4, 4)
-            layout.setSpacing(2)
-            scroll = QScrollArea(self.tabs)
-            scroll.setWidgetResizable(True)
-            scroll.setWidget(page)
-            scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-            self.tabs.addTab(scroll, group)
-            self._tabs[group] = scroll
-            self._layouts[group] = layout
-        return self._layouts[group]
-
-    def _select_tab(self, name: str) -> None:
-        for i in range(self.tabs.count()):
-            if self.tabs.tabText(i) == name:
-                self.tabs.setCurrentIndex(i)
-                return
-
     def _connect_widget(self, widget: VariableWidget) -> None:
+        widget.is_pinned = lambda name=widget.name: name in self.favourites()
         widget.value_edited.connect(self._on_value_edited)
         widget.row_action.connect(self.row_action)
         widget.lock_toggled.connect(self._on_lock_toggled)
@@ -200,14 +214,15 @@ class ParameterPanel(QWidget):
             if needle and (needle not in name.lower() if by_name else needle not in (widget.param.tooltip or "").lower()):
                 hidden = True
             widget.setVisible(not hidden)
-            group = widget.param.group or DEFAULT_GROUP
+            group = self._group_of(widget)
             shown_by_group[group] = shown_by_group.get(group, 0) + (0 if hidden else 1)
-        for i in range(self.tabs.count()):
-            self.tabs.setTabVisible(i, shown_by_group.get(self.tabs.tabText(i), 0) > 0)
-        if needle and shown_by_group.get(self.current_group(), 0) == 0:       # jump to the first tab with a match
-            for i in range(self.tabs.count()):
-                if shown_by_group.get(self.tabs.tabText(i), 0) > 0:
-                    self.tabs.setCurrentIndex(i)
+        extra = {title for title, _page in self.extra_pages}
+        for group in self.groups.groups():
+            self.groups.set_group_visible(group, group in extra and not needle or shown_by_group.get(group, 0) > 0)
+        if needle and shown_by_group.get(self.current_group(), 0) == 0:       # jump to the first group with a match
+            for group in self.groups.groups():
+                if shown_by_group.get(group, 0) > 0:
+                    self.groups.set_current(group)
                     break
 
     def set_hide_unused(self, hide: bool) -> None:
@@ -265,17 +280,40 @@ class ParameterPanel(QWidget):
             self.status.emit(f"Applied preset '{name}'" + (" — build needed (locked values)" if self.document.needs_build else ""))
 
     def current_group(self) -> str:
-        """The visible tab's group name."""
-        return self.tabs.tabText(self.tabs.currentIndex()) if self.tabs.count() else DEFAULT_GROUP
+        """The group in front / last touched (group actions default to it)."""
+        return self.groups.current_group() or DEFAULT_GROUP
 
     def group_names(self, group: str) -> list[str]:
-        return [n for n, w in self.widgets.items() if (w.param.group or DEFAULT_GROUP) == group]
+        return [n for n, w in self.widgets.items() if self._group_of(w) == group]
+
+    # --- favourites ---------------------------------------------------------------------------------------------------------
+    def favourites(self) -> list[str]:
+        """The pinned parameter names (kept in the document's metadata)."""
+        if self.document is None:
+            return []
+        names = self.document.metadata.tabs.get(FAVOURITES_KEY) or []
+        return [str(n) for n in names] if isinstance(names, list) else []
+
+    def set_favourite(self, name: str, pinned: bool) -> None:
+        """Pin / unpin one parameter (its row moves into / out of the Favourites group)."""
+        if self.document is None:
+            return
+        names = [n for n in self.favourites() if n != name]
+        if pinned:
+            names.append(name)
+        self.document.set_tab_metadata(FAVOURITES_KEY, names)
+        self.rebuild()
+        self.status.emit(f"{'Pinned' if pinned else 'Unpinned'} {name}")
+
+    def _group_of(self, widget: VariableWidget) -> str:
+        if widget.name in self.favourites():
+            return FAVOURITES_GROUP
+        return widget.param.group or DEFAULT_GROUP
 
     # --- group actions (FragM's tab context menu) -----------------------------------------------------------------------------
-    def _tab_menu(self, pos) -> None:
-        if self.document is None or not self.tabs.count():
+    def _group_menu(self, group: str, pos) -> None:
+        if self.document is None or group not in self.group_names_all():
             return
-        group = self.current_group()
         menu = QMenu(self)
         actions = {menu.addAction(f"Reset group '{group}'"): "reset", menu.addAction("Randomize group"): "randomize",
                    menu.addAction("Lock group"): "lock", menu.addAction("Unlock group"): "unlock",
@@ -284,7 +322,7 @@ class ParameterPanel(QWidget):
         hide = menu.addAction("Hide unused parameters")
         hide.setCheckable(True)
         hide.setChecked(self.hide_unused)
-        choice = menu.exec(self.tabs.mapToGlobal(pos))
+        choice = menu.exec(pos)
         if choice is hide:
             self.set_hide_unused(hide.isChecked())
         elif choice in actions:
@@ -299,6 +337,8 @@ class ParameterPanel(QWidget):
             return
         if action == "reset":
             document.reset([name])
+        elif action in ("pin", "unpin"):
+            self.set_favourite(name, action == "pin")
         elif action == "randomize":
             self.randomize([name])
         elif action == "copy":
@@ -337,6 +377,35 @@ class ParameterPanel(QWidget):
             self.status.emit(f"Randomized {len(values)} parameters")
         return len(values)
 
+    def mutate(self, strength: float, group: str | None = None, names: list[str] | None = None) -> int:
+        """Nudge the unlocked parameters by up to `strength` of their ranges; one undo step.
+
+        By default the fragment's own parameters (declared in the tab, not in the includes — the raytracer's `Detail`,
+        `BoundingSphere` and lights stay put); `group` restricts to one group, `names` to a list. The camera never moves.
+        """
+        import numpy as np
+        document = self.document
+        if document is None:
+            return 0
+        if names is None:
+            own = document.source.own_param_names() if document.source is not None else []
+            names = self.group_names(group) if group else (own or list(self.widgets))
+            names = [n for n in names if n not in CAMERA_NAMES and n in self.widgets]
+        rng = np.random.default_rng()
+        values = {}
+        for name in names:
+            param = document.state.params.get(name)
+            if param is None or document.state.is_locked(name):
+                continue
+            value = param.mutated_value(document.state.values[name], strength, rng)
+            if value is not None and value != document.state.values[name]:
+                values[name] = value
+        if values:
+            document.set_values(values)
+            document.end_merge()
+            self.status.emit(f"Mutated {len(values)} parameters by {strength * 100:.0f}%")
+        return len(values)
+
     def group_action(self, kind: str, group: str | None = None) -> None:
         """`reset`, `lock`, `unlock`, `copy` or `preset` on a group (the current tab's by default)."""
         if self.document is None:
@@ -362,9 +431,8 @@ class ParameterPanel(QWidget):
             return ""
         return self.document.state.to_text(names=self.group_names(group or self.current_group()))
 
-    def resizeEvent(self, event) -> None:  # noqa: D102 - Qt override: FragM flips the tabs East when the dock is tall
-        super().resizeEvent(event)
-        self.tabs.setTabPosition(QTabWidget.TabPosition.North if self.width() > self.height() else QTabWidget.TabPosition.East)
+    def group_names_all(self) -> set[str]:
+        return {self._group_of(w) for w in self.widgets.values()}
 
 
-__all__ = ["ParameterPanel", "DEFAULT_GROUP"]
+__all__ = ["ParameterPanel", "DEFAULT_GROUP", "FAVOURITES_GROUP"]

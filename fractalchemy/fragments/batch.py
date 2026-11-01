@@ -110,9 +110,13 @@ def render(path: Path, settings: FragFinalSettings, engine: FragEngine, preset: 
     renderer = FragFinalRenderer(engine, prepared.request, prepared.state, settings, clock, path_model, curves, prepared.source.auto_focus,
                                  blend=keyframe_blend(prepared.source.presets, prepared.state, clock))
     written: list[Path] = []
+    result_notes: list[str] = []
     settings_text = prepared.state.to_text(provenance=Path(path).name)
 
     def on_frame(image: FrameImage) -> None:
+        if image.missing_tiles:
+            result_notes.append(f"frame {image.frame}: {len(image.missing_tiles)} tiles not rendered (tile range); nothing written")
+            return
         target = settings.frame_path(image.frame, clock.frames)
         if settings.unique_name:
             target = settings.unique(target)
@@ -123,6 +127,7 @@ def render(path: Path, settings: FragFinalSettings, engine: FragEngine, preset: 
 
     result = renderer.run(progress, on_frame)
     result.paths = written
+    result.notes += result_notes
     return result
 
 

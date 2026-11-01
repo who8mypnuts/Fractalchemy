@@ -14,7 +14,7 @@ from PySide6.QtGui import QActionGroup, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import QMenu, QToolBar
 
 from ...fragments.examples import example_tree, examples_dir
-from ...fragments.templates import BUILTIN_TEMPLATES, SNIPPETS, user_templates
+from ...fragments.templates import BUILTIN_TEMPLATES, CODE_SNIPPETS, SNIPPETS, user_templates
 from ...widgets.actions import make_action, populate
 from ...widgets.icons import action_icon, editor_icon
 from . import help
@@ -47,6 +47,11 @@ class FragmentActions:
         self.save_params = act("Save parameters to file…", None, w.files.save_parameters, None, "The settings text as a .fragparams file")
         self.load_params = act("Load parameters from file…", None, lambda: w.files.load_parameters(), None,
                                "Apply a .fragparams file or the settings embedded in an image")
+        self.save_session = act("Save session…", None, w.sessions.save_session, None,
+                                "Every open tab (unsaved text included) with its settings as one .fasession file")
+        self.open_session = act("Open session…", None, lambda: w.sessions.open_session(), None, "Open the tabs of a saved session")
+        self.recover_session = act("Recover last session", None, w.sessions.recover, None,
+                                   "Bring back the tabs of a run that did not end cleanly (from the session autosave)")
         self.screenshot = act("Save screenshot…", editor_icon("render-fragment"), w.save_screenshot, None,
                               "Save the viewport's image with the settings embedded")
         self.close_tab = act("Close tab", None, w.tabs.close_current, "Ctrl+W", "Close the current tab")
@@ -58,6 +63,8 @@ class FragmentActions:
         self.replace = act("Replace…", None, lambda: w.show_find(True), QKeySequence.StandardKey.Replace, "Find and replace")
         self.goto = act("Go to line…", None, w.goto_line, "Ctrl+G", "Go to a line of the source")
         self.indent = act("Indent script", action_icon("indent"), w.indent_script, None, "Re-indent the whole source by brace depth (FragM's Indent Script)")
+        self.compare = act("Compare with original…", None, w.compare_with_original, None,
+                           "A diff against the bundled example this fragment came from (or its saved file), with Revert")
         # build
         self.build = act("Build", editor_icon("build"), w.build, "F5", "Preprocess, compile and render the fragment")
         self.auto_build = act("Auto-build", None, w.set_auto_build, None, "Rebuild by itself a moment after the source changes", checkable=True)
@@ -85,16 +92,28 @@ class FragmentActions:
         # render
         self.render = act("Render…", editor_icon("render-fragment"), w.show_render_window, "Ctrl+R",
                           "High resolution and animation render: tiles, subframes, every image format, EXR with depth")
-        self.batch = act("Batch render presets…", None, w.show_batch_dialog, None, "One image per preset or keyframe of the saved fragment")
-        self.export_mesh = act("Export mesh…", None, w.show_mesh_export, None,
+        self.batch = act("Batch render presets…", None, w.rendering.show_batch_dialog, None, "One image per preset or keyframe of the saved fragment")
+        self.queue_add = act("Add to render queue", None, w.queue_current_render, "Ctrl+Shift+Q",
+                             "Queue the current tab with the render window's settings; the queue renders its entries in turn")
+        self.queue = act("Render queue…", None, w.rendering.show_queue, None, "The queued renders and their progress")
+        self.export_mesh = act("Export mesh…", None, w.rendering.show_mesh_export, None,
                                "Sample the fragment's distance estimator on a voxel grid and export it as a printable mesh")
+        self.export_de = act("Export DE as code…", None, w.rendering.show_export_de, None,
+                             "The distance estimator with its values baked in, as GLSL, a Shadertoy, a Unity shader or an Unreal include")
         self.show_editor = act("Editor pane", None, w.toggle_editor, "Ctrl+E", "Show / hide the source editor (the viewport takes the width)", checkable=True)
         self.show_editor.setChecked(True)
         self.next_preset = act("Next preset", None, lambda: w.step_preset(1), "Ctrl+PgDown", "Apply the next preset")
         self.previous_preset = act("Previous preset", None, lambda: w.step_preset(-1), "Ctrl+PgUp", "Apply the previous preset")
+        self.preset_gallery = act("Preset gallery…", None, w.show_preset_gallery, "Ctrl+F9", "Every preset rendered small; double-click applies one")
+        self.controllers = act("Controllers…", None, w.show_controllers, None, "Bind MIDI knobs and gamepad sticks to sliders (Linux device files)")
         self.hud = act("Performance HUD", None, w.viewport.set_hud, "Ctrl+H",
                        "Images per second, ms per subframe against the watchdog budget, tiling, size, GPU load — over the viewport", checkable=True)
         self.fullscreen = act("Fullscreen", None, w.toggle_fullscreen, "Esc", "Show only the viewport (Esc toggles)", checkable=True)
+        self.minimap = act("Mini-map", None, w.viewport.set_minimap, "Ctrl+M", "A plan of the scene in the corner: origin, target, eye, camera path",
+                           checkable=True)
+        self.freeze = act("Freeze reference (A)", None, w.freeze_reference, "Ctrl+Shift+A", "Keep the current picture as the A side of the compare wipe")
+        self.compare = act("A/B compare", None, w.viewport.set_compare, "Ctrl+Shift+B",
+                           "Show the frozen reference left of a draggable divider, the live render right of it", checkable=True)
         # library
         self.show_library = act("Show library pane", None, w.library_dock.setVisible, "Ctrl+L", "Show / hide the fragment library", checkable=True)
         self.add_folder = act("Add folder to library…", None, w.library_host.add_folder, None, "Add a folder of .frag / .fafrag files")
@@ -110,6 +129,10 @@ class FragmentActions:
         self.group_preset = act("Group to preset…", None, lambda: w.params.group_to_preset(None), "F4", "Insert a preset holding the current tab's parameters")
         self.randomize_group = act("Randomize group", None, lambda: w.parameters.group_action("randomize"), "F6",
                                    "Random values within the sliders' ranges for the current tab (camera and locked parameters excluded)")
+        self.mutate = act("Mutate", None, lambda: w.explore.mutate(w.explore.strip.strength.value() / 100.0, w.explore.strip.group_only.isChecked()),
+                          "Shift+F6", "Nudge the unlocked parameters at random by the History dock's strength (a snapshot is taken first)")
+        self.snapshot = act("Snapshot to history", None, lambda: w.explore.snapshot("snapshot"), "Ctrl+F6",
+                            "Keep the current look in the History dock")
         self.reset_group = act("Reset group", None, lambda: w.parameters.group_action("reset"), None, "The current tab's parameters back to their defaults")
         self.lock_group = act("Lock group", editor_icon("lock"), lambda: w.parameters.group_action("lock"), None, "Lock every parameter of the current tab")
         self.unlock_group = act("Unlock group", editor_icon("unlock"), lambda: w.parameters.group_action("unlock"), None, "Unlock every parameter of the current tab")
@@ -128,8 +151,24 @@ class FragmentActions:
         # animation
         self.copy_image = act("Copy image", action_icon("copy"), w.copy_image, "Ctrl+Shift+C", "The viewport's picture on the clipboard")
         self.reset_camera = act("Reset camera", None, w.reset_camera, "Ctrl+Shift+0", "Back to the current preset's camera")
+        vp = w.viewport
+        self.nav_orbit = act("Orbit navigation (DCC style)", None, lambda: w.set_navigation("orbit"), None,
+                             "Left-drag orbits the target, middle-drag pans, right-drag / wheel dolly; Shift+left looks around", checkable=True)
+        self.nav_fragm = act("Fly navigation (FragM)", None, lambda: w.set_navigation("fragm"), None,
+                             "Left-drag turns the view, right-drag pans, both / wheel dolly, W A S D fly", checkable=True)
+        nav = QActionGroup(w)
+        nav.addAction(self.nav_orbit)
+        nav.addAction(self.nav_fragm)
+        self.nav_orbit.setChecked(True)
+        self.views = {side: act(side.capitalize(), None, lambda s=side: vp.view_from(s), shortcut,
+                                f"Look at the target from the {side} (numpad {key})")
+                      for side, shortcut, key in (("front", "Alt+1", "1"), ("back", "Ctrl+Alt+1", "Ctrl+1"), ("right", "Alt+3", "3"),
+                                                  ("left", "Ctrl+Alt+3", "Ctrl+3"), ("top", "Alt+7", "7"), ("bottom", "Ctrl+Alt+7", "Ctrl+7"))}
+        self.flip_view = act("Opposite side", None, vp.flip_view, "Alt+9", "The other side of the target (numpad 9)")
+        self.frame_origin = act("Frame the origin", None, vp.frame_origin, "Alt+.", "Put the target on the origin (numpad .)")
+        self.turntable = act("Turntable", None, vp.set_turntable, "Alt+T", "Slowly orbit the target (a motorised turntable)", checkable=True)
         self.add_bookmark = act("Add camera bookmark…", None, w.camera.add_bookmark, "Ctrl+B", "Keep the current camera under a name (saved in the .fafrag)")
-        self.record_path = act("Record camera path", None, w.camera.set_recording, "Ctrl+Shift+R",
+        self.record_path = act("Record camera path", None, w.camera.set_recording, "Ctrl+Shift+P",
                                "Sample the camera while you fly; turning it off writes KeyFrame presets", checkable=True)
         self.easing = act("Add easing curve…", None, w.animation.add_easing_curve, "F7", "Animate the last edited slider between two frames")
         self.timeline = act("Timeline editor…", None, w.animation.show_timeline, None, "Keyframes and easing curves on a ruler")
@@ -157,12 +196,13 @@ class FragmentActions:
         self.templates_menu = QMenu("New from template", w)
         populate(self.file_menu, self.new_2d, self.new_3d)
         self.file_menu.addMenu(self.templates_menu)
-        populate(self.file_menu, None, self.open, self.reload, self.save, self.save_as, None, self.import_shadertoy, None)
+        populate(self.file_menu, None, self.open, self.reload, self.save, self.save_as, None, self.import_shadertoy, None,
+                 self.save_session, self.open_session, self.recover_session, None)
         self.file_menu.addMenu(self.recent_menu)
         populate(self.file_menu, None, self.screenshot, self.copy_image, None, self.close_tab, self.close_window)
         self.refresh_templates()
         edit = bar.addMenu("&Edit")
-        populate(edit, self.undo, self.redo, None, self.find, self.replace, self.goto, self.indent, None)
+        populate(edit, self.undo, self.redo, None, self.find, self.replace, self.goto, self.indent, self.compare, None)
         insert = edit.addMenu("Insert command")
         self._build_snippets(insert)
         populate(edit, self.insert_gradient, None, self.preferences)
@@ -172,10 +212,10 @@ class FragmentActions:
         populate(debug, self.view_picture, self.view_depth, None, self.de_slice)
         populate(build, None, self.clear_log)
         render = bar.addMenu("&Render")
-        populate(render, self.render, self.batch, self.export_mesh, None, self.screenshot, None, self.fullscreen)
+        populate(render, self.render, self.batch, self.queue_add, self.queue, self.export_mesh, self.export_de, None, self.screenshot, None, self.freeze, self.compare, self.minimap, None, self.fullscreen)
         params = bar.addMenu("&Parameters")
-        populate(params, self.reset_all, self.reset_group, self.randomize_group, None, self.copy_settings, self.copy_group, self.paste_settings, self.paste_selected,
-                 None, self.group_preset, self.insert_preset, self.select_preset, self.next_preset, self.previous_preset, None, self.lock_group, self.unlock_group, None, self.hide_unused,
+        populate(params, self.reset_all, self.reset_group, self.randomize_group, self.mutate, self.snapshot, None, self.copy_settings, self.copy_group, self.paste_settings, self.paste_selected,
+                 None, self.group_preset, self.insert_preset, self.select_preset, self.preset_gallery, self.next_preset, self.previous_preset, None, self.lock_group, self.unlock_group, None, self.hide_unused,
                  None, self.colors_library, self.colors_library_group, self.colors_file, None, self.save_params, self.load_params)
         animation = bar.addMenu("&Animation")
         populate(animation, *w.anim.actions_list, None, self.easing, self.insert_preset, self.select_preset, None, self.timeline,
@@ -191,6 +231,7 @@ class FragmentActions:
         help_menu = bar.addMenu("&Help")
         help_menu.addAction("Fragment language and guide…", lambda: help.show_guide(w))
         help_menu.addAction("Mouse and keyboard", w.show_controls_help)
+        help_menu.addAction("Start the tutorials (walkthrough)", w.start_tutorials)
         help_menu.addAction("Batch rendering from the command line…", lambda: help.show_cli_help(w))
         help_menu.addAction("Welcome note", lambda: help.show_welcome(w))
         help_menu.addSeparator()
@@ -213,6 +254,9 @@ class FragmentActions:
         populate(menu, self.save_template, self.open_templates_folder)
 
     def _build_snippets(self, menu: QMenu) -> None:
+        code = menu.addMenu("Code snippets (Tab walks the stops)")
+        for label, template in CODE_SNIPPETS.items():
+            code.addAction(label, lambda text=template: self.w.insert_template(text))
         for group, lines in SNIPPETS.items():
             sub = menu.addMenu(group)
             for line in lines:
@@ -255,6 +299,10 @@ class FragmentActions:
         self.mode_toolbar = w.anim.mode_toolbar(w)
         w.addToolBar(self.mode_toolbar)
         w.addToolBarBreak()
+        self.nav_toolbar = QToolBar("Navigation", w)
+        self.nav_toolbar.setObjectName("fragmentsNavigation")
+        populate(self.nav_toolbar, *self.views.values(), self.flip_view, self.frame_origin, None, self.turntable)
+        w.addToolBar(self.nav_toolbar)
         self.time_toolbar = w.anim.time_toolbar(w)
         w.addToolBar(self.time_toolbar)
 
@@ -262,11 +310,13 @@ class FragmentActions:
         for dock in docks:
             self.windows_menu.addAction(dock.toggleViewAction())
         self.windows_menu.addSeparator()
-        for toolbar in (self.toolbar, self.mode_toolbar, self.time_toolbar):
+        for toolbar in (self.toolbar, self.nav_toolbar, self.mode_toolbar, self.time_toolbar):
             self.windows_menu.addAction(toolbar.toggleViewAction())
         self.windows_menu.addSeparator()
         self.windows_menu.addAction(self.show_editor)
         self.windows_menu.addAction(self.hud)
+        self.windows_menu.addSeparator()
+        self.windows_menu.addAction(self.controllers)
 
     def refresh_recent(self, paths: list) -> None:
         self.recent_menu.clear()

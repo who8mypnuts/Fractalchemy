@@ -56,6 +56,14 @@ class PreferencesDialog(QDialog):
         form.addRow(self.traveling_wheel)
         self.log_max_rows = _spin(50, 100000, 100)
         form.addRow("Log rows kept", self.log_max_rows)
+        self.parameter_layout = QComboBox()
+        self.parameter_layout.addItem("Sections on one page", "sections")
+        self.parameter_layout.addItem("Tabs (FragM)", "tabs")
+        form.addRow("Parameters dock", self.parameter_layout)
+        self.navigation = QComboBox()
+        self.navigation.addItem("Orbit (DCC: orbit / pan / dolly about the target)", "orbit")
+        self.navigation.addItem("Fly (FragM: turn / pan / W A S D)", "fragm")
+        form.addRow("3D navigation", self.navigation)
         return page
 
     def _editor_tab(self) -> QWidget:
@@ -68,6 +76,11 @@ class PreferencesDialog(QDialog):
         form.addRow(self.jump_to_error)
         self.autoload = QCheckBox("Reload a tab when its file changes on disk (unsaved edits are kept)")
         form.addRow(self.autoload)
+        self.autosave_minutes = _spin(0, 120)
+        self.autosave_minutes.setSpecialValueText("never")
+        self.autosave_minutes.setSuffix(" min")
+        self.autosave_minutes.setToolTip("The open tabs (unsaved text included) are written to a session autosave this often; a crash can be recovered from it")
+        form.addRow("Session autosave every", self.autosave_minutes)
         return page
 
     def _glsl_tab(self) -> QWidget:
@@ -152,9 +165,12 @@ class PreferencesDialog(QDialog):
         self.draw_paths.setChecked(p.draw_paths)
         self.traveling_wheel.setChecked(p.traveling_wheel)
         self.log_max_rows.setValue(p.log_max_rows)
+        self.parameter_layout.setCurrentIndex(max(0, self.parameter_layout.findData(p.parameter_layout)))
+        self.navigation.setCurrentIndex(max(0, self.navigation.findData(p.navigation)))
         self.font_size.setValue(p.font_size)
         self.jump_to_error.setChecked(p.jump_to_error)
         self.autoload.setChecked(p.autoload)
+        self.autosave_minutes.setValue(p.autosave_minutes)
         self.autorun.setChecked(p.autorun)
         self.auto_build.setChecked(p.auto_build)
         self.move_main.setChecked(p.move_main)
@@ -178,11 +194,12 @@ class PreferencesDialog(QDialog):
         return FragPreferences(
             max_recent=self.max_recent.value(), loop_play=self.loop_play.isChecked(), draw_paths=self.draw_paths.isChecked(),
             traveling_wheel=self.traveling_wheel.isChecked(), log_max_rows=self.log_max_rows.value(), font_size=self.font_size.value(),
+            parameter_layout=self.parameter_layout.currentData(), navigation=self.navigation.currentData(),
             jump_to_error=self.jump_to_error.isChecked(), autoload=self.autoload.isChecked(), autorun=self.autorun.isChecked(),
             auto_build=self.auto_build.isChecked(), move_main=self.move_main.isChecked(), use_defines=self.use_defines.isChecked(),
             compat_mode=self.compat_mode.currentData(), save_easing=self.save_easing.isChecked(), default_fps=self.default_fps.value(),
             refresh_ms=self.refresh_ms.value(), interactive_scale=self.interactive_scale.value(), gpu_load=self.gpu_load.value(),
-            pause_when_hidden=self.pause_when_hidden.isChecked(),
+            pause_when_hidden=self.pause_when_hidden.isChecked(), autosave_minutes=self.autosave_minutes.value(),
             include_paths=[self.include_list.item(i).text() for i in range(self.include_list.count())],
             log_to_file=self.log_to_file.isChecked(), log_file=self.log_file.text().strip(), log_file_max_kb=self.log_file_max_kb.value(),
             verbose=self.verbose.isChecked()).normalised()

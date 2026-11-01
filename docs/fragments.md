@@ -32,12 +32,39 @@ options (*Edit ▸ Preferences…*) and open tabs are remembered between runs.
   row opens the file (bundled includes open read-only) at that line; the line is marked in the editor too.
 * **Library** (dock, `Ctrl+L`): the bundled examples (read-only — *Save* becomes *Save as*) and your own folders
   (*Library ▸ Add folder to library…*) of `.frag` / `.fafrag` files, with a search box and an optional thumbnail
-  view (*Library ▸ Thumbnails*: each fragment rendered once at a small size and cached). Double-click opens a
+  view (*Library ▸ Thumbnails*: each fragment rendered once at a small size and cached; small / medium / large). Double-click opens a
   tab; drag a file onto the window to open it; the host's library features (copy / move / rename, per-folder
-  views) apply to your folders.
-* **Grading** (dock, tabbed with Parameters): exposure, tone mapping (Reinhard / filmic / ACES), gamma, contrast,
-  saturation, hue shift, vignette, invert — applied by the display pass on top of the fragment's own buffer shader,
-  so every change shows at once without touching the accumulation; saved in the `.fafrag`; applies to hi-res renders.
+  views) apply to your folders. A row's menu adds **Favourite**, a **Rating** (one to five stars) and **Tags…** —
+  kept in a small JSON beside the cache, never in the files, so the examples stay pristine — and the **Show** combo
+  narrows the tree to favourites, recently opened files, ★★★★ and up, 2D or 3D fragments. The search box matches more
+  than names: `tag:ifs`, `param:Power` (or just `Power` — every annotated uniform is indexed), `include:DE-Raytracer`,
+  preset and group names, `#info` lines, `★★★`, `fav`, `recent`. In the thumbnail view each row's caption says the
+  camera kind, the number of presets and parameters, the stars and the tags.
+* **Grading** (a page of the Parameters dock): exposure, tone mapping (Reinhard / filmic / ACES), gamma, contrast,
+  saturation, hue shift, vignette, invert, and the **post stack** — bloom (a bright pass blurred at half resolution and
+  added back: threshold, radius, strength), chromatic aberration (the red and blue channels drift outwards), film grain,
+  and a `.cube` colour **LUT** (3D or 1D, Resolve / Photoshop style, with a strength) — applied by the display pass on
+  top of the fragment's own buffer shader, so every change shows at once without touching the accumulation; saved in
+  the `.fafrag`; applies to hi-res renders. A LUT that cannot be read is noted in the log and skipped.
+* **Parameters dock extras**: the groups are collapsible *sections* on one page or FragM's *tabs* (the ⊞ button);
+  *Pin to Favourites* on a row's menu moves the parameter into a **★ Favourites** group at the top (the list is saved in
+  the `.fafrag`); the arrow keys nudge a focused slider or number by a thousandth of its range — **Shift** makes it ten
+  times as much, **Ctrl** a tenth, Page Up / Down a hundredth; *Parameters ▸ Preset gallery…* (`Ctrl+F9`) renders
+  every preset small, double-click applies one.
+* **Controllers** (*Windows ▸ Controllers…*): a MIDI knob or a gamepad stick bound to a slider component — *Listen*
+  to a device (Linux device files: `/dev/input/js*`, `/dev/midi*`, `/dev/snd/midiC*D*`; no library needed), choose a
+  slider, press *Learn* and move the control. Knobs and triggers work **absolutely** (their position spans the slider's
+  range), sticks **relatively** (the deflection moves the value at a speed, with a dead zone); invert and speed are
+  per binding, the bindings are saved in the `.fafrag` (`tabs.controllers`). Each burst of movement is one undo step.
+* **Walkthrough** (dock, hidden by default, tabbed with the Library): the current fragment's `// STEP n:` comments as a
+  clickable list — the *Fractalchemy Tutorials* examples explain themselves step by step — and below them an outline
+  (`#group`s, functions, `#preset`s) that jumps to the line.
+* **History** (dock, hidden by default, tabbed with the Log): a strip of thumbnails of earlier looks. *Snapshot*
+  (`Ctrl+F6`) keeps the current one, *Auto* takes one a moment after any parameter change, and **Mutate** (`Shift+F6`) nudges
+  the fragment's own unlocked parameters (those declared in the tab — the raytracer's and lights' from the includes stay
+  put; *current group only* restricts it further, the camera never moves) at random by up to the *strength* (a share of
+  each slider's range) after taking a snapshot, so a walk through variations can always go back — click a thumbnail to
+  restore those settings (undoable). *Randomize* is the same with whole ranges.
 * **Animation toolbars**: *Progressive* (accumulate one still) / *Animation* (advance `time` while playing), Rewind
   `F10`, Play `F11`, Stop `F12`, the time slider with a keyframe mark per `KeyFrame.nnnn` preset, the length in
   seconds and the frame rate. Space in the viewport toggles play.
@@ -66,7 +93,16 @@ options (*Edit ▸ Preferences…*) and open tabs are remembered between runs.
 6. *Build ▸ Show preprocessed source* shows the exact GLSL handed to the driver with the original `file:line` of every
    line; *Edit ▸ Insert command* has every directive, special uniform and texture option, and every include on the
    include path. The completer (`Ctrl+Space`) knows the GLSL built-ins with their signatures, the host's directives
-   and annotations, and the fragment's own functions.
+   and annotations, and the fragment's own functions. **In the editor**: a failed build underlines the offending lines
+   (wavy, red for errors, amber for warnings) with the message on hover; hovering a name shows its signature (GLSL
+   built-ins, the fragment's own functions, uniforms); **Ctrl+click** goes to a name's definition — in the tab, or in
+   the files it includes (opened read-only at the line); *Insert command ▸ Code snippets* inserts templates with
+   **tab-stops** (`Tab` walks from placeholder to placeholder: a DE skeleton, a colour function, an iteration loop with
+   bailout, slider / colour / checkbox uniforms, a box fold, a sphere fold …); **Ctrl+Shift+D** selects the next
+   occurrence of the word as one more cursor (Ctrl+Shift+L all of them) so typing, Backspace and Delete edit every
+   occurrence at once — a rename in three keystrokes; Esc leaves. *Edit ▸ Compare with original…* shows a unified diff of
+   the tab against the bundled example it was saved from (a copy of an example remembers its origin in the `.fafrag`; an
+   unsaved tab compares with its file) with *Revert to original*.
 7. *File ▸ New from template* starts from one of the built-in templates (FragM's New 2D / New 3D, a kaleidoscopic IFS, a
    Mandelbox, a 2D Julia / Mandelbrot with a map, a Shadertoy-style shader, a buffer-feedback system, the fast
    raytracer) or one of yours (*Save as template…* keeps the current source under
@@ -74,10 +110,26 @@ options (*Edit ▸ Preferences…*) and open tabs are remembered between runs.
 
 ### Camera menu
 
-*Add camera bookmark…* (`Ctrl+B`) keeps the current camera under a name in the `.fafrag`; the menu lists the
-bookmarks (one click applies one, undoable) and removes them. *Record camera path* (`Ctrl+Shift+R`) samples the
-camera every 0.4 s while you fly and, when turned off, writes the samples into the source as `KeyFrame.nnnn`
-presets — the path of a flight without pressing `F8` at every turn.
+*Navigation style* chooses between **orbit** (the default: DCC conventions around the *Target* — left-drag orbits,
+middle-drag pans, right-drag / wheel dolly, Shift + left looks around, Alt + left orbits the origin) and **fly**
+(FragM's controls, below). *View from* has the numpad views — `1` `3` `7` front / right / top (Ctrl: the opposite
+side), `9` the other side, `4` `6` `8` `2` orbit 15°, `.` frames the origin (also Alt+1 / 3 / 7 … in the Navigation
+toolbar) — and *Turntable* (Alt+T) slowly orbits the target. *Add camera bookmark…* (`Ctrl+B`) keeps the current
+camera under a name in the `.fafrag`; the menu lists the bookmarks (one click applies one, undoable) and removes them.
+*Record camera path* (`Ctrl+Shift+P`) samples the camera every 0.4 s while you fly and, when turned off, writes the
+samples into the source as `KeyFrame.nnnn` presets — the path of a flight without pressing `F8` at every turn. With
+*Draw camera paths* on, the keyframes' eye points are **handles**: drag one in the screen plane and its `KeyFrame`
+preset is rewritten on release.
+
+### Viewport overlays
+
+*Render ▸ Mini-map* (`Ctrl+M`) draws a plan of the scene in the corner — the origin, the target, the eye with its
+view wedge and the keyframe path, seen from above along the camera's up vector (a 2D fragment shows its centre and
+zoom; the 2D Julia example has its own map inside the fragment). *Render ▸ Freeze reference (A)* (`Ctrl+Shift+A`)
+keeps the current picture and *A/B compare* (`Ctrl+Shift+B`) shows it left of a draggable divider with the live render
+on the right — judge a slider change against the look before it. **Ctrl+drag** a rectangle on the viewport to choose a
+**region of interest**: the render window opens with that crop of the frame as its *Region* (rendered at full
+resolution, the tile taking the region's aspect; *Clear* returns to the whole frame).
 
 ### Build menu extras
 
@@ -93,7 +145,17 @@ subframe against the watchdog budget, subframes, tiling, size and the GPU load l
 
 ### Mouse and keyboard
 
-| 3D camera (`#camera 3D`: `Eye`, `Target`, `Up`, `FOV`) | |
+| 3D camera, **orbit** style (the default) | |
+|---|---|
+| Left-drag | orbit around the *Target* |
+| Middle-drag · Shift + right-drag | pan in the screen plane |
+| Right-drag · Ctrl + middle-drag · wheel | dolly towards the target (Ctrl + wheel: fine) |
+| Shift + left-drag | look around (FragM's orient) |
+| Alt + left-drag | orbit around the world origin |
+| Numpad `1` `3` `7` (Ctrl: opposite) · `9` · `4` `6` `8` `2` · `.` | front / right / top views · the other side · orbit 15° · frame the origin |
+| Alt+T | turntable |
+
+| 3D camera, **fly** style (FragM; `#camera 3D`: `Eye`, `Target`, `Up`, `FOV`) | |
 |---|---|
 | Left-drag | orient (turn the view) |
 | Shift + left-drag | rotate around the world origin |
@@ -113,8 +175,10 @@ subframe against the watchdog budget, subframes, tiling, size and the GPU load l
 | Wheel | zoom about the cursor (*fixed*; *traveling* moves the centre to the cursor) |
 | `A` `D` `W` `S` · `Q` `E` · `1` `3` `2` `X` | pan · zoom · step ×0.5 · ×2 · ×10 · ×0.1 |
 
-While a button is held the viewport renders at half resolution and one subframe at a time; on release the
-full-size accumulation resumes. Esc toggles fullscreen (Shift + right-click shows the menus there).
+The keys (`W A S D R F`, `T G Y H`, `Q E`, the step keys) work in both styles. While a button is held the viewport
+renders at half resolution and one subframe at a time; on release the full-size accumulation resumes. Esc toggles
+fullscreen (Shift + right-click shows the menus there). Ctrl+drag, the compare divider and the keyframe handles are
+described under *Viewport overlays*.
 
 ## Animation
 
@@ -138,7 +202,10 @@ the last keyframe passed; the camera path and the easing curves apply on top. Th
 metadata and ignored by FragM.
 
 *Animation ▸ Timeline editor…* shows the keyframes and the curves on one ruler: click a keyframe to apply it, scrub
-the playhead, double-click a curve to edit it. *Animation* mode plays at the frame rate on a wall clock (a slow
+the playhead, double-click a curve to edit it. Its **Graph** tab plots values against frames: every easing curve as
+a line with its two handles (start frame / value, end frame / value) — drag one and the curve is rewritten — and, for a
+chosen parameter, its **keyframe track** (the value in each `KeyFrame` preset, which the *All parameters* interpolation
+blends between; vector components as `Name.n`). *Animation* mode plays at the frame rate on a wall clock (a slow
 render drops frames rather than slowing down), stops at the end or loops (*Loop play*). The clock (fps, length,
 loop flags) is saved in the `.fafrag` metadata.
 
@@ -159,8 +226,17 @@ so the editor stays usable; closing the window hides it while the render carries
   fragment* (the fragment with its settings into a `<name> Files` folder, FragM's autosave, optionally with the
   includes), *Unique name* (a time stamp), **EXR with depth** (the `DepthToAlpha` option: the depth buffer as the `Z`
   channel), *Save incomplete* (keep what was rendered when stopped). *Preview* shows a still in a dialog instead.
+* **View**: **stereo** pairs — two renders with the eye shifted along the camera's right vector by the *separation*
+  (a fraction of the eye–target distance; 0.03 feels natural), composited as an **anaglyph** (red from the left eye,
+  green and blue from the right, for red / cyan glasses) or **side by side** (left | right, twice as wide, for VR
+  viewers and 3D displays) — and the **360° panorama** (the fragment's `EquiRectangular` mode: the whole sphere around
+  the eye as a 2:1 image, for VR viewers and sky maps). **Region**: the crop chosen with Ctrl+drag on the viewport.
 * The plan line says what will be drawn; the estimate extrapolates from the viewport's measured subframe speed.
 
+*Render ▸ Add to render queue* (`Ctrl+Shift+Q`) snapshots the current tab with the render window's settings into the
+**Render Queue** window (*Render ▸ Render queue…*), which runs its entries one after another on their own thread —
+line up several fragments, presets or sizes and let them render while you work; entries can be removed while they
+wait, *Stop* ends the running one and leaves the rest waiting, finished entries report in the log.
 *Render ▸ Batch render presets…* renders one image per preset (or per keyframe) of the saved fragment into a folder.
 *File ▸ Save screenshot…* writes the viewport's accumulation as an image with the parameters embedded.
 
@@ -175,8 +251,21 @@ python tools/render_frag.py Flight.fafrag --frames 0-249 --fps 25 --out out/flig
 python tools/render_frag.py --check "Examples/**/*.frag"
 ```
 
-`--preset`, `--keyframes`, `--padding`, `--format` (`png16`, `exr`, …), `--depth-alpha`, `--include-path` and `--quiet`
-complete the set; the exit code is the number of failures.
+`--preset`, `--keyframes`, `--padding`, `--format` (`png16`, `exr`, …), `--depth-alpha`, `--include-path`, `--region
+X,Y,W,H` (a crop as fractions), `--stereo anaglyph | sbs` with `--eye-separation`, `--panorama` and `--quiet` complete
+the set; the exit code is the number of failures.
+
+**Distributed and resumed renders.** `--tile-range A-B` draws only those tiles (row-major indices of the `n × n`
+grid) and keeps each as a `.npz` in `--tile-dir` (default `<out>.tiles`); run the other ranges on other machines (or
+later), then `--assemble` joins every tile found in the folder into the image — nothing is written until all the
+tiles are there. `--resume` skips tiles already in the folder, so a render interrupted half-way continues where it
+stopped:
+
+```
+python tools/render_frag.py big.frag --out out/big.png --tiles 4 --tile-range 0-7  --tile-dir out/tiles
+python tools/render_frag.py big.frag --out out/big.png --tiles 4 --tile-range 8-15 --tile-dir out/tiles
+python tools/render_frag.py big.frag --out out/big.png --tiles 4 --assemble --tile-dir out/tiles
+```
 
 ### Importing from Shadertoy
 
@@ -227,6 +316,23 @@ A dense grid is capped at 512³ with a memory estimate; **sparse blocks** lift t
 blocks the surface crosses, each is sampled with two voxel layers of padding, meshed on its own and trimmed to its
 box, and a weld joins the identical boundary vertices — the result is the same mesh a dense grid would give, with
 only the occupied blocks ever in memory. The job runs on its own thread and context and can be cancelled.
+*Normals* can come from the **distance field's gradient** instead of the faces — smoother shading true to the
+estimator rather than the voxel steps, at the same resolution. *Bake colours to a texture* paints the vertex colours
+into a PNG through generated UVs (box / spherical / cylindrical / xatlas when installed) so OBJ, glTF and USD carry them
+as an image; *Blender script* writes `<name>_blender.py` beside the files — `blender --python <name>_blender.py`
+imports the mesh with its material (the texture or the vertex colours), a camera and a sun.
+
+### Exporting the distance estimator as code
+
+*Render ▸ Export DE as code…* writes the fragment's `DE` — with every function it calls, the `#define`s and globals
+they use, and the **slider values baked in as constants** (`const float Power = 8.0;`), so the exported code is what
+the viewport shows — as **GLSL**, a **Shadertoy** (the same plus a small raymarcher `mainImage` with the fragment's
+camera: paste into the Image tab), a **Unity** ShaderLab file (an HLSL raymarcher on a proxy cube) or an **Unreal**
+`.ush` include with a `RaymarchDE` for a Custom node. The HLSL translation is mechanical — types, `mix` / `fract` /
+`inversesqrt` / `dFdx`, `atan(y, x)`, `mod` (a `glsl_mod` helper with GLSL's semantics), single-scalar vector
+constructors — and the notes list what it could not settle: matrix products need `mul()` and HLSL's row-major
+layout, textures are not carried over, `gl_*` built-ins have no equivalent. A fragment that sets globals in `init()`
+(FragM's `providesInit`) gets `init()` exported and called first.
 
 ## Primitives, operators and folds
 
@@ -268,8 +374,9 @@ built from these is exactly what *Render ▸ Export mesh…* wants.
 ## Preferences
 
 *Edit ▸ Preferences…* (stored per user): **GUI** — recent files, loop play by default, draw camera paths, 2D wheel
-mode (zoom towards the pointer or the centre), log rows kept; **Editor** — font size, jump to the first error line,
-reload a tab when its file changes on disk; **GLSL** — build on open (*autorun*), auto-build, move `main` to the end
+mode (zoom towards the pointer or the centre), log rows kept, the Parameters dock's arrangement, the 3D navigation
+style; **Editor** — font size, jump to the first error line, reload a tab when its file changes on disk, the
+**session autosave** interval; **GLSL** — build on open (*autorun*), auto-build, move `main` to the end
 (FragM's *moveMain*), locked parameters as `#define` or `const`, the compatibility layer (*modernise* / FragM's patch /
 off), presets carry easing curves, the animation frame rate, the viewport's refresh interval and interactive scale,
 the **GPU load limit** (a duty cycle: below 100 % the renderer idles between passes) and *pause rendering while the
@@ -361,8 +468,16 @@ errors still point into the right file. Doubles (`double`, `dvec`) need an expli
 FragM. The translated text is what *Show preprocessed source* shows; a rejected program's sources and the driver's
 log are written to `<cache>/Fractalchemy/glsl-failures/`.
 
-Of the 221 bundled examples 214 compile; the seven that do not (listed in `tests/test_fragments_engine.py`) fail in
+Of the 230 bundled examples 223 compile; the seven that do not (listed in `tests/test_fragments_engine.py`) fail in
 FragM as well — they use functions before including them, undeclared uniforms, or `double` code that never compiled.
+
+## Sessions and crash recovery
+
+*File ▸ Save session…* writes every open tab — the file it came from, the full text of tabs with unsaved edits, the
+current settings text and preset, which tab is current — as one `.fasession`; *Open session…* brings them back with
+their looks. The same session is written by itself to the cache folder every few minutes (*Preferences ▸ Editor ▸
+Session autosave*) and removed on a clean shutdown; a file left behind means the last run ended badly, and the next
+start says so in the log and status bar — *File ▸ Recover last session* restores its tabs (unsaved text included).
 
 ## Files
 
@@ -399,10 +514,14 @@ the read-back is not the bottleneck.
 ## Fractalchemy's own fragments
 
 `Examples/Fractalchemy Collection/`: 2D — Nova, Magnet (type I), Phoenix, a gathering Buddhabrot (slow to converge:
-*Subframe max* 0 and patience); 3D — Amazing Surf and ABoxMod1 (Mandelbulb3D's), FoldingIntPow, Juliabulb,
-Lambdabulb, the Jerusalem cube, the Mosely snowflake, a sphere-inversion IFS, the Koch snowflake (2D field, an extruded
-prism) and the 3D Koch snowflake (the tetrahedron that converges to a cube). `Include/Triplex.frag` has the
-Mandelbulb arithmetic they share (`tPow`, `tPowDeriv`, `tMul`, `tDistance`).
+*Subframe max* 0 and patience), the Apollonian gasket, Indra's Pearls (inversions in a necklace of kissing circles), a
+Kleinian limit set (Jos Leys and Knighty's Maskit-slice construction), the Dragon curves (Heighway, Lévy, twin); 3D —
+Amazing Surf and ABoxMod1 (Mandelbulb3D's), FoldingIntPow, Juliabulb, Lambdabulb, the Jerusalem cube, the Mosely
+snowflake, a sphere-inversion IFS, the Koch snowflake (2D field, an extruded prism), the 3D Koch snowflake (the
+tetrahedron that converges to a cube) and a Dragon ribbon. `Include/Triplex.frag` has the Mandelbulb arithmetic they
+share (`tPow`, `tPowDeriv`, `tMul`, `tDistance`). `Examples/Fractalchemy Tutorials/` are four fragments that teach
+by `// STEP n:` comments — a first distance estimator, folds, colouring and orbit traps, animation and rendering —
+which the **Walkthrough** dock turns into a clickable list.
 
 ## What differs from FragM
 
@@ -416,6 +535,11 @@ Mandelbulb arithmetic they share (`tPow`, `tPowDeriv`, `tMul`, `tDistance`).
 * Not ported: the shader assembler view (*Shader Asm*, NVIDIA-only), the EXR command-line tools menu, the `.fqs`
   scripting language (replaced by the Python CLI and the batch dialog), Qt-style-sheet themes for the editor, spline
   occlusion by the depth buffer (paths are drawn over the image).
-* Added: the library pane with thumbnails, the `.fafrag` metadata, every host image format and EXR with depth,
-  ffmpeg video, the *All parameters* interpolation mode, mesh export from the DE, the watchdog mitigation, undo for
-  parameters and camera moves.
+* Added: the library pane with thumbnails, tags, ratings and a parameter index, the `.fafrag` metadata, every host
+  image format and EXR with depth, ffmpeg video, stereo pairs and 360° panoramas, render regions, the render queue,
+  distributed tile ranges, the *All parameters* interpolation mode with a graph editor, mesh export from the DE (with
+  gradient normals, texture baking and a Blender script), the DE exporter to GLSL / Shadertoy / Unity / Unreal, the
+  watchdog mitigation, undo for parameters and camera moves, orbit navigation with numpad views and draggable keyframe
+  handles, the post stack (bloom, aberration, grain, LUTs), favourites, mutation with a history strip, A/B compare,
+  the mini-map, inline diagnostics with go-to-definition, snippets with tab-stops and multi-cursor editing, sessions
+  with crash recovery, the Walkthrough dock.

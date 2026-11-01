@@ -6,8 +6,11 @@ middle, the Parameters dock on the right, the Log dock below — FragM's arrange
 `TabManager` owns the editors and documents, `RenderDriver` decides what to render through the window's own
 `RenderService` (a second service thread with the fragment engine), `FragViewport` paints and drives the camera,
 `ParameterPanel` edits the values, `FragmentActions` holds the menus, `FragmentFileActions` the files,
-`ParameterActions` the parameter / preset commands and `AnimationCoordinator` the clock, the easing dialog and the
-timeline; engine chores (*Test GLSL versions*, *Clear texture cache*) go to the render thread as `FragTask` jobs.
+`ParameterActions` the parameter / preset commands, `AnimationCoordinator` the clock, the easing dialog and the
+timeline, `CameraActions` bookmarks / recording / keyframe handles, `ExploreCoordinator` the History dock (snapshots,
+mutate), `SessionActions` sessions and the autosave, `ControllerCoordinator` MIDI / gamepad input and
+`FragmentLibraryExtras` tags / ratings / filters; engine chores (*Test GLSL versions*, *Clear texture cache*) go to the
+render thread as `FragTask` jobs.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from PySide6.QtWidgets import (QDialog, QDockWidget, QInputDialog, QLabel, QMain
                                QVBoxLayout, QWidget)
 
 from ... import config
+from ...fragments.document_format import read_fragment
 from ...fragments.examples import INCLUDE_DIR
 from ...fragments.files import FileManager
 from ...fragments.glsl_compat import CompatOptions
@@ -41,20 +45,26 @@ from .actions import FragmentActions
 from .animation_actions import AnimationCoordinator
 from .animation_controls import AnimationControls
 from .camera_actions import CameraActions
+from .controller_input import ControllerCoordinator
 from .buffer_size import BufferSize, BufferSizeBar
 from .code_editor import GlslCodeEditor
 from .document import BuildOptions, FragDocument
+from .explore import ExploreCoordinator
 from .file_actions import FragmentFileActions, is_bundled
 from .gradient_dialog import GradientDialog
 from .grading_panel import GradingPanel
+from .library_extras import FragmentLibraryExtras
 from .library_panel import FragThumbnailProvider, FragmentLibraryController, FragmentLibraryPanel, make_roots
 from .log_panel import LogPanel
 from .parameter_actions import ParameterActions
 from .parameter_panel import ParameterPanel
+from .render_actions import RenderActions
 from .render_driver import RenderDriver
 from .render_window import FragRenderWindow
+from .session_actions import SessionActions
 from .tabs import TabManager
 from .viewport import FragViewport
+from .walkthrough_panel import WalkthroughPanel
 from ..library_host import LibraryHost
 
 WINDOW_TITLE = "Fragments"
@@ -63,12 +73,22 @@ PREFERENCES_GROUP = "fragments/preferences"
 AUTO_BUILD_DELAY_MS = 1000
 GLSL_VERSIONS = (330, 400, 410, 420, 430, 440, 450, 460)
 CONTROLS_HELP = """<h3>Mouse and keyboard</h3>
-<p><b>3D camera</b> — left-drag: orient · Shift+left: orbit the origin · Shift+Alt+left: orbit the target · right-drag: pan ·
-left+right drag or wheel: dolly · Shift+wheel: step size · middle-click: Target (Ctrl: LightPos) at the point under the cursor ·
-<tt>W S A D R F</tt> fly · <tt>T G Y H</tt> pitch / yaw · <tt>Q E</tt> roll · <tt>1 3 2 5</tt> step ×½ ×2 ×10 reset · Shift+~ look at the origin.</p>
+<p><b>3D camera, orbit navigation (default; Camera ▸ Navigation style)</b> — left-drag: orbit the target · middle-drag (or Shift+right):
+pan · right-drag, Ctrl+middle or wheel: dolly towards the target (Ctrl+wheel: fine) · Shift+left: look around · Alt+left: orbit the origin ·
+middle-click: Target (Ctrl: LightPos) at the point under the cursor · numpad <tt>1 3 7</tt> front / right / top (Ctrl: back / left / bottom) ·
+numpad <tt>9</tt> opposite side · numpad <tt>4 6 8 2</tt> orbit 15° · numpad <tt>.</tt> frame the origin · Alt+T turntable.</p>
+<p><b>3D camera, fly navigation (FragM)</b> — left-drag: orient · Shift+left: orbit the origin · Shift+Alt+left: orbit the target · right-drag: pan ·
+left+right drag or wheel: dolly · Shift+wheel: step size.</p>
+<p><b>Keys (both styles)</b> — <tt>W S A D R F</tt> fly · <tt>T G Y H</tt> pitch / yaw · <tt>Q E</tt> roll · <tt>1 3 2 5</tt> step ×½ ×2 ×10 reset · Shift+~ look at the origin.</p>
 <p><b>2D camera</b> — left-drag: pan · right-drag: zoom about the press point · wheel: zoom · <tt>A D W S</tt> pan · <tt>Q E</tt> zoom · <tt>1 3 2 X</tt> step.</p>
-<p><b>Window</b> — F1 reset all · F2 / F3 copy / paste settings · F4 group → preset · F5 build · F8 add preset · F9 select preset ·
-Esc fullscreen · Ctrl+Z / Ctrl+Shift+Z undo / redo (parameters; the editor has its own when it has focus).</p>"""
+<p><b>Overlays</b> — Ctrl+drag: a region of interest for the render window · Ctrl+M mini-map · Ctrl+Shift+A freeze the reference, Ctrl+Shift+B
+A/B compare (drag the divider) · with camera paths drawn, drag a keyframe's eye point to move it.</p>
+<p><b>Window</b> — F1 reset all · F2 / F3 copy / paste settings · F4 group → preset · F5 build · F6 randomize group · Shift+F6 mutate · Ctrl+F6 snapshot ·
+F8 add preset · F9 select preset · Ctrl+F9 preset gallery · Esc fullscreen · Ctrl+Z / Ctrl+Shift+Z undo / redo (parameters; the editor has its own
+when it has focus).</p>
+<p><b>Editor</b> — Ctrl+Space complete · Ctrl+click go to definition · hover for signatures and build messages · Tab walks a snippet's stops ·
+Ctrl+Shift+D / Ctrl+Shift+L select the next / every occurrence (type to edit them all, Esc leaves) · arrow keys on a slider nudge it
+(Shift ×10, Ctrl ×0.1).</p>"""
 
 
 class FragmentsWindow(QMainWindow):
@@ -102,29 +122,33 @@ class FragmentsWindow(QMainWindow):
         self.parameters = ParameterPanel(self)
         self.grading_panel = GradingPanel(self)
         self.log = LogPanel(self)
+        self.walkthrough = WalkthroughPanel(self)
         self.files = FragmentFileActions(self.tabs, self, self._settings)
         self.library_panel = FragmentLibraryPanel(self)
         self.library = FragmentLibraryController(self.library_panel.model, make_roots(self._settings, self), self)
         self.library_host = LibraryHost(self.library_panel, self.library, self, self.open_item, message_ms=6000)
         self.thumbnails = FragThumbnailProvider(self.service, self.library_panel.model, lambda: self._capabilities, self)
-        self.library_dock = self._dock("Library", "fragmentsLibrary", self.library_panel, Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.library_extras = FragmentLibraryExtras(self, self.library_panel, self.library, self.thumbnails, self.files.recent, self._settings)
+        self.library_host.menu = self.library_extras.menu
+        self.library_dock = self.make_dock("Library", "fragmentsLibrary", self.library_panel, Qt.DockWidgetArea.LeftDockWidgetArea)
         self.find_bar = FindBar(None, self)
         self.build_label = QLabel("", self)
         self.subframe_widget, self.subframe_spin, self.done_label = self._make_subframe_widget()
         self.buffer_bar = BufferSizeBar(self.buffer_size, self)
         self.engine_label, self.size_label, self.fps_label = QLabel(self), QLabel(self), QLabel(self)
         self.anim = AnimationControls(self)
-        self._render_window: FragRenderWindow | None = None
         self.prefs = load_preferences(self._settings)
         self._tasks: dict = {}
         self._task_seq = 0
-        self._mesh_dialog = None
         self._paused = False
         self._capabilities = None
         self._fullscreen_state = None
         self._auto_timer = QTimer(self, singleShot=True, interval=AUTO_BUILD_DELAY_MS)
         self._auto_timer.timeout.connect(self._auto_build)
         self.animation = AnimationCoordinator(self)
+        self.sessions = SessionActions(self)
+        self.controllers = ControllerCoordinator(self)
+        self.rendering = RenderActions(self)
         self.params = ParameterActions(self)
         self.camera = CameraActions(self)
         self.actions = FragmentActions(self)
@@ -138,6 +162,7 @@ class FragmentsWindow(QMainWindow):
         self._refresh_actions()
         self.service.start()
         self.library.rescan_all()
+        self.actions.recover_session.setEnabled(self.sessions.announce_recovery())
 
     # --- construction -----------------------------------------------------------------------------------------------------
     def _make_subframe_widget(self) -> tuple[QWidget, QSpinBox, QLabel]:
@@ -169,12 +194,15 @@ class FragmentsWindow(QMainWindow):
         self.splitter.setSizes([600, 800])
         self.setCentralWidget(self.splitter)
         self.parameters.setMinimumWidth(380)
-        self.parameters_dock = self._dock("Parameters", "fragmentsParameters", self.parameters, Qt.DockWidgetArea.RightDockWidgetArea)
-        self.log_dock = self._dock("Log", "fragmentsLog", self.log, Qt.DockWidgetArea.BottomDockWidgetArea)
-        self.grading_dock = self._dock("Grading", "fragmentsGrading", self.grading_panel, Qt.DockWidgetArea.RightDockWidgetArea)
-        self.tabifyDockWidget(self.parameters_dock, self.grading_dock)
-        self.parameters_dock.raise_()
-        self.actions.add_dock_toggles([self.library_dock, self.parameters_dock, self.grading_dock, self.log_dock])
+        self.parameters_dock = self.make_dock("Parameters", "fragmentsParameters", self.parameters, Qt.DockWidgetArea.RightDockWidgetArea)
+        self.log_dock = self.make_dock("Log", "fragmentsLog", self.log, Qt.DockWidgetArea.BottomDockWidgetArea)
+        self.parameters.add_page("Grading", self.grading_panel)
+        self.walkthrough_dock = self.make_dock("Walkthrough", "fragmentsWalkthrough", self.walkthrough, Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.tabifyDockWidget(self.library_dock, self.walkthrough_dock)
+        self.walkthrough_dock.hide()
+        self.explore = ExploreCoordinator(self)
+        self.tabifyDockWidget(self.log_dock, self.explore.dock)
+        self.actions.add_dock_toggles([self.library_dock, self.parameters_dock, self.log_dock, self.walkthrough_dock, self.explore.dock])
         self.library_panel.setMinimumWidth(220)
         bar = QStatusBar(self)
         self.progress = QProgressBar(self)
@@ -188,7 +216,7 @@ class FragmentsWindow(QMainWindow):
         self.setStatusBar(bar)
         self.resize(1500, 900)
 
-    def _dock(self, title: str, name: str, widget: QWidget, area) -> QDockWidget:
+    def make_dock(self, title: str, name: str, widget: QWidget, area) -> QDockWidget:
         dock = QDockWidget(title, self)
         dock.setObjectName(name)
         dock.setWidget(widget)
@@ -210,11 +238,17 @@ class FragmentsWindow(QMainWindow):
         self.viewport.fullscreen_requested.connect(self.toggle_fullscreen)
         self.viewport.context_menu_requested.connect(self._fullscreen_menu)
         self.viewport.viewport_menu_requested.connect(self._viewport_menu)
+        self.viewport.keyframe_moved.connect(self.camera.move_keyframe)
+        self.viewport.region_selected.connect(self.rendering.render_region)
         self.parameters.status.connect(self.message)
         self.parameters.select_source_requested.connect(self.params.select_source)
         self.parameters.bounds_edit_requested.connect(self.params.edit_bound)
         self.parameters.group_preset_requested.connect(self.params.group_to_preset)
+        self.parameters.mode_changed.connect(lambda mode: setattr(self.prefs, "parameter_layout", mode))
         self.log.location_activated.connect(self.open_location)
+        self.walkthrough.bind(lambda: self.tabs.document.text if self.tabs.document is not None else None)
+        self.walkthrough.line_activated.connect(lambda line: self._with_editor(lambda e: e.goto_line(line)))
+        self.walkthrough_dock.visibilityChanged.connect(lambda shown: self.walkthrough.refresh() if shown else None)
         self.files.status.connect(self.message)
         self.files.recent_changed.connect(lambda: self.actions.refresh_recent(self.files.recent()))
         self.files.file_changed_externally.connect(lambda path: self.log.add("warning", f"{path.name} changed on disk; reload it to see the changes"))
@@ -268,6 +302,7 @@ class FragmentsWindow(QMainWindow):
         document.built.connect(lambda _s, d=document: self._on_built(d))
         document.facts_changed.connect(lambda facts, d=document: self._on_facts(d, facts))
         document.easing_changed.connect(lambda d=document: self.animation.refresh(d))
+        self.explore.watch(document)
         tab = self.tabs.tab_for(document)
         if tab is not None:
             tab.editor.textChanged.connect(self._on_editor_typed)
@@ -276,6 +311,7 @@ class FragmentsWindow(QMainWindow):
             tab.editor.save_requested.connect(lambda as_new: self.files.save_as() if as_new else self.files.save())
             tab.editor.status.connect(self.message)
             tab.editor.zoom_requested.connect(self.zoom_editors)
+            tab.editor.definition_requested.connect(lambda name, d=document: self.goto_include_definition(d, name))
         if not document.metadata.animation:          # no clock of its own: the preferred frame rate and loop mode
             document.animation = document.animation.with_(fps=self.prefs.default_fps, loop_play=self.prefs.loop_play)
         if self.prefs.autorun and self._capabilities is not None:
@@ -284,6 +320,7 @@ class FragmentsWindow(QMainWindow):
     def _on_document_closed(self, document: FragDocument) -> None:
         if self.driver.document is document:
             self.driver.set_document(None)
+        self.explore.forget(document)
 
     def _on_current_changed(self, document: FragDocument | None) -> None:
         self.find_bar.set_editor(self.tabs.editor)
@@ -302,6 +339,8 @@ class FragmentsWindow(QMainWindow):
             self.actions.interpolate_camera.setChecked(document.animation.interpolation != "all")
         self.animation.refresh(document)
         self.camera.refresh_menu()
+        self.walkthrough.refresh()
+        self.explore.show_document(document)
         self._refresh_title()
         self._refresh_actions()
         self._refresh_build_label()
@@ -315,6 +354,7 @@ class FragmentsWindow(QMainWindow):
             tab = self.tabs.tab_for(document)
             if tab is not None:
                 tab.editor.set_error_line(None)
+                tab.editor.set_diagnostics([])
         kind = document.source.camera_kind
         self.log.add("info", f"Built {document.name}: {len(document.state.params)} parameters, {kind} camera, buffer {document.source.buffer or 'RGBA32F'}"
                      + (", buffer shader" if document.source.buffer_shader else ""))
@@ -331,16 +371,34 @@ class FragmentsWindow(QMainWindow):
         tab = self.tabs.tab_for(document)
         if tab is None:
             return
+        marks = []
         for item in diagnostics:
             file = getattr(item, "file", None)
             line = getattr(item, "line", 0)
             same = (file is None and document.path is None) or (file is not None and document.path is not None and Path(file).resolve() == document.path.resolve())
             if same and line:
-                tab.editor.set_error_line(line)
-                if document is self.tabs.document and self.prefs.jump_to_error:
-                    tab.editor.goto_line(line)
-                break
+                severity = getattr(item, "severity", None) or ("warning" if getattr(item, "level", "") == "warning" else "error")
+                marks.append((line, severity, getattr(item, "message", None) or getattr(item, "text", "")))
+        if marks:
+            tab.editor.set_error_line(marks[0][0])
+            if document is self.tabs.document and self.prefs.jump_to_error:
+                tab.editor.goto_line(marks[0][0])
+        tab.editor.set_diagnostics(marks)
         self.message("Build failed — see the log")
+
+    def goto_include_definition(self, document: FragDocument, name: str) -> None:
+        """Ctrl+click on a name the tab does not define: look through the files it includes (then every include folder)."""
+        from ...fragments.definitions import find_in_files
+        files = list(document.source.dependencies) if document.source is not None else []
+        manager = FileManager(self.include_paths(), document.path)
+        for folder in manager.include_paths:
+            files += sorted(p for p in folder.glob("*.frag") if p not in files)
+        found = find_in_files(name, files)
+        if found is None or found.file is None:
+            self.message(f"No definition of {name} found")
+            return
+        self.open_location(found.file, found.line)
+        self.message(f"{name}: {found.kind} in {found.file.name} line {found.line}")
 
     # --- building --------------------------------------------------------------------------------------------------------------
     def build(self) -> None:
@@ -362,11 +420,24 @@ class FragmentsWindow(QMainWindow):
     def _on_editor_typed(self) -> None:
         if self.prefs.auto_build:
             self._auto_timer.start()
+        if self.walkthrough_dock.isVisible():
+            self.walkthrough.schedule_refresh()
 
     def _auto_build(self) -> None:
         document = self.tabs.document
         if document is not None and document.needs_build:
             self.build_document(document)
+
+    def set_navigation(self, style: str) -> None:
+        """*Navigation style*: `orbit` (DCC conventions) or `fragm` (FragM's fly controls); kept in the preferences."""
+        self.viewport.navigation = style
+        self.prefs.navigation = style
+        if not isinstance(self.actions, FragmentActions):
+            return                                 # still building the actions
+        self.actions.nav_orbit.setChecked(style == "orbit")
+        self.actions.nav_fragm.setChecked(style != "orbit")
+        self.message("Orbit navigation: left-drag orbits the target, middle pans, right / wheel dolly (numpad 1 3 7 for the views)"
+                     if style == "orbit" else "Fly navigation: left-drag turns, right-drag pans, W A S D fly")
 
     def zoom_editors(self, direction: int) -> None:
         """Ctrl + wheel / plus / minus / 0 in an editor: every tab's font size (kept in the preferences)."""
@@ -391,6 +462,25 @@ class FragmentsWindow(QMainWindow):
             return
         combo.setCurrentIndex((combo.currentIndex() + delta) % combo.count())
         self.parameters.apply_current_preset()
+
+    def show_controllers(self) -> None:
+        """*Windows ▸ Controllers…*: MIDI knobs and gamepad sticks bound to sliders."""
+        from .controller_input import ControllerDialog
+        dialog = ControllerDialog(self, self.controllers)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.show()
+
+    def show_preset_gallery(self) -> None:
+        """*Preset gallery…*: every preset rendered small; double-click applies one."""
+        from .preset_gallery import PresetGalleryDialog
+        document = self.tabs.document
+        if document is None or document.source is None:
+            self.message("Build the fragment first")
+            return
+        dialog = PresetGalleryDialog(self, document, self.service)
+        dialog.preset_chosen.connect(self.parameters.apply_preset)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.show()
 
     def set_manual_render(self, enabled: bool) -> None:
         """*Manual rendering*: the viewport only renders on request (a change made while manual renders when turned off)."""
@@ -670,6 +760,10 @@ class FragmentsWindow(QMainWindow):
     def insert_snippet(self, text: str) -> None:
         self._with_editor(lambda e: e.insert_snippet(text + "\n"))
 
+    def insert_template(self, template: str) -> None:
+        """A snippet with `${n:stop}` placeholders at the cursor; Tab moves between the stops."""
+        self._with_editor(lambda e: (e.insert_template(template), e.setFocus()))
+
     def insert_gradient(self) -> None:
         """*Insert gradient…*: a gradient as GLSL at the cursor (or on the clipboard)."""
         document = self.tabs.document
@@ -687,6 +781,27 @@ class FragmentsWindow(QMainWindow):
             self.message("Copied the gradient's GLSL")
         else:
             self.insert_snippet(text)
+
+    def compare_with_original(self) -> None:
+        """*Compare with original…*: a diff against the bundled example the tab came from, or against its file on disk."""
+        from .diff_dialog import DiffDialog
+        from .file_actions import origin_path
+        document = self.tabs.document
+        if document is None:
+            return
+        source = origin_path(document) or document.path
+        if source is None or not source.is_file():
+            self.message("Nothing to compare with: the tab was never saved and did not come from the library")
+            return
+        try:
+            original = read_fragment(source)[0]
+        except OSError as exc:
+            self.message(f"Cannot read {source.name}: {exc}")
+            return
+        dialog = DiffDialog(self, original, document.text, source.name, document.name, source)
+        dialog.revert_requested.connect(self.replace_text)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.show()
 
     def undo(self) -> None:
         editor, document = self.tabs.editor, self.tabs.document
@@ -713,65 +828,38 @@ class FragmentsWindow(QMainWindow):
         cursor.insertText(text)
         cursor.endEditBlock()
 
-    # --- rendering to file -----------------------------------------------------------------------------------------------------------
+    # --- rendering to file (the commands live in `render_actions.py`) ------------------------------------------------------------
     @property
     def render_window(self) -> FragRenderWindow:
         """The Render Fragment window (created on first use)."""
-        if self._render_window is None:
-            self._render_window = FragRenderWindow(lambda: self.tabs.document, lambda: self.anim.settings, self._rate_hint, self, self._settings)
-        return self._render_window
+        return self.rendering.render_window
+
+    @property
+    def render_queue(self):
+        """The Render Queue window (created on first use)."""
+        return self.rendering.queue
 
     def show_render_window(self) -> None:
-        window = self.render_window
-        window.prepare_for(self.tabs.document, self.driver.render_size())
-        window.bring_to_front()
+        self.rendering.show_render_window()
 
-    def show_batch_dialog(self) -> None:
-        """*Batch render presets…* for the current tab (saved first — the batch renders from the file)."""
-        from .batch_dialog import BatchDialog
-        document = self.tabs.document
-        if document is None or document.source is None:
-            return
-        if document.path is None or document.modified or is_bundled(document.path):
-            answer = QMessageBox.question(self, "Batch render", "The batch renders from the saved file. Save the fragment now?",
-                                          QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Cancel)
-            if answer != QMessageBox.StandardButton.Save or not self.files.save():
-                return
-        dialog = BatchDialog(document.path, self.render_window.current_settings(), len(document.source.presets),
-                             len(document.source.keyframe_names()), self)
-        dialog.show()
-        self._batch_dialog = dialog
+    def queue_current_render(self) -> None:
+        self.rendering.queue_current()
 
-    def show_mesh_export(self) -> None:
-        """*Export mesh…*: the current tab's DE sampled on the GPU and meshed (needs a built fragment with `float DE(vec3)`)."""
-        from ...fragments.gl.mesh import has_distance_estimator
-        from .mesh_export_dialog import MeshExportDialog
-        document = self.tabs.document
-        request = document.request() if document is not None else None
-        if request is None:
-            self.message("Build the fragment first")
-            return
-        if not has_distance_estimator(request.modern):
-            self.message("Export mesh needs a fragment with `float DE(vec3 p)` (a 3D distance estimator)")
-            return
-        dialog = MeshExportDialog(self, request, document.name, self._settings, self._three_d, self.document_folder(document))
-        dialog.show()
-        self._mesh_dialog = dialog
-
-    def _rate_hint(self):
-        """(subframes per second, width, height) of the viewport's last render, for the time estimate."""
-        stats = self.driver.stats
-        if stats is None or stats.seconds <= 0 or stats.passes_done <= 0:
-            return None
-        return stats.passes_done / stats.seconds, stats.width, stats.height
+    def freeze_reference(self) -> None:
+        """*Compare ▸ Freeze reference*: the current picture becomes the A side of the wipe."""
+        if self.viewport.freeze_reference():
+            self.actions.compare.setChecked(True)
+            self.message("Reference frozen — drag the divider; the right side is live")
+        else:
+            self.message("Nothing rendered yet")
 
     # --- fullscreen ---------------------------------------------------------------------------------------------------------------
     def toggle_fullscreen(self) -> None:
         """Only the viewport, over the whole screen (Esc toggles; Shift+right-click for the menus)."""
         if self._fullscreen_state is None:
             self._fullscreen_state = (self.saveState(), self.tabs.widget.isVisible())
-            for widget in (self.parameters_dock, self.log_dock, self.library_dock, self.actions.toolbar, self.actions.mode_toolbar,
-                           self.actions.time_toolbar, self.menuBar(), self.statusBar(), self.tabs.widget):
+            for widget in (self.parameters_dock, self.log_dock, self.library_dock, self.walkthrough_dock, self.explore.dock, self.actions.toolbar,
+                           self.actions.mode_toolbar, self.actions.nav_toolbar, self.actions.time_toolbar, self.menuBar(), self.statusBar(), self.tabs.widget):
                 widget.hide()
             self.showFullScreen()
             self.viewport.setFocus()
@@ -780,7 +868,7 @@ class FragmentsWindow(QMainWindow):
             self._fullscreen_state = None
             self.showNormal()
             self.restoreState(state)
-            for widget in (self.menuBar(), self.statusBar(), self.actions.toolbar, self.actions.mode_toolbar, self.actions.time_toolbar):
+            for widget in (self.menuBar(), self.statusBar(), self.actions.toolbar, self.actions.mode_toolbar, self.actions.nav_toolbar, self.actions.time_toolbar):
                 widget.show()
             self.tabs.widget.setVisible(tabs_visible)
         self.actions.fullscreen.blockSignals(True)
@@ -832,6 +920,19 @@ class FragmentsWindow(QMainWindow):
     def show_controls_help(self) -> None:
         QMessageBox.information(self, "Fragments — mouse and keyboard", CONTROLS_HELP)
 
+    def start_tutorials(self) -> None:
+        """*Help ▸ Start the tutorials*: the first tutorial fragment with the Walkthrough dock in front."""
+        from ...fragments.examples import examples_dir
+        tutorials = sorted((examples_dir() / "Fractalchemy Tutorials").glob("*.frag"))
+        if not tutorials:
+            self.message("The tutorial fragments are not installed")
+            return
+        self.files.open_path(tutorials[0])
+        self.walkthrough_dock.show()
+        self.walkthrough_dock.raise_()
+        self.walkthrough.refresh()
+        self.message("Follow the steps in the Walkthrough dock; the next tutorials are in Library ▸ Examples ▸ Fractalchemy Tutorials")
+
     # --- window ----------------------------------------------------------------------------------------------------------------------
     def _refresh_title(self) -> None:
         document = self.tabs.document
@@ -863,9 +964,7 @@ class FragmentsWindow(QMainWindow):
 
     def confirm_quit(self) -> bool:
         """Before the application quits: a running render? unsaved tabs?"""
-        if self._render_window is not None and not self._render_window.confirm_quit():
-            return False
-        return self.files.confirm_close_all()
+        return self.rendering.confirm_quit() and self.files.confirm_close_all()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._fullscreen_state is not None:
@@ -884,11 +983,9 @@ class FragmentsWindow(QMainWindow):
     def shutdown(self) -> None:
         """Stop the render service and any render to file (the main window calls this when the application quits)."""
         self.driver.cancel()
-        if self._render_window is not None and self._render_window.job is not None:
-            self._render_window.job.cancel()
-            self._render_window.wait_for_job()
-        if self._mesh_dialog is not None:
-            self._mesh_dialog.close()        # waits for its jobs
+        self.rendering.shutdown()
+        self.sessions.clean_shutdown()
+        self.controllers.shutdown()
         self.service.stop()
 
     def hideEvent(self, event) -> None:
@@ -934,6 +1031,7 @@ class FragmentsWindow(QMainWindow):
         self.actions.draw_paths.setChecked(prefs.draw_paths)
         self.viewport.draw_paths = prefs.draw_paths
         self.viewport.traveling_wheel = prefs.traveling_wheel
+        self.set_navigation(prefs.navigation)
         self.driver.refresh_ms = prefs.refresh_ms
         self.driver.interactive_scale = prefs.interactive_scale
         self.driver.gpu_load = prefs.gpu_load / 100.0
@@ -944,6 +1042,8 @@ class FragmentsWindow(QMainWindow):
         for tab in self.tabs.tabs:
             tab.editor.set_font_size(prefs.font_size)
         self.tabs.font_size = prefs.font_size
+        self.parameters.set_mode(prefs.parameter_layout)
+        self.sessions.set_interval(prefs.autosave_minutes)
         self.viewport.update()
         if rebuild:
             for tab in self.tabs.tabs:

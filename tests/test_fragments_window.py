@@ -41,8 +41,7 @@ def test_open_example_builds_renders_and_fills_the_panel(window):
     document = window.tabs.document
     assert document is not None and document.source is not None and document.current_preset == "Default"
     rendered(window)
-    assert window.viewport.image.width() > 0 and document.facts is not None and "Camera" in [
-        window.parameters.tabs.tabText(i) for i in range(window.parameters.tabs.count())]
+    assert window.viewport.image.width() > 0 and document.facts is not None and "Camera" in window.parameters.groups.groups()
     assert not window.parameters.widgets["Power"].isHidden() and window.parameters.widgets["FloorColor"].isHidden()   # unused → hidden
     assert not window.parameters.widgets["HardShadow"].isHidden()                                                     # unused but locked
     assert any("Compiled script" in text for text in window.log.texts()) and not any("✖" in t for t in window.log.texts())
@@ -110,7 +109,7 @@ def test_camera_keys_and_drags_move_the_camera(window):
     assert viewport.step() == 0.1
     QApplication.sendEvent(viewport, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_3, Qt.KeyboardModifier.NoModifier, "3"))
     assert viewport.step() == 0.2
-    target = document.state.get("Target")
+    target, eye = document.state.get("Target"), document.state.get("Eye")
     centre = QPointF(viewport.width() / 2, viewport.height() / 2)
     QApplication.sendEvent(viewport, QMouseEvent(QEvent.Type.MouseButtonPress, centre, viewport.mapToGlobal(centre.toPoint()),
                                                  Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
@@ -120,7 +119,8 @@ def test_camera_keys_and_drags_move_the_camera(window):
                                                  Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
     QApplication.sendEvent(viewport, QMouseEvent(QEvent.Type.MouseButtonRelease, moved, viewport.mapToGlobal(moved.toPoint()),
                                                  Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
-    assert document.state.get("Target") != target and not window.driver.interactive
+    assert document.state.get("Eye") != eye and document.state.get("Target") == target      # orbit navigation: the eye moves around the target
+    assert not window.driver.interactive
     wait_until(lambda: window.driver.stats is not None and window.driver.stats.width == window.driver.render_size()[0], 30000)
 
 

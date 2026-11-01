@@ -128,6 +128,29 @@ class GuiParameter:
             return int(rng.integers(int(from_), int(to) + 1))
         return float(rng.uniform(from_, to)) if to > from_ else float(from_)
 
+    def mutated_value(self, value: Any, strength: float, rng) -> Any | None:
+        """`value` nudged at random by up to `strength` (0..1) of the range — *Mutate*; None for kinds that cannot."""
+        from_, to = getattr(self, "from_", None), getattr(self, "to", None)
+        if self.kind == "bool":
+            return (not bool(value)) if rng.random() < strength * 0.5 else bool(value)
+        if self.kind == "menu":
+            return self.random_value(rng) if rng.random() < strength else int(value)
+        if self.kind in ("color", "floatcolor"):
+            rgb = tuple(min(1.0, max(0.0, float(v) + float(rng.uniform(-1, 1)) * strength * 0.5)) for v in tuple(value)[:3])
+            if self.kind == "color":
+                return rgb
+            alpha = min(to, max(from_, float(value[3]) + float(rng.uniform(-1, 1)) * strength * (to - from_)))
+            return (*rgb, alpha)
+        if from_ is None or to is None:
+            return None
+        if isinstance(from_, (tuple, list)):
+            return tuple(min(max(lo, hi), max(min(lo, hi), float(v) + float(rng.uniform(-1, 1)) * strength * (hi - lo)))
+                         for v, lo, hi in zip(tuple(value), from_, to))
+        lo, hi = (min(from_, to), max(from_, to))
+        new = float(value) + float(rng.uniform(-1, 1)) * strength * (hi - lo)
+        new = min(hi, max(lo, new))
+        return int(round(new)) if self.kind == "int" else new
+
     def parse(self, text: str) -> Any:
         """A value from settings text (the part after `=`, suffixes removed)."""
         raise NotImplementedError

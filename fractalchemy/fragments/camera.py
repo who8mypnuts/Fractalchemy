@@ -146,6 +146,52 @@ class Camera3D:
         """Dolly along the view direction by `step · notches / fov`."""
         return self.moved(self.dir * step * notches / max(self.fov, 1e-9))
 
+    # --- DCC-style navigation (orbit around the target) ------------------------------------------------------------------
+    @property
+    def distance(self) -> float:
+        return float(np.linalg.norm(self.direction))
+
+    def orbit(self, down: "Camera3D", dp: tuple[float, float], degrees_per_width: float = 360.0) -> "Camera3D":
+        """Turntable orbit around `down`'s target: yaw about its up axis, pitch about its right axis (a full width = a turn)."""
+        dx, dy = dp
+        up_down = normalize(vec(down.up))
+        right_down = normalize(np.cross(normalize(down.direction), up_down))
+        offset = vec(down.eye) - vec(down.target)
+        offset = rotate(rotate(offset, dx * degrees_per_width, up_down), dy * degrees_per_width * 0.5, right_down)
+        new_up = rotate(up_down, dy * degrees_per_width * 0.5, right_down)
+        return replace(self, eye=tuple(vec(down.target) + offset), target=down.target, up=tuple(new_up)).orthogonalized()
+
+    def pan_screen(self, down: "Camera3D", dp: tuple[float, float]) -> "Camera3D":
+        """Slide eye and target in the screen plane; a full width moves by the distance to the target (feels like grabbing the view)."""
+        dx, dy = dp
+        d = normalize(down.direction)
+        up = normalize(vec(down.up) - float(np.dot(vec(down.up), d)) * d)
+        right = normalize(np.cross(d, up))
+        scale = down.distance * max(down.fov, 0.05) * 2.0
+        offset = right * dx * scale - up * dy * scale
+        return replace(self, eye=tuple(vec(down.eye) + offset), target=tuple(vec(down.target) + offset))
+
+    def dolly_target(self, factor: float, minimum: float = 1e-6) -> "Camera3D":
+        """Move the eye towards (factor < 1) or away from the target, keeping the target."""
+        offset = vec(self.eye) - vec(self.target)
+        length = max(float(np.linalg.norm(offset)) * factor, minimum)
+        return replace(self, eye=tuple(vec(self.target) + normalize(offset) * length))
+
+    def view_from(self, side: str) -> "Camera3D":
+        """`front`, `back`, `left`, `right`, `top`, `bottom`: the eye at the current distance on that axis of the target (y up)."""
+        axes = {"front": ((0.0, 0.0, -1.0), (0.0, 1.0, 0.0)), "back": ((0.0, 0.0, 1.0), (0.0, 1.0, 0.0)),
+                "right": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)), "left": ((-1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+                "top": ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)), "bottom": ((0.0, -1.0, 0.0), (0.0, 0.0, -1.0))}
+        direction, up = axes[side]
+        return replace(self, eye=tuple(vec(self.target) + vec(direction) * max(self.distance, 1e-6)), up=up)
+
+    def turned_about_target(self, degrees: float, axis: str) -> "Camera3D":
+        """Numpad 4 / 6 (about the up axis) and 8 / 2 (about the right axis): orbit by `degrees`."""
+        axis_vec = normalize(vec(self.up)) if axis == "up" else self.right
+        offset = rotate(vec(self.eye) - vec(self.target), degrees, axis_vec)
+        up = vec(self.up) if axis == "up" else rotate(vec(self.up), degrees, axis_vec)
+        return replace(self, eye=tuple(vec(self.target) + offset), up=tuple(up)).orthogonalized()
+
     def screen_to_3d(self, sx: float, sy: float, width: int, height: int, depth_inverse: float) -> Vec:
         """The world point under pixel `(sx, sy)` at depth `1 / depth_inverse` (FragM's `screenTo3D`; the depth buffer holds
         `1 / distance` for the raytracers)."""

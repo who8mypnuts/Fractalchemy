@@ -131,6 +131,16 @@ class FragmentSource:
     def preset_names(self) -> list[str]:
         return list(self.presets)
 
+    def is_own_param(self, param) -> bool:
+        """True when `param` was declared in the fragment itself rather than in an included file."""
+        origin = self.line_map.origin(param.line + 1)
+        main = self.line_map.files[0] if self.line_map.files else None
+        return origin is not None and origin[0] == main
+
+    def own_param_names(self) -> list[str]:
+        """The names of the parameters the fragment declares itself (what *Mutate* varies by default)."""
+        return [p.name for p in self.params if self.is_own_param(p)]
+
     def keyframe_names(self) -> list[str]:
         """Presets named `KeyFrame.nnnn`, in numeric order."""
         from .presets import is_keyframe, keyframe_index

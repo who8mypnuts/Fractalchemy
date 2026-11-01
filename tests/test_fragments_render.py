@@ -160,6 +160,8 @@ def test_render_window_renders_a_tiled_image_with_extras(window, tmp_path):
     rw.output_panel.params_check.setChecked(True)
     rw.output_panel.fragment_check.setChecked(True)
     rw.output_panel.includes_check.setChecked(True)
+    rw.output_panel.report_check.setChecked(True)
+    rw.output_panel.report_combo.setCurrentIndex(rw.output_panel.report_combo.findData("html"))
     assert rw.start_button.isEnabled() and "2 × 2 tiles" in rw.plan_label.text() and rw.estimate_label.text().startswith("Estimated")
     rw.start(ask_overwrite=False)
     assert rw.rendering
@@ -171,6 +173,7 @@ def test_render_window_renders_a_tiled_image_with_extras(window, tmp_path):
     with Image.open(outcome.path) as image:
         assert image.size == (96, 64) and "frAg" in image.info
     assert "#preset Default" in outcome.report.read_text() and document.metadata.render["tiles"] == 2
+    assert outcome.details == tmp_path / "hires.html" and "Per tile" in outcome.details.read_text() and "Power" in outcome.details.read_text()
     assert "Saved" in rw.progress_panel.result.text()
     # the settings persisted
     assert "hires.png" in window._settings.value("fragments/render_settings")

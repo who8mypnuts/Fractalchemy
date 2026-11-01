@@ -457,7 +457,7 @@ environments), is `docs/3d-editor-plan.md`.
 fractals written as GLSL fragment shaders — Mandelbulbs, Mandelboxes, kaleidoscopic IFS, escape-time sets, feedback
 systems — edited, tweaked and rendered on the GPU. It reads Fragmentarium / FragM `.frag` files unchanged (their
 directives, `#include`s, annotated uniforms and `#preset`s), ships FragM's example library and include files
-(*Library ▸ Examples*, 221 fragments in 17 categories), and saves `.fafrag` / `.frag`. A tool window like the others:
+(*Library ▸ Examples*, 230 fragments in 18 categories), and saves `.fafrag` / `.frag`. A tool window like the others:
 closing hides it; layout, options and tabs are remembered. See [docs/fragments.md](docs/fragments.md) for the guide
 and the language reference; the plan is `plans/fragments-plan.md`.
 
@@ -467,44 +467,62 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   option and include). **Build** (`F5`) preprocesses, translates and compiles; *Auto-build* rebuilds a second after
   typing stops; *Show preprocessed source* shows the GLSL the driver saw with every line's original `file:line`.
 * **Viewport** (middle): progressive subframe accumulation (*Subframe max* on the toolbar; 0 = keep going), at half
-  resolution while a button is held. FragM's cameras: for 3D fragments left-drag orients, Shift orbits the origin,
-  Shift+Alt orbits the target, right-drag pans, both buttons or the wheel dolly, `W A S D R F` fly, `T G Y H` turn,
-  `Q E` roll, `1 3 2 5` change the step, middle-click puts the *Target* on the surface under the cursor; for 2D
-  fragments left-drag pans, right-drag and the wheel zoom, `A D W S Q E` pan and zoom. Esc toggles fullscreen.
-  Buffer size: locked to the window, or a custom X × Y with an aspect lock.
-* **Parameters** (dock): one tab per `#group`, a preset combo, sliders + spin boxes (9 significant digits, 18 for
-  doubles, logarithmic when asked), vectors (unit directions renormalise), colours with the live colour picker, menus,
-  check boxes, texture files — each with a **lock** (the value baked into the shader; faster; *Build needed*).
-  Unused parameters (optimised away by the compiler) hide unless locked. `F1` reset, `F2` / `F3` copy / paste the
-  settings text, Shift+`F3` paste the editor's selection, `F4` group → preset, `F8` insert a preset (a `KeyFrame.nnnn`
-  for 3D cameras), `F9` select the current preset in the source; lock / unlock / reset a whole group. Every edit
-  and every camera move is undoable.
+  resolution while a button is held. Two 3D navigation styles: **orbit** (the default — left-drag orbits the target,
+  middle pans, right / wheel dolly, Shift+left looks around, numpad `1 3 7 9 4 6 8 2 .` views and a turntable) and
+  FragM's **fly** (left-drag orients, Shift orbits the origin, Shift+Alt orbits the target, right-drag pans, both
+  buttons or the wheel dolly); `W A S D R F` fly, `T G Y H` turn, `Q E` roll, `1 3 2 5` change the step, middle-click
+  puts the *Target* on the surface under the cursor; for 2D fragments left-drag pans, right-drag and the wheel zoom,
+  `A D W S Q E` pan and zoom. Esc toggles fullscreen. Buffer size: locked to the window, or a custom X × Y with an
+  aspect lock. Overlays: a **mini-map** plan of the scene (`Ctrl+M`), **A/B compare** (freeze a reference, drag the
+  divider), **Ctrl+drag** a region of interest for the render window, draggable **keyframe handles** on the camera path.
+* **Parameters** (dock): collapsible sections or FragM's tabs per `#group`, a preset combo, sliders + spin boxes
+  (9 significant digits, 18 for doubles, logarithmic when asked; arrow keys nudge — Shift ×10, Ctrl ×0.1; MIDI knobs
+  and gamepad sticks can drive them through *Windows ▸ Controllers…*), vectors
+  (unit directions renormalise), colours with the live colour picker, menus, check boxes, texture files — each with a
+  **lock** (the value baked into the shader; faster; *Build needed*). Unused parameters (optimised away by the
+  compiler) hide unless locked; pinned ones gather in a **★ Favourites** group. `F1` reset, `F2` / `F3` copy / paste
+  the settings text, Shift+`F3` paste the editor's selection, `F4` group → preset, `F8` insert a preset (a
+  `KeyFrame.nnnn` for 3D cameras), `F9` select the current preset in the source, `Ctrl+F9` a **preset gallery**
+  (every preset rendered small); lock / unlock / reset a whole group. Every edit and every camera move is undoable.
+  A **History** dock keeps thumbnails of earlier looks (by hand, automatically, and before every **Mutate** — a random
+  nudge of the unlocked parameters by a chosen strength — or *Randomize*); click one to go back.
 * **Log** (dock): parse / include / compile messages, clamped preset values, `#info` lines, and compile errors with
   the file and line they belong to — click one to open the file (bundled includes read-only) at that line; the
   editor marks the line. Rejected shaders are also written to `<cache>/Fractalchemy/glsl-failures/`.
 * **Library** (dock, `Ctrl+L`): the bundled examples and your own folders of `.frag` / `.fafrag` files with search
-  and an optional thumbnail view (each fragment rendered once at a small size, cached on disk); drag a file onto
-  the window to open it. *File ▸ New from template* starts from FragM's New 2D / New 3D or the other built-in
+  (names, `tag:`, `param:`, `include:`, presets, `#info` lines, stars) and an optional thumbnail view in three sizes
+  (each fragment rendered once, cached on disk, captioned with the camera kind, preset and parameter counts);
+  **favourites, ratings and tags** from a row's menu, a *Show* filter (favourites, recent, rated, 2D / 3D); drag a
+  file onto the window to open it. A **Walkthrough** dock lists a fragment's `// STEP n:` comments (the
+  *Fractalchemy Tutorials*) and its outline. *File ▸ New from template* starts from FragM's New 2D / New 3D or the other built-in
   starters (kaleidoscopic IFS, Mandelbox, 2D with a map, Shadertoy-style, buffer feedback, fast raytracer), or from
   your own templates.
 * **Animation**: FragM's model — the 3D camera follows a Catmull-Rom path through `KeyFrame.nnnn` presets (`F8`
   inserts one; the paths are drawn over the viewport), single slider components follow **easing curves** (`F7`: Qt's
   curves with period / amplitude / overshoot, loops, ping-pong, kept in `Range…` presets as FragM's twelve-field
   lines), a **timeline editor** shows both on one ruler, and an *All parameters* interpolation mode blends every
-  numeric parameter between the keyframe presets too. *Progressive* / *Animation* modes, Rewind / Play / Stop
+  numeric parameter between the keyframe presets too; a **graph editor** (values against frames, draggable curve
+  handles, keyframe tracks) sits beside the timeline. *Progressive* / *Animation* modes, Rewind / Play / Stop
   (`F10` `F11` `F12`, Space), a time slider with keyframe marks, fps and length on the toolbar.
 * **Render…** (`Ctrl+R`): FragM's hi-res / animation render as a job window on its own thread and OpenGL context —
   tiles with padding, subframes per tile, a frame range, every host image format (16-bit PNG / TIFF, OpenEXR half /
   float with the **depth buffer as Z**), parameters embedded under FragM's `frAg` key, `.fragparams` and the fragment
   with its includes saved beside the image (FragM's autosave), ffmpeg video afterwards, pause / stop / save
-  incomplete. *Batch render presets…* renders every preset or keyframe of a file; `tools/render_frag.py` does the
-  same from the command line (what `.fqs` scripts were for).
-* **Quality of life**: parameter filter box, per-parameter *Reset / Randomize / Copy / Paste*, *Randomize group*
+  incomplete; **stereo** pairs (anaglyph / side by side) and **360°** equirectangular panoramas; a **region** of the
+  frame at full resolution. A **render queue** runs several snapshots one after another. *Batch render presets…*
+  renders every preset or keyframe of a file; `tools/render_frag.py` does the same from the command line (what `.fqs`
+  scripts were for), with `--tile-range` / `--assemble` / `--resume` for renders spread over machines or resumed.
+* **Quality of life**: parameter filter box, per-parameter *Reset / Randomize / Copy / Paste / Pin*, *Randomize group*
   (`F6`), next / previous preset, a viewport context menu (copy image, screenshot, bookmark, reset camera, HUD,
   fullscreen, render, mesh), tab menu (close others / all, copy path, show in folder) and middle-click close,
-  `Ctrl+E` editor pane toggle, editor font zoom, an accumulation progress bar in the status bar.
-* **Tools**: a **Grading** dock (exposure, Reinhard / filmic / ACES tone mapping, gamma, contrast, saturation, hue,
-  vignette, invert — a display-pass stage, instant, saved with the fragment, applied to renders); **camera
+  `Ctrl+E` editor pane toggle, editor font zoom, an accumulation progress bar in the status bar. **Editor**: inline
+  diagnostics (wavy underlines, hover messages), hover signatures, Ctrl+click **go to definition** (into the includes
+  too), **snippets with tab-stops**, **multi-cursor** editing (`Ctrl+Shift+D` / `L`), *Compare with original…* (a diff
+  against the bundled example with *Revert*). **Sessions**: save / open the open tabs with their settings; an autosave
+  every few minutes and *Recover last session* after a crash.
+* **Tools**: a **Grading** page (exposure, Reinhard / filmic / ACES tone mapping, gamma, contrast, saturation, hue,
+  vignette, invert, plus a post stack — bloom, chromatic aberration, grain, `.cube` LUTs — a display-pass stage,
+  instant, saved with the fragment, applied to renders); **camera
   bookmarks** and **flight recording** (samples the camera while you fly and writes the keyframe presets);
   *Manual rendering* (FragM's manual mode); **Debug views** — the depth buffer as a picture and a **DE slice** heat
   map with contours for debugging estimators; a **Performance HUD**; **Colours from a gradient** (every colour
@@ -518,7 +536,9 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   maille) and a *Distance Estimator Compendium* folder of parameterised fractal estimators (gaz, kamoshika, yonatan,
   Kali, Nameless, Kleinian, Lewpen, butadiene, Marble Marcher levels, mrange, iq's Apollonian), plus a *Fractalchemy
   Collection* (Nova, Magnet, Phoenix, a gathering Buddhabrot; Amazing Surf, ABoxMod1, FoldingIntPow, Juliabulb,
-  Lambdabulb, Jerusalem cube, Mosely snowflake, sphere-inversion IFS, Koch snowflake 2D / prism / 3D tetrahedron) on a `Triplex.frag` include.
+  Lambdabulb, Jerusalem cube, Mosely snowflake, sphere-inversion IFS, Koch snowflake 2D / prism / 3D tetrahedron,
+  Apollonian gasket, Indra's Pearls, a Kleinian limit set, Dragon curves and a Dragon ribbon) on a `Triplex.frag`
+  include, and four *Fractalchemy Tutorials* that explain themselves in `// STEP n:` comments.
 * **Textures**: `file[…]` samplers (LDR through Pillow, `.hdr` / `.exr` float, cube-map strips, integer samplers),
   `#TexParameter` filters / wrapping / anisotropy with mipmaps, a cache keyed by file and modification time.
 * **Insert gradient…**: any gradient the host reads (the Gradient Library's current one, `.ugr`, `.map`, palettes,
@@ -527,16 +547,19 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   GIMP gradients open in the Gradient Library too.
 * **Export mesh…**: the distance estimator sampled on a voxel grid **on the GPU** (the fragment's own shader with a
   probe `main`, vertex colours from `baseColor`), the host's surface nets, clean-up levels and print report, a
-  preview, OBJ / STL / PLY / glTF / USD output, and *Send to 3D Editor* (a PLY asset on the Instances tab).
+  preview, OBJ / STL / PLY / glTF / USD output, normals from the field's gradient, colours baked to a texture through
+  generated UVs, a Blender import script, and *Send to 3D Editor* (a PLY asset on the Instances tab). **Export DE as
+  code…** writes the estimator with its values baked in as GLSL, a Shadertoy, a Unity shader or an Unreal include.
 * **Preferences…**: recent files, loop play, camera paths, 2D wheel mode, editor font, jump to error, reload on
-  change, autorun / auto-build, moveMain, `#define` locks, the compatibility layer, easing in presets, frame rate,
-  refresh interval, interactive scale, a GPU load limit and pause-when-hidden, include paths, log to file, verbose. *Build ▸ Test GLSL versions* compiles at
+  change, session autosave, autorun / auto-build, moveMain, `#define` locks, the compatibility layer, easing in presets, frame rate,
+  refresh interval, interactive scale, a GPU load limit and pause-when-hidden, the Parameters layout, the navigation
+  style, include paths, log to file, verbose. *Build ▸ Test GLSL versions* compiles at
   every version the driver offers; *Clear texture cache*; Help has the guide, the CLI, a welcome note and links.
 * **Under the hood**: a second render service thread with its own OpenGL context runs the fragment engine
   (ping-pong accumulation surfaces that survive parameter edits for `DontClearOnChange` fragments, a program cache,
   a buffer-shader display pass, depth reads for the 3D pick, engine chores such as the version test as priority
   jobs); the legacy GLSL 1.10 / 1.20 the fragment world is written in is translated to 3.30 core so it runs on every
-  modern context (`fragments/glsl_compat.py`); 214 of the 221 bundled examples compile, the rest fail in FragM too.
+  modern context (`fragments/glsl_compat.py`); 223 of the 230 bundled examples compile, the rest fail in FragM too.
   Heavy fragments stay clear of the GPU watchdog: half-size rendering while the camera moves, subframes per image
   adapting to the refresh interval, and automatic **tiling** of a subframe that exceeds the time budget (the status
   bar shows *tiled n×n*).

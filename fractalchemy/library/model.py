@@ -24,6 +24,7 @@ from .scanner import ScannedDir, ScannedFile
 ITEM_ROLE = Qt.ItemDataRole.UserRole + 1     # LibraryItem
 SEARCH_ROLE = Qt.ItemDataRole.UserRole + 2   # text the search box matches against
 COUNT_ROLE = Qt.ItemDataRole.UserRole + 3    # supported files under a root
+CAPTION_ROLE = Qt.ItemDataRole.UserRole + 4  # a longer display text for the thumbnail view (a host may set one per file)
 
 
 class ThumbnailProvider(Protocol):
@@ -65,7 +66,26 @@ class LibraryModel(QStandardItemModel):
         if row is not None:
             row.setIcon(icon)
 
+    # --- per-row extras a host may add (search words, thumbnail captions) ---------------------------------------
+    def set_search_text(self, item: LibraryItem, text: str) -> None:
+        """What the search box matches for `item`'s row (the name and entry names by default)."""
+        row = self._by_key.get(_key(item))
+        if row is not None:
+            row.setData(text, SEARCH_ROLE)
+
+    def set_caption(self, item: LibraryItem, caption: str, tooltip: str | None = None) -> None:
+        """A longer text shown instead of the name while thumbnails are on (and an optional tooltip)."""
+        row = self._by_key.get(_key(item))
+        if row is not None:
+            row.setData(caption, CAPTION_ROLE)
+            if tooltip is not None:
+                row.setToolTip(tooltip)
+
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if role == Qt.ItemDataRole.DisplayRole and self._thumbnails is not None:
+            caption = super().data(index, CAPTION_ROLE)
+            if caption:
+                return caption
         if role == Qt.ItemDataRole.DecorationRole and self._thumbnails is not None:
             item = super().data(index, ITEM_ROLE)
             if item is not None and item.opens_entry and not _is_multi_file(self, index):

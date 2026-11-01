@@ -3,20 +3,22 @@
 The host's `Timeline` widget shows the animation's frames with a marker per `KeyFrame.nnnn` preset (FragM spaces the
 keyframes evenly over the length) and the playhead; clicking a marker applies that keyframe's preset and moves the
 playhead there, scrubbing moves the frame. Below it, one lane per easing curve: the name, the frame range as a bar
-and the curve's shape; double-click edits the curve (`F7`), the context menu removes it. Opened from the time
-slider's context menu or *Animation ▸ Timeline editor*.
+and the curve's shape; double-click edits the curve (`F7`), the context menu removes it. A second tab holds the
+graph editor (`graph_editor.py`): values against frames with draggable curve handles and the keyframe tracks.
+Opened from the time slider's context menu or *Animation ▸ Timeline editor*.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QDialog, QLabel, QMenu, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QLabel, QMenu, QScrollArea, QTabWidget, QVBoxLayout, QWidget
 
 from ...fragments.animation import AnimationSettings
 from ...fragments.easing import EasingSetting
 from ...fragments.spline import Keyframe
 from ...widgets.timeline import Timeline
+from .graph_editor import GraphEditor
 
 LANE_HEIGHT = 44
 LABEL_WIDTH = 130
@@ -141,11 +143,13 @@ class TimelineWindow(QDialog):
         keyframe_chosen(str): A keyframe marker was clicked (the preset name).
         edit_curve(str): Edit the curve of a slider component.
         remove_curve(str): Remove it.
+        curve_changed(object): A curve's handle was dragged in the graph: the new `EasingSetting`.
     """
     frame_scrubbed = Signal(int)
     keyframe_chosen = Signal(str)
     edit_curve = Signal(str)
     remove_curve = Signal(str)
+    curve_changed = Signal(object)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent, Qt.WindowType.Window)
@@ -157,29 +161,37 @@ class TimelineWindow(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.lanes)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.graph = GraphEditor(self)
+        self.tabs = QTabWidget(self)
+        self.tabs.addTab(scroll, "Lanes")
+        self.tabs.addTab(self.graph, "Graph")
         layout = QVBoxLayout(self)
         layout.addWidget(self.summary)
         layout.addWidget(self.timeline)
-        layout.addWidget(scroll, 1)
-        self.resize(900, 360)
+        layout.addWidget(self.tabs, 1)
+        self.resize(900, 460)
         self._markers: list[KeyframeMarker] = []
         self.timeline.frame_scrubbed.connect(self.frame_scrubbed)
         self.timeline.keyframe_clicked.connect(lambda marker: self.keyframe_chosen.emit(marker.label))
         self.lanes.edit_requested.connect(self.edit_curve)
         self.lanes.remove_requested.connect(self.remove_curve)
+        self.graph.curve_changed.connect(self.curve_changed)
+        self.graph.frame_clicked.connect(self.frame_scrubbed)
 
     def show_animation(self, keyframes: list[Keyframe], curves: list[EasingSetting], settings: AnimationSettings, frame: int,
-                       selected: str = "") -> None:
-        """Refresh everything from the document."""
+                       selected: str = "", tracks: dict | None = None) -> None:
+        """Refresh everything from the document (`tracks`: the graph's keyframe tracks, `graph_editor.keyframe_tracks`)."""
         self._markers = keyframe_markers(keyframes, settings.frames)
         selected_marker = next((m for m in self._markers if m.label == selected), None)
         self.timeline.set_data(settings.frames, settings.fps, self._markers, selected_marker, frame, settings.loop_path)
         self.lanes.show_curves(curves, settings.frames)
+        self.graph.show_data(curves, tracks or {}, settings.frames, frame)
         self.summary.setText(f"{len(keyframes)} keyframes · {len(curves)} easing curves · {settings.frames} frames at {settings.fps} fps "
                              f"({settings.length} s)" + (" · looping path" if settings.loop_path else ""))
 
     def set_frame(self, frame: int) -> None:
         self.timeline.set_current_frame(frame)
+        self.graph.set_frame(frame)
 
 
 __all__ = ["TimelineWindow", "CurveLanes", "KeyframeMarker", "keyframe_markers"]

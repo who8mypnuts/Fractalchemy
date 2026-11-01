@@ -46,6 +46,16 @@ class FragFinalSettings:
         video_format: One of `animation.render.VIDEO_FORMATS`' keys.
         video_quality: CRF for the codecs that take one.
         keep_frames: Keep the frame images after the video was made.
+        report: Write the render details beside the image (`fragments/report.py`).
+        report_format: `md`, `txt` or `html`.
+        region: A crop of the frame rendered at full resolution — `(x, y, w, h)` as fractions (y down); None = the frame.
+        stereo: `none`, `anaglyph` (red / cyan) or `sbs` (side by side): two renders with the eye shifted, composited.
+        eye_separation: The stereo eye distance as a fraction of the eye–target distance.
+        panorama: 360° equirectangular (sets the fragment's `EquiRectangular`; a 2:1 frame).
+        tile_range: Render only tiles `(first, last)` (inclusive, row-major indices); None = all. The command line's
+            distributed rendering: each machine renders a range into `tile_dir`, `--assemble` joins them.
+        tile_dir: Where rendered tiles are written / read as `.npy` (empty: tiles are not kept).
+        resume: Skip tiles that already exist in `tile_dir`.
     """
     tile_width: int = 1920
     tile_height: int = 1080
@@ -70,6 +80,33 @@ class FragFinalSettings:
     video_format: str = "mp4"
     video_quality: int = 18
     keep_frames: bool = True
+    report: bool = False
+    report_format: str = "md"
+    region: tuple | None = None
+    stereo: str = "none"
+    eye_separation: float = 0.03
+    panorama: bool = False
+    tile_range: tuple | None = None
+    tile_dir: str = ""
+    resume: bool = False
+
+    # --- stereo / region / tiles -------------------------------------------------------------------------------------
+    @property
+    def eyes(self) -> int:
+        """How many renders a frame takes (2 for stereo)."""
+        return 2 if self.stereo in ("anaglyph", "sbs") else 1
+
+    def tile_indices(self) -> list[int]:
+        """The tiles this job draws (all, or the `tile_range`)."""
+        if self.tile_range is None:
+            return list(range(self.tile_count))
+        first, last = int(self.tile_range[0]), int(self.tile_range[1])
+        return [i for i in range(self.tile_count) if first <= i <= last]
+
+    def output_size(self) -> tuple[int, int]:
+        """The written image's size: the frame, doubled in width for side-by-side stereo."""
+        width, height = self.image_size
+        return (width * 2 if self.stereo == "sbs" else width), height
 
     # --- geometry ---------------------------------------------------------------------------------------------------
     @property
@@ -97,7 +134,7 @@ class FragFinalSettings:
 
     def total_steps(self, total_frames: int) -> int:
         """Subframe draws over the whole job (the progress bar's unit)."""
-        return len(self.frames(total_frames)) * self.tile_count * max(1, self.subframes)
+        return len(self.frames(total_frames)) * len(self.tile_indices()) * max(1, self.subframes) * self.eyes
 
     # --- problems -----------------------------------------------------------------------------------------------------
     def problems(self) -> list[str]:
@@ -114,6 +151,13 @@ class FragFinalSettings:
             issues.append("the end frame lies before the start frame")
         if self.subframes < 1:
             issues.append("at least one subframe")
+        if self.stereo not in ("none", "anaglyph", "sbs"):
+            issues.append(f"unknown stereo mode {self.stereo!r}")
+        if self.region is not None and (len(self.region) != 4 or min(self.region[2:]) <= 0 or min(self.region[:2]) < 0
+                                        or self.region[0] + self.region[2] > 1.0001 or self.region[1] + self.region[3] > 1.0001):
+            issues.append("the region must lie inside the frame")
+        if self.tile_range is not None and not self.tile_indices() and not self.tile_dir:
+            issues.append(f"the tile range {self.tile_range} selects no tile of {self.tile_count}")
         return issues
 
     # --- names -----------------------------------------------------------------------------------------------------------
@@ -176,8 +220,17 @@ class FragFinalSettings:
         frames = len(self.frames(total_frames))
         tiles = f"{self.tiles} × {self.tiles} tiles of {self.tile_width} × {self.tile_height}" if self.tiles > 1 else f"one tile of {self.tile_width} × {self.tile_height}"
         pad = f", padding {self.padding:g}" if self.padding else ""
+        extras = ""
+        if self.region is not None:
+            extras += f" · region {self.region[2] * 100:.0f}% × {self.region[3] * 100:.0f}% of the frame"
+        if self.stereo != "none":
+            extras += f" · stereo {self.stereo} (two eyes, separation {self.eye_separation:g})"
+        if self.panorama:
+            extras += " · 360° equirectangular"
+        if self.tile_range is not None:
+            extras += f" · tiles {self.tile_range[0]}–{self.tile_range[1]} only" if self.tile_indices() else " · assembling saved tiles"
         return (f"{width} × {height} pixels · {tiles}{pad} · {self.subframes} subframes" + (f" · {frames} frames" if self.animation else "")
-                + f" · {self.total_steps(total_frames):,} draws")
+                + extras + f" · {self.total_steps(total_frames):,} draws")
 
     # --- persistence ---------------------------------------------------------------------------------------------------------
     def to_dict(self) -> dict:
@@ -187,6 +240,9 @@ class FragFinalSettings:
     def from_dict(cls, data: dict | None) -> "FragFinalSettings":
         data = data or {}
         fields = {k: data[k] for k in cls.__dataclass_fields__ if k in data}
+        for key in ("region", "tile_range"):
+            if fields.get(key) is not None:
+                fields[key] = tuple(fields[key]) if isinstance(fields[key], (list, tuple)) and fields[key] else None
         return replace(cls(), **fields)
 
     def with_(self, **fields) -> "FragFinalSettings":

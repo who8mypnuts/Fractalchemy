@@ -45,6 +45,25 @@ def is_bundled(path: Path | None) -> bool:
         return False
 
 
+ORIGIN_KEY = "origin"
+
+
+def bundled_origin(path: Path | None) -> str | None:
+    """The library-relative name of a bundled file (`Examples/Primitives/Sphere.frag`), None for other files."""
+    if not is_bundled(path):
+        return None
+    return Path(path).resolve().relative_to(LIBRARY_DIR.resolve()).as_posix()
+
+
+def origin_path(document: FragDocument) -> Path | None:
+    """The bundled original a document descends from (recorded when an example was saved elsewhere), if it still exists."""
+    origin = document.metadata.tabs.get(ORIGIN_KEY) or bundled_origin(document.path)
+    if not origin:
+        return None
+    path = LIBRARY_DIR / origin
+    return path if path.is_file() else None
+
+
 def image_filter() -> str:
     """A file-dialog filter of every image format the host can write."""
     parts = [f"{f.label} (*{' *'.join(f.extensions)})" for f in FORMATS if f.available]
@@ -158,6 +177,9 @@ class FragmentFileActions(QObject):
             QMessageBox.information(self.window, "Fragments", f"{path.name} is part of the bundled library, which is never overwritten.\n"
                                     "Choose a folder of your own for the copy.")
             return self.save_as()
+        origin = bundled_origin(document.path)
+        if origin and not is_bundled(path):
+            document.metadata.tabs[ORIGIN_KEY] = origin          # *Compare with original* knows where the copy came from
         try:
             self._just_wrote.add(str(path))
             write_fragment(path, document.text, document.metadata)
@@ -297,4 +319,4 @@ def qimage_to_rgba16(image: QImage) -> np.ndarray:
     return (data.reshape(height, width, 4).astype(np.uint16) * 257)
 
 
-__all__ = ["FragmentFileActions", "is_bundled", "image_filter", "qimage_to_rgba16", "FILE_FILTER", "DEFAULT_SUFFIX"]
+__all__ = ["FragmentFileActions", "is_bundled", "bundled_origin", "origin_path", "image_filter", "qimage_to_rgba16", "FILE_FILTER", "DEFAULT_SUFFIX"]

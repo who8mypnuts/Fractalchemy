@@ -117,6 +117,11 @@ class MeshExportDialog(QDialog):
         self.colors.setToolTip("Needs `#define providesColor` and a baseColor() in the fragment")
         self.colors.toggled.connect(self._refresh_estimate)
         form.addRow(self.colors)
+        self.normals = QComboBox()
+        self.normals.addItem("from the faces", "faces")
+        self.normals.addItem("from the distance field's gradient (smoother)", "gradient")
+        self.normals.setToolTip("Gradient normals follow the estimator rather than the voxel steps — smoother shading at the same resolution")
+        form.addRow("Normals", self.normals)
         self.clean = QComboBox()
         for level in CLEAN_LEVELS:
             self.clean.addItem(level, level)
@@ -192,6 +197,22 @@ class MeshExportDialog(QDialog):
             options.addWidget(widget)
         options.addStretch(1)
         grid.addLayout(options, 2, 0, 1, 4)
+        extras = QHBoxLayout()
+        self.texture_check = QCheckBox("Bake colours to a texture")
+        self.texture_check.setToolTip("Vertex colours painted into a PNG through generated UVs (OBJ / GLB / USD carry it as the base colour)")
+        self.uv_mode = QComboBox()
+        for mode in ("box", "spherical", "cylindrical", "atlas"):
+            self.uv_mode.addItem(mode, mode)
+        self.texture_size = QComboBox()
+        for size in (512, 1024, 2048, 4096):
+            self.texture_size.addItem(f"{size} px", size)
+        self.texture_check.toggled.connect(lambda on: (self.uv_mode.setEnabled(on), self.texture_size.setEnabled(on)))
+        self.blender_check = QCheckBox("Blender script")
+        self.blender_check.setToolTip("Write <name>_blender.py beside the files: imports the mesh with its material, a camera and a light")
+        for widget in (self.texture_check, QLabel("UVs"), self.uv_mode, self.texture_size, self.blender_check):
+            extras.addWidget(widget)
+        extras.addStretch(1)
+        grid.addLayout(extras, 3, 0, 1, 4)
         where = QHBoxLayout()
         self.folder = QLineEdit()
         browse = QPushButton("Browse…")
@@ -201,7 +222,7 @@ class MeshExportDialog(QDialog):
         self.export_button.clicked.connect(self._export)
         for widget, stretch in ((QLabel("Folder"), 0), (self.folder, 1), (browse, 0), (QLabel("Name"), 0), (self.name, 0), (self.export_button, 0)):
             where.addWidget(widget, stretch)
-        grid.addLayout(where, 3, 0, 1, 4)
+        grid.addLayout(where, 4, 0, 1, 4)
         return group
 
     # --- settings ------------------------------------------------------------------------------------------------------------
@@ -218,6 +239,7 @@ class MeshExportDialog(QDialog):
         self.threshold.setValue(float(s.value(f"{g}/threshold", 0.5)))
         self.colors.setChecked(s.value(f"{g}/colors", True, type=bool) and self.colors.isEnabled())
         self.clean.setCurrentIndex(max(0, self.clean.findData(s.value(f"{g}/clean", "simple"))))
+        self.normals.setCurrentIndex(max(0, self.normals.findData(s.value(f"{g}/normals", "faces"))))
         self.smoothing.setValue(int(s.value(f"{g}/smoothing", 0)))
         self.target_faces.setValue(int(s.value(f"{g}/target_faces", 0)))
         chosen = s.value(f"{g}/formats", ["ply"])
@@ -230,6 +252,12 @@ class MeshExportDialog(QDialog):
         self.size_mm.setValue(float(s.value(f"{g}/size_mm", 100.0)))
         self.size_mm.setEnabled(self.units.currentData() == "mm")
         self.report_check.setChecked(s.value(f"{g}/report", True, type=bool))
+        self.texture_check.setChecked(s.value(f"{g}/texture", False, type=bool))
+        self.uv_mode.setCurrentIndex(max(0, self.uv_mode.findData(s.value(f"{g}/uv_mode", "box"))))
+        self.texture_size.setCurrentIndex(max(0, self.texture_size.findData(int(s.value(f"{g}/texture_size", 1024)))))
+        self.uv_mode.setEnabled(self.texture_check.isChecked())
+        self.texture_size.setEnabled(self.texture_check.isChecked())
+        self.blender_check.setChecked(s.value(f"{g}/blender", False, type=bool))
         self.folder.setText(str(s.value(f"{g}/folder", "") or (fragment_dir or Path.home())))
         self.name.setText(self._fragment_name.rsplit(".", 1)[0] or "fragment")
 
@@ -247,6 +275,7 @@ class MeshExportDialog(QDialog):
         s.setValue(f"{g}/threshold", m.threshold_voxels)
         s.setValue(f"{g}/colors", m.colors)
         s.setValue(f"{g}/clean", m.clean)
+        s.setValue(f"{g}/normals", m.normals)
         s.setValue(f"{g}/smoothing", m.smooth_iterations)
         s.setValue(f"{g}/target_faces", m.target_faces)
         e = self.export_settings()
@@ -256,19 +285,25 @@ class MeshExportDialog(QDialog):
         s.setValue(f"{g}/units", e.units)
         s.setValue(f"{g}/size_mm", e.size_mm)
         s.setValue(f"{g}/report", e.report)
+        s.setValue(f"{g}/texture", e.texture)
+        s.setValue(f"{g}/uv_mode", e.uv_mode)
+        s.setValue(f"{g}/texture_size", e.texture_size)
+        s.setValue(f"{g}/blender", e.blender_script)
         s.setValue(f"{g}/folder", self.folder.text())
 
     def mesh_settings(self) -> DEMeshSettings:
         """The sampling / meshing settings as set in the dialog."""
         return DEMeshSettings(self.resolution.value(), Bounds(tuple(spin.value() for spin in self.centre), self.size.value()),
                               self.fit.isChecked(), self.threshold.value(), self.colors.isChecked(), self.clean.currentData(),
-                              self.smoothing.value(), self.target_faces.value(), self.sparse.isChecked(), self.block.value())
+                              self.smoothing.value(), self.target_faces.value(), self.sparse.isChecked(), self.block.value(),
+                              self.normals.currentData())
 
     def export_settings(self) -> DEExportSettings:
         """The export settings as set in the dialog."""
         formats = [key for key, box in self.format_checks.items() if box.isChecked()]
         return DEExportSettings(self.form.currentData(), formats, self.export_colors.isChecked(), self.units.currentData(),
-                                self.size_mm.value(), self.report_check.isChecked())
+                                self.size_mm.value(), self.report_check.isChecked(), self.texture_check.isChecked(), self.uv_mode.currentData(),
+                                int(self.texture_size.currentData()), self.blender_check.isChecked())
 
     # --- building ------------------------------------------------------------------------------------------------------------
     def _refresh_estimate(self) -> None:

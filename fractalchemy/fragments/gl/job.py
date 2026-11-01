@@ -204,6 +204,7 @@ class FragJob:
             self.stats.passes_total = self.stats.passes_done      # one display pass, then done
         image = self._display()
         self.stats.facts.notes += self.engine.textures.take_problems()     # a texture that failed to load this pass
+        self.stats.facts.notes += self.engine.grading.take_notes()         # a LUT that could not be read
         if self.settings.depth_probe is not None:
             self.stats.facts.probe_depth = self.surface.depth_at(*self.settings.depth_probe)
         elapsed = time.perf_counter() - started

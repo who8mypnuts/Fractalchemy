@@ -4,6 +4,10 @@
     python tools/render_frag.py Mandelbulb.frag --all-presets --out out/            # one image per preset
     python tools/render_frag.py anim.fafrag --frames 0-249 --fps 25 --length 10 --out out/anim.png [--video mp4]
     python tools/render_frag.py --check fractalchemy/fragments/library/Examples/**/*.frag   # compile only; exit code = failures
+    python tools/render_frag.py big.frag --out out/big.png --tiles 4 --tile-range 0-7 --tile-dir out/tiles   # half the tiles …
+    python tools/render_frag.py big.frag --out out/big.png --tiles 4 --tile-range 8-15 --tile-dir out/tiles  # … the other half
+    python tools/render_frag.py big.frag --out out/big.png --tiles 4 --assemble --tile-dir out/tiles         # join them
+    python tools/render_frag.py bulb.frag --out out/bulb.png --stereo anaglyph      # or sbs; --panorama for 360°
 
 Headless: a standalone OpenGL context is created (EGL / llvmpipe work without a display).
 """
@@ -49,6 +53,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--depth-alpha", action="store_true", help="EXR: write the depth buffer as the Z channel")
     parser.add_argument("--video", default="", help="encode the frames with ffmpeg (mp4, mp4-hevc, webm, mov, gif)")
     parser.add_argument("--include-path", action="append", default=[], help="extra include folder (repeatable)")
+    parser.add_argument("--tile-range", default="", help="render only tiles A-B (row-major indices) into --tile-dir")
+    parser.add_argument("--tile-dir", default="", help="folder the rendered tiles are kept in as .npz (default: <out>.tiles)")
+    parser.add_argument("--resume", action="store_true", help="skip tiles already present in --tile-dir")
+    parser.add_argument("--assemble", action="store_true", help="render nothing; join the tiles found in --tile-dir into the image")
+    parser.add_argument("--region", default="", help="render a crop of the frame: X,Y,W,H as fractions (e.g. 0.25,0.25,0.5,0.5)")
+    parser.add_argument("--stereo", default="none", choices=["none", "anaglyph", "sbs"], help="stereo pair: anaglyph (red/cyan) or side by side")
+    parser.add_argument("--eye-separation", type=float, default=0.03, help="stereo eye distance as a fraction of the eye-target distance")
+    parser.add_argument("--panorama", action="store_true", help="360° equirectangular (the fragment's EquiRectangular mode; use a 2:1 size)")
     parser.add_argument("--quiet", action="store_true")
 
 
@@ -75,6 +87,16 @@ def settings_from(args: argparse.Namespace, out: Path) -> FragFinalSettings:
     if args.frames:
         first, last = (int(v) for v in args.frames.split("-"))
         settings = settings.with_(animation=True, start_frame=first, end_frame=last)
+    settings = settings.with_(stereo=args.stereo, eye_separation=args.eye_separation, panorama=args.panorama)
+    if args.region:
+        settings = settings.with_(region=tuple(float(v) for v in args.region.split(",")))
+    if args.tile_range or args.assemble or args.resume:
+        tile_dir = args.tile_dir or f"{out}.tiles"
+        if args.assemble:
+            settings = settings.with_(tile_range=(-1, -1), tile_dir=tile_dir)           # nothing drawn: every tile comes from the folder
+        else:
+            first, last = (int(v) for v in args.tile_range.split("-")) if args.tile_range else (0, settings.tile_count - 1)
+            settings = settings.with_(tile_range=(first, last), tile_dir=tile_dir, resume=args.resume)
     return settings
 
 
@@ -127,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             if not args.quiet:
                 print(f"{path.name}: {len(written)} file(s) in {time.perf_counter() - started:.1f} s" + (f" → {written[0]}" if written else ""))
+                for note in getattr(result, "notes", []) if not (args.all_presets or args.keyframes) else []:
+                    print(f"  {note}")
         return 1 if failures else 0
     finally:
         engine.close()

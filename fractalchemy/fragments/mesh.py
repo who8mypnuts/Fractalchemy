@@ -5,7 +5,9 @@ whose density is `-DE` so the host's surface nets (`solid.isosurface`) extract t
 threshold of half a voxel is the classic way to turn an estimated distance into a closed shell, since many
 estimators never go negative inside the set. The clean-up levels and the print report are the host's
 (`solid.mesh.clean`), the writers the host's (`solid.io.write_mesh`); the report is a small markdown file beside
-the export.
+the export. Normals can come from the distance field's gradient (smooth, true to the fractal) instead of the faces;
+vertex colours can be baked into a texture through generated UVs (`solid.uv`) for formats without vertex colours;
+and a Blender script (`blender_script.py`) can be written beside the files.
 """
 
 from __future__ import annotations
@@ -48,6 +50,8 @@ class DEMeshSettings:
         sparse: Sample the grid block by block and skip blocks the coarse pass shows empty — the way to resolutions
             beyond the memory of one dense grid (`MAX_SPARSE_RESOLUTION`).
         block: Voxels per block side in sparse mode.
+        normals: `faces` (area-weighted face normals, the host's default) or `gradient` (the distance field's
+            gradient at each vertex — smoother and faithful to the estimator, not to the voxel steps).
     """
     resolution: int = 128
     bounds: Bounds = field(default_factory=Bounds)
@@ -59,6 +63,7 @@ class DEMeshSettings:
     target_faces: int = 0
     sparse: bool = False
     block: int = 96
+    normals: str = "faces"
 
     def copy(self) -> "DEMeshSettings":
         return replace(self)
@@ -136,6 +141,19 @@ def vertex_colors(mesh: Mesh, probe: ProbeResult) -> np.ndarray | None:
     return np.clip(np.stack(channels, axis=1), 0.0, 1.0).astype(np.float32)
 
 
+def gradient_normals(mesh: Mesh, probe: ProbeResult) -> np.ndarray | None:
+    """`(V, 3)` unit normals from the distance field's gradient (central differences, interpolated at the vertices)."""
+    if mesh.vertex_count == 0:
+        return None
+    from scipy import ndimage
+
+    gradients = np.gradient(probe.distance.astype(np.float32), probe.spacing)
+    coords = ((np.asarray(mesh.vertices, dtype=np.float64) - probe.origin) / probe.spacing - 0.5).T
+    normals = np.stack([ndimage.map_coordinates(g, coords, order=1, mode="nearest") for g in gradients], axis=1)
+    length = np.linalg.norm(normals, axis=1, keepdims=True)
+    return np.where(length > 1e-12, normals / np.maximum(length, 1e-12), 0.0).astype(np.float32)
+
+
 def clean_settings_for(settings: DEMeshSettings) -> CleanSettings:
     """The host's clean-up settings for the chosen level."""
     base = AGGRESSIVE_CLEAN if settings.clean == "aggressive" else SIMPLE_CLEAN
@@ -157,6 +175,8 @@ def build_de_mesh(probe: ProbeResult, settings: DEMeshSettings, progress: Progre
     full = surface_nets(grid, iso, with_color=False)
     if settings.colors:
         full.colors = vertex_colors(full, probe)
+    if settings.normals == "gradient":
+        full.normals = gradient_normals(full, probe)
     seconds["isosurface"] = time.perf_counter() - started
     if cancelled():
         return None
@@ -198,7 +218,7 @@ def active_blocks(coarse: ProbeResult, bounds: Bounds, resolution: int, block: i
     return sorted(found)
 
 
-def block_mesh(probe_result: ProbeResult, core_lo: np.ndarray, core_hi: np.ndarray, iso: float, colors: bool) -> Mesh:
+def block_mesh(probe_result: ProbeResult, core_lo: np.ndarray, core_hi: np.ndarray, iso: float, colors: bool, normals: str = "faces") -> Mesh:
     """The isosurface of one padded block, trimmed to the faces whose centroid lies in the block's own box."""
     grid = grid_from_probe(probe_result)
     mesh = surface_nets(grid, iso, with_color=False)
@@ -213,6 +233,8 @@ def block_mesh(probe_result: ProbeResult, core_lo: np.ndarray, core_hi: np.ndarr
     trimmed = Mesh(mesh.vertices[used], remap[faces])
     if colors:
         trimmed.colors = vertex_colors(trimmed, probe_result)
+    if normals == "gradient":
+        trimmed.normals = gradient_normals(trimmed, probe_result)
     return trimmed
 
 
@@ -249,7 +271,7 @@ def build_de_mesh_sparse(probe, settings: DEMeshSettings, progress: Progress | N
         sampled = probe.sample(Bounds(centre, padded * spacing), padded, settings.colors)
         if sampled is None:
             return None
-        piece = block_mesh(sampled, core_lo - 1e-9, core_hi - 1e-9, iso, settings.colors and sampled.color is not None)
+        piece = block_mesh(sampled, core_lo - 1e-9, core_hi - 1e-9, iso, settings.colors and sampled.color is not None, settings.normals)
         if piece.face_count:
             pieces.append(piece)
     seconds["isosurface"] = time.perf_counter() - started
@@ -310,9 +332,12 @@ def _clean(full: Mesh, settings: DEMeshSettings, probe: ProbeResult, inside: np.
             raise _Cancelled()
 
     try:
-        return clean(full, clean_settings_for(settings), probe.spacing, inside, progress=decimation_progress)
+        cleaned, rep = clean(full, clean_settings_for(settings), probe.spacing, inside, progress=decimation_progress)
     except _Cancelled:
         return None, None
+    if settings.normals == "gradient":
+        cleaned.normals = gradient_normals(cleaned, probe)           # the clean-up may have welded / decimated them away
+    return cleaned, rep
 
 
 # --- export -------------------------------------------------------------------
@@ -327,6 +352,11 @@ class DEExportSettings:
         units: `world` or `mm` (scaled so the longest side is `size_mm`).
         size_mm: Target longest side for `mm`.
         report: Also write `<name>_report.md`.
+        texture: Bake the vertex colours into a PNG texture through generated UVs (`uv_mode`, `texture_size`) so
+            OBJ / GLB / USD carry the colours as an image.
+        uv_mode: `box`, `spherical`, `cylindrical` or `atlas` (xatlas when installed, else box).
+        texture_size: The texture's side in pixels.
+        blender_script: Write `<name>_blender.py` — run it in Blender to import the mesh with its material, a camera and a light.
     """
     form: str = "clean"
     formats: list[str] = field(default_factory=lambda: ["ply"])
@@ -334,6 +364,10 @@ class DEExportSettings:
     units: str = "world"
     size_mm: float = 100.0
     report: bool = True
+    texture: bool = False
+    uv_mode: str = "box"
+    texture_size: int = 1024
+    blender_script: bool = False
 
     def copy(self) -> "DEExportSettings":
         return replace(self, formats=list(self.formats))
@@ -372,15 +406,41 @@ def export_de_mesh(result: DEMeshResult, settings: DEExportSettings, folder: Pat
     if not settings.colors and mesh.colors is not None:
         mesh = mesh.copy()
         mesh.colors = None
+    texture_path = None
+    if settings.texture:
+        report(0.05, "Baking the texture")
+        mesh, texture_path = bake_texture(mesh, settings, folder / f"{name}_color.png", outcome.notes)
+        if texture_path is not None:
+            outcome.files.append(texture_path)
     formats = [export_format(key) for key in settings.formats]
     for index, fmt in enumerate(formats):
         report(index / max(1, len(formats)), f"Writing {fmt.label}")
-        outcome.files.extend(write_mesh(mesh, folder / f"{name}{fmt.extension}", fmt, None, name, meters_per_unit))
+        outcome.files.extend(write_mesh(mesh, folder / f"{name}{fmt.extension}", fmt, texture_path, name, meters_per_unit))
+    if settings.blender_script:
+        from .blender_script import blender_script
+        script = folder / f"{name}_blender.py"
+        script.write_text(blender_script(name, outcome.files, texture_path, meters_per_unit), encoding="utf-8")
+        outcome.files.append(script)
+        outcome.notes.append(f"Blender: blender --python {script.name}")
     if settings.report:
         outcome.report = folder / f"{name}_report.md"
         outcome.report.write_text(report_markdown(result, settings, outcome, name, fragment_name), encoding="utf-8")
     report(1.0, "Export finished")
     return outcome
+
+
+def bake_texture(mesh: Mesh, settings: DEExportSettings, path: Path, notes: list[str]) -> tuple[Mesh, Path | None]:
+    """The mesh with UVs and its vertex colours painted into a PNG at `path` (the mesh unchanged and None without colours)."""
+    from ..solid.uv import bake_vertex_colors, with_uvs
+    if mesh.colors is None:
+        notes.append("no texture baked: the mesh has no vertex colours (sample baseColor when meshing)")
+        return mesh, None
+    from PIL import Image
+    textured = with_uvs(mesh, settings.uv_mode)
+    image = bake_vertex_colors(textured, max(64, min(8192, int(settings.texture_size))))
+    Image.fromarray(image, "RGB").save(path)
+    notes.append(f"baked the vertex colours into {path.name} ({settings.uv_mode} UVs)")
+    return textured, path
 
 
 def report_markdown(result: DEMeshResult, export: DEExportSettings, outcome: DEExportOutcome, name: str, fragment_name: str) -> str:

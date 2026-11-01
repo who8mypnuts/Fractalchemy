@@ -129,6 +129,18 @@ class FragThumbnailProvider(QObject):
     def size(self) -> QSize:
         return self._size
 
+    def set_size(self, size: QSize) -> None:
+        """Another thumbnail size: the cache is dropped and the rows re-render at the new size."""
+        if size == self._size:
+            return
+        self._size = QSize(size)
+        self._placeholder = _placeholder(self._size)
+        self._cache.clear()
+        self._pending.clear()
+        self._service.cancel_where(lambda key: isinstance(key, tuple) and key[0] == "fragthumb")
+        if self._enabled:
+            self._model.set_thumbnail_provider(self)
+
     def set_enabled(self, enabled: bool) -> None:
         """Turn thumbnails on / off (off drops queued renders and shows plain icons)."""
         self._enabled = enabled

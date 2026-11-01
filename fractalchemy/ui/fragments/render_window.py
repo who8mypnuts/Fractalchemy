@@ -28,7 +28,7 @@ from ...widgets.images import rgba_to_qimage
 from ..job_window import JobWindowBase
 from ..render_progress import RenderProgressPanel
 from .document import FragDocument
-from .render_panels import AnimationPanel, FragOutputPanel, QualityPanel, TilesPanel
+from .render_panels import AnimationPanel, FragOutputPanel, QualityPanel, TilesPanel, ViewPanel
 
 WINDOW_TITLE = "Render Fragment"
 SETTINGS_KEY = "fragments/render_settings"
@@ -57,6 +57,7 @@ class FragRenderWindow(JobWindowBase):
         self.last_outcome: FragOutcome | None = None
         self.tiles_panel = TilesPanel(self)
         self.quality_panel = QualityPanel(self)
+        self.view_panel = ViewPanel(self)
         self.animation_panel = AnimationPanel(self)
         self.output_panel = FragOutputPanel(self)
         self.plan_label = QLabel(self)
@@ -66,16 +67,16 @@ class FragRenderWindow(JobWindowBase):
         self.progress_panel = RenderProgressPanel(self)
         self._build_layout(self.progress_panel, (1150, 760))
         self._load()
-        for panel in (self.tiles_panel, self.quality_panel, self.animation_panel, self.output_panel):
+        for panel in (self.tiles_panel, self.quality_panel, self.view_panel, self.animation_panel, self.output_panel):
             panel.changed.connect(self._on_options_changed)
         self._on_options_changed()
 
     # --- construction ----------------------------------------------------------------------------------------------
     def _option_widgets(self) -> list[QWidget]:
-        return [self.tiles_panel, self.quality_panel, self.animation_panel, self.output_panel, self.plan_label, self.estimate_label]
+        return [self.tiles_panel, self.quality_panel, self.view_panel, self.animation_panel, self.output_panel, self.plan_label, self.estimate_label]
 
     def _option_panels(self) -> list[QWidget]:
-        return [self.tiles_panel, self.quality_panel, self.animation_panel, self.output_panel]
+        return [self.tiles_panel, self.quality_panel, self.view_panel, self.animation_panel, self.output_panel]
 
     def _load(self) -> None:
         stored = self._settings.value(SETTINGS_KEY, "")
@@ -91,17 +92,23 @@ class FragRenderWindow(JobWindowBase):
         """Show `settings` in the panels."""
         self.tiles_panel.apply(settings)
         self.quality_panel.apply(settings)
+        self.view_panel.apply(settings)
         self.animation_panel.apply(settings, self._clock_provider())
         self.output_panel.apply(settings)
 
     def current_settings(self) -> FragFinalSettings:
         s = self.tiles_panel.read(FragFinalSettings())
         s = self.quality_panel.read(s)
+        s = self.view_panel.read(s)
         s = self.animation_panel.read(s)
         return self.output_panel.read(s)
 
+    def set_region(self, region: tuple | None, frame_size: tuple[int, int]) -> None:
+        """The region of the frame to render (Ctrl+drag on the viewport); the tile takes the region's aspect."""
+        self.tiles_panel.set_region(region, frame_size)
+
     def _persist(self) -> None:
-        s = self.current_settings()
+        s = self.current_settings().with_(region=None, tile_range=None)          # a region is a one-off choice, not a habit
         self._settings.setValue(SETTINGS_KEY, json.dumps(s.to_dict()))
         if s.output_path:
             self._settings.setValue(FOLDER_KEY, str(Path(s.output_path).parent))
@@ -188,9 +195,14 @@ class FragRenderWindow(JobWindowBase):
                 return
         self._persist()
         document.metadata.render = s.to_dict()
-        inputs = FragRenderInput(document.request(), document.state, document.source, document.text, document.name, document.animation,
-                                 list(document.easing), s, document.state.to_text(provenance=document.path.name if document.path else "Unnamed"))
-        self._launch(FragRenderJob(inputs, self), FinalProgress(phase="Starting the engine", tiles=s.tile_count, engine=""))
+        self._launch(FragRenderJob(self.make_input(document, s), self), FinalProgress(phase="Starting the engine", tiles=s.tile_count, engine=""))
+
+    @staticmethod
+    def make_input(document: FragDocument, s: FragFinalSettings) -> FragRenderInput:
+        """Snapshot `document` for a job with the plan `s` (the render queue builds its jobs the same way)."""
+        return FragRenderInput(document.request(), document.state, document.source, document.text, document.name, document.animation,
+                               list(document.easing), s, document.state.to_text(provenance=document.path.name if document.path else "Unnamed"),
+                               document.path, document.current_preset)
 
     def _on_progress(self, progress: FinalProgress) -> None:
         self.progress_panel.show_progress(progress)

@@ -5,7 +5,10 @@ surface and `subframes` subframes drawn with the tile's projection matrix (FragM
 pass (the buffer shader) into a float target; the tile's centre (the padding cropped) lands in the assembled float
 image — and, with *depth to alpha*, so does its depth buffer. The float image is handed to the caller per frame
 (`frame_done`) for writing: 8 / 16-bit formats through the host's writers, OpenEXR as float `R G B` with `A` (or `Z`),
-which is what FragM writes. Cancel and pause are checked between subframes through a `RenderControl`.
+which is what FragM writes. Cancel and pause are checked between subframes through a `RenderControl`. Beyond FragM:
+a *region* of the frame (the region matrix composed with the tile matrix, `fragments/stereo.py`), stereo pairs (two
+eyes rendered and composited per frame), 360° panoramas (`EquiRectangular`), and tile ranges — only some tiles drawn,
+each kept as a `.npy` in a tile folder so another run (or machine) can render the rest and a final one assemble them.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from ... import config
 from ..animation import AnimationSettings, frame_values
 from ..document_format import IMAGE_KEY
 from ..render_settings import FragFinalSettings
+from ..stereo import compose, compose_projection, region_projection, stereo_values
 from .job import FragRequest
 from .passes import display, draw_subframe
 from .surfaces import Surface
@@ -45,6 +49,11 @@ class FrameImage:
     frame: int
     rgba: np.ndarray
     depth: np.ndarray | None = None
+    missing_tiles: list[int] = field(default_factory=list)      # tiles neither rendered nor found in the tile folder
+
+    @property
+    def complete(self) -> bool:
+        return not self.missing_tiles
 
 
 @dataclass
@@ -57,6 +66,10 @@ class FragFinalResult:
     frames_rendered: int = 0
     paths: list[Path] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    tile_seconds: list[tuple[int, int, float]] = field(default_factory=list)     # (frame, tile, seconds) per tile rendered
+    compile_ms: float = 0.0
+    renderer: str = ""
+    glsl_version: int = 0
 
 
 class FragFinalRenderer:
@@ -90,6 +103,7 @@ class FragFinalRenderer:
         self._steps_done = 0
         self._started = 0.0
         self._last_report = 0.0
+        self._tile_seconds: list[tuple[int, int, float]] = []
 
     # --- the loop ---------------------------------------------------------------------------------------------------------
     def run(self, progress: Callable[[FinalProgress], None] | None = None, frame_done: Callable[[FrameImage], None] | None = None
@@ -117,7 +131,9 @@ class FragFinalRenderer:
         width, height = self.settings.image_size
         if progress is not None:
             progress(self._progress(PHASE_DONE if complete else PHASE_CANCELLED, total_steps, 0, 0, None))
-        return FragFinalResult(complete, seconds, self._steps_done * width * height // max(1, self.settings.tile_count), self.engine.name, rendered)
+        return FragFinalResult(complete, seconds, self._steps_done * width * height // max(1, self.settings.tile_count), self.engine.name, rendered,
+                               tile_seconds=list(self._tile_seconds), compile_ms=program.compile_ms, renderer=self.engine.renderer,
+                               glsl_version=self.request.modern.version)
 
     def _values_for(self, frame: int) -> dict:
         """The frame's camera and eased values on top of the base state."""
@@ -126,16 +142,44 @@ class FragFinalRenderer:
         return frame_values(frame, self.state, self.path, self.curves, self.auto_focus, self.blend)
 
     def _render_frame(self, frame: int, request, program, buffer_program, total_steps: int, progress) -> FrameImage | None:
+        """One frame: every tile (or the tile range) for each eye, assembled; stereo eyes composited."""
+        s = self.settings
+        if s.panorama:
+            request.values["EquiRectangular"] = True
+        if s.eyes == 1:
+            return self._render_eye(frame, request, program, buffer_program, total_steps, progress, "")
+        left_values, right_values = stereo_values(request.values, s.eye_separation)
+        eyes = []
+        for tag, values in (("L", left_values), ("R", right_values)):
+            eye_request = request.copy()
+            eye_request.values.update(values)
+            image = self._render_eye(frame, eye_request, program, buffer_program, total_steps, progress, tag)
+            if image is None:
+                return None
+            eyes.append(image)
+        left, right = eyes
+        return FrameImage(frame, compose(s.stereo, left.rgba, right.rgba), left.depth, sorted(set(left.missing_tiles) | set(right.missing_tiles)))
+
+    def _render_eye(self, frame: int, request, program, buffer_program, total_steps: int, progress, eye: str) -> FrameImage | None:
         s = self.settings
         width, height = s.image_size
         inner_w, inner_h = s.inner_tile
         rgba = np.zeros((height, width, 4), dtype=np.float32)
         depth = np.zeros((height, width), dtype=np.float32) if s.depth_to_alpha else None
         time_value = self.animation.time_of(frame)
+        wanted = set(s.tile_indices())
+        missing = []
         for index in range(s.tile_count):
-            tile = self._render_tile(index, request, program, buffer_program, time_value, frame, total_steps, progress)
+            tile = self._load_tile(frame, index, eye) if s.tile_dir and (index not in wanted or s.resume) else None
+            if tile is None and index in wanted:
+                tile = self._render_tile(index, request, program, buffer_program, time_value, frame, total_steps, progress)
+                if tile is None:
+                    return None
+                if s.tile_dir:
+                    self._save_tile(frame, index, eye, tile)
             if tile is None:
-                return None
+                missing.append(index)
+                continue
             tile_rgba, tile_depth = tile
             x0 = (s.tile_width - inner_w) // 2
             y0 = (s.tile_height - inner_h) // 2
@@ -143,7 +187,34 @@ class FragFinalRenderer:
             rgba[dy * inner_h:(dy + 1) * inner_h, dx * inner_w:(dx + 1) * inner_w] = tile_rgba[y0:y0 + inner_h, x0:x0 + inner_w]
             if depth is not None and tile_depth is not None:
                 depth[dy * inner_h:(dy + 1) * inner_h, dx * inner_w:(dx + 1) * inner_w] = tile_depth[y0:y0 + inner_h, x0:x0 + inner_w]
-        return FrameImage(frame, rgba, depth)
+        return FrameImage(frame, rgba, depth, missing)
+
+    # --- tiles kept on disk (distributed / resumed renders) -------------------------------------------------------------------
+    def _tile_path(self, frame: int, index: int, eye: str) -> Path:
+        return Path(self.settings.tile_dir) / f"frame{frame:05d}{'_' + eye if eye else ''}_tile{index:04d}.npz"
+
+    def _load_tile(self, frame: int, index: int, eye: str):
+        path = self._tile_path(frame, index, eye)
+        if not path.is_file():
+            return None
+        try:
+            with np.load(path) as data:
+                rgba = data["rgba"]
+                depth = data["depth"] if "depth" in data.files else None
+            if rgba.shape[:2] != (self.settings.tile_height, self.settings.tile_width):
+                return None
+            return rgba, depth
+        except (OSError, ValueError, KeyError):
+            return None
+
+    def _save_tile(self, frame: int, index: int, eye: str, tile) -> None:
+        rgba, depth = tile
+        path = self._tile_path(frame, index, eye)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if depth is not None:
+            np.savez(path, rgba=rgba, depth=depth)
+        else:
+            np.savez(path, rgba=rgba)
 
     def _render_tile(self, index: int, request, program, buffer_program, time_value: float, frame: int, total_steps: int, progress):
         s = self.settings
@@ -151,8 +222,9 @@ class FragFinalRenderer:
         surface.apply_params(request.backbuffer_params)
         target_tex = self.engine.ctx.texture((s.tile_width, s.tile_height), 4, dtype="f4")
         target_fbo = self.engine.ctx.framebuffer([target_tex])
+        tile_started = time.perf_counter()
         try:
-            projection = tile_projection(index, s.tiles, s.padding)
+            projection = compose_projection(region_projection(s.region), tile_projection(index, s.tiles, s.padding))
             for _ in range(max(1, s.subframes)):
                 if not self.control.wait_if_paused() or self.control.cancelled():
                     return None
@@ -163,6 +235,7 @@ class FragFinalRenderer:
             data = target_fbo.read(components=4, dtype="f4")
             rgba = np.frombuffer(data, dtype=np.float32).reshape(s.tile_height, s.tile_width, 4)[::-1].copy()
             depth = surface.read_depth() if s.depth_to_alpha else None
+            self._tile_seconds.append((frame, index, time.perf_counter() - tile_started))
             return rgba, depth
         finally:
             target_fbo.release()

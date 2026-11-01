@@ -7,7 +7,9 @@ switch to scientific notation) for floats, one per component for vectors (unit d
 edited component), an int slider, a combo for menus, a check box, a colour swatch with the host's live colour
 picker, a slider + swatch for float colours, and a file combo with channel boxes for samplers. Widgets know nothing
 of GL or the document: they show a value and emit `value_edited(name, value, merge_key)` (a `merge_key` while a
-slider drags so the document makes one undo step), `lock_toggled`, `select_source` and `bounds_edited`.
+slider drags so the document makes one undo step), `lock_toggled`, `select_source` and `bounds_edited`. The arrow
+keys nudge a focused slider or spin box by a thousandth of the range — Shift makes it ten times as much, Ctrl a
+tenth (Page Up / Down: a hundredth of the range).
 """
 
 from __future__ import annotations
@@ -28,6 +30,28 @@ from ...widgets.silent import blocked
 
 SLIDER_STEPS = 100_000_000      # FragM's 1e8 slider resolution
 LABEL_WIDTH = 110
+NUDGE_KEYS = {Qt.Key.Key_Left: -1, Qt.Key.Key_Down: -1, Qt.Key.Key_Right: 1, Qt.Key.Key_Up: 1, Qt.Key.Key_PageDown: -10, Qt.Key.Key_PageUp: 10}
+
+
+def nudge_factor(modifiers) -> float:
+    """×10 with Shift, ×0.1 with Ctrl, else 1 (keyboard nudging of sliders and spin boxes)."""
+    if modifiers & Qt.KeyboardModifier.ShiftModifier:
+        return 10.0
+    if modifiers & Qt.KeyboardModifier.ControlModifier:
+        return 0.1
+    return 1.0
+
+
+class NudgeSlider(QSlider):
+    """A slider whose arrow keys step by a thousandth of the range, scaled by the modifiers (`nudge_factor`)."""
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        direction = NUDGE_KEYS.get(event.key())
+        if direction is None:
+            return super().keyPressEvent(event)
+        step = max(1, int(round(self.singleStep() * abs(direction) * nudge_factor(event.modifiers()))))
+        self.setValue(self.value() + step * (1 if direction > 0 else -1))
+        event.accept()
 
 
 class ExpSpinBox(QDoubleSpinBox):
@@ -56,6 +80,11 @@ class ExpSpinBox(QDoubleSpinBox):
         from PySide6.QtGui import QValidator
         return QValidator.State.Acceptable, text, pos
 
+    def stepBy(self, steps: int) -> None:  # noqa: N802 - Qt override
+        """Arrow keys: `singleStep` scaled by the modifiers (Shift ×10, Ctrl ×0.1)."""
+        from PySide6.QtGui import QGuiApplication
+        self.setValue(self.value() + steps * self.singleStep() * nudge_factor(QGuiApplication.keyboardModifiers()))
+
 
 class ComboSlider(QWidget):
     """A slider with a spin box, mapping `[minimum, maximum]` linearly or logarithmically onto the slider.
@@ -73,7 +102,7 @@ class ComboSlider(QWidget):
                  parent: QWidget | None = None):
         super().__init__(parent)
         self.minimum, self.maximum, self.logarithmic = float(minimum), float(maximum), logarithmic
-        self.slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.slider = NudgeSlider(Qt.Orientation.Horizontal, self)
         self.slider.setRange(0, SLIDER_STEPS)
         self.slider.setSingleStep(SLIDER_STEPS // 1000)
         self.slider.setPageStep(SLIDER_STEPS // 100)
@@ -88,6 +117,7 @@ class ComboSlider(QWidget):
         layout.addWidget(self.spinner)
         self._value = float(default)
         self.set_value(default)
+        self._refresh_step()
         self.slider.valueChanged.connect(self._on_slider)
         self.slider.sliderReleased.connect(lambda: self.value_changed.emit(self._value, True))
         self.spinner.valueChanged.connect(self._on_spinner)
@@ -131,17 +161,27 @@ class ComboSlider(QWidget):
     def set_bounds(self, minimum: float, maximum: float) -> None:
         self.minimum, self.maximum = float(minimum), float(maximum)
         self.set_value(self._value)
+        self._refresh_step()
+
+    def _refresh_step(self) -> None:
+        """The spin box's arrow-key step: a thousandth of the range (a hundredth of the value on a logarithmic slider)."""
+        step = abs(self._value) * 0.01 if self.logarithmic else abs(self.maximum - self.minimum) / 1000.0
+        self.spinner.setSingleStep(step if step > 0 else 0.001)
 
     def _on_slider(self, position: int) -> None:
         self._value = self._from_slider(position)
         with blocked(self.spinner):
             self.spinner.setValue(self._value)
+        if self.logarithmic:
+            self._refresh_step()
         self.value_changed.emit(self._value, not self.slider.isSliderDown())
 
     def _on_spinner(self, value: float) -> None:
         self._value = float(value)
         with blocked(self.slider):
             self.slider.setValue(self._to_slider(self._value))
+        if self.logarithmic:
+            self._refresh_step()
         self.value_changed.emit(self._value, True)
 
     def contextMenuEvent(self, event) -> None:  # noqa: D102 - Qt override
@@ -168,7 +208,7 @@ class VariableWidget(QWidget):
 
     Signals:
         value_edited(str, object, object): (name, value, merge_key or None).
-        row_action(str, str): (name, `reset` / `randomize` / `copy` / `paste`) from the row's context menu.
+        row_action(str, str): (name, `reset` / `randomize` / `copy` / `paste` / `pin` / `unpin`) from the row's context menu.
         lock_toggled(str, object): (name, the new `LockType`).
         select_source(str): *Select source* on one of its sliders.
         bounds_edited(str, int, int, float): (name, component 1-based, 1 = lower / 2 = upper, value).
@@ -184,6 +224,7 @@ class VariableWidget(QWidget):
         self.param = param
         self.name = param.name
         self._lock = param.lock
+        self.is_pinned = lambda: False           # the panel tells the row menu whether it sits in the Favourites group
         self.lock_button = QToolButton(self)
         self.lock_button.setCheckable(True)
         self.lock_button.setAutoRaise(True)
@@ -207,6 +248,9 @@ class VariableWidget(QWidget):
         menu = QMenu(self)
         actions = {menu.addAction("Reset to default"): "reset", menu.addAction("Randomize"): "randomize", menu.addAction("Copy value"): "copy",
                    menu.addAction("Paste value"): "paste"}
+        menu.addSeparator()
+        pinned = self.is_pinned()
+        actions[menu.addAction("Unpin from Favourites" if pinned else "Pin to Favourites")] = "unpin" if pinned else "pin"
         choice = actions.get(menu.exec(event.globalPos()))
         if choice:
             self.row_action.emit(self.name, choice)
@@ -322,8 +366,9 @@ class IntWidget(VariableWidget):
 
     def __init__(self, param: IntParameter, parent: QWidget | None = None):
         super().__init__(param, parent)
-        self.slider = QSlider(Qt.Orientation.Horizontal, self.editor)
+        self.slider = NudgeSlider(Qt.Orientation.Horizontal, self.editor)
         self.slider.setRange(min(param.from_, param.to), max(param.from_, param.to))
+        self.slider.setSingleStep(1)
         self.spinner = QDoubleSpinBox(self.editor)
         self.spinner.setDecimals(0)
         self.spinner.setRange(-1e9, 1e9)

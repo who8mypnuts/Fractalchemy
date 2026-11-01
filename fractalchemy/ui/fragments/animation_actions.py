@@ -83,7 +83,10 @@ class AnimationCoordinator:
         self.w.anim.set_keyframe_ticks(len(path.keyframes) if path is not None else 0)
         self.w.viewport.set_path(path)
         if self._timeline is not None and document is not None:
-            self._timeline.show_animation(path.keyframes if path else [], document.easing, document.animation, self.w.anim.frame, document.current_preset)
+            from .graph_editor import keyframe_tracks
+            tracks = keyframe_tracks(document.source.presets, document.state.params, document.animation.frames) if document.source is not None else {}
+            self._timeline.show_animation(path.keyframes if path else [], document.easing, document.animation, self.w.anim.frame,
+                                          document.current_preset, tracks)
 
     def add_easing_curve(self, slider: str | None = None) -> None:
         """F7: the easing dialog for the last edited slider (or `slider`)."""
@@ -109,6 +112,7 @@ class AnimationCoordinator:
             self._timeline.keyframe_chosen.connect(self._on_timeline_keyframe)
             self._timeline.edit_curve.connect(self.add_easing_curve)
             self._timeline.remove_curve.connect(self._remove_curve)
+            self._timeline.curve_changed.connect(self._curve_dragged)
         self.refresh(self.w.tabs.document)
         self._timeline.show()
         self._timeline.raise_()
@@ -118,6 +122,14 @@ class AnimationCoordinator:
         if document is not None:
             document.apply_preset(name)
             self.w.parameters.rebuild()
+
+    def _curve_dragged(self, curve) -> None:
+        """A handle moved in the graph editor: the curve is replaced and the frame re-applied."""
+        document = self.w.tabs.document
+        if document is not None:
+            document.set_easing(curve)
+            document.apply_frame(self.w.anim.frame)
+            self.w.message(f"{curve.slider}: frames {curve.first_frame}–{curve.last_frame}, {curve.start:g} → {curve.end:g}")
 
     def _remove_curve(self, slider: str) -> None:
         if self.w.tabs.document is not None:

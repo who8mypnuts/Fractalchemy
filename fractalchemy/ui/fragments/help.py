@@ -27,6 +27,8 @@ heavy fragments should stay clear of it. Hi-res renders are tiled by constructio
 <p>(4) Fragmentarium and FragM <code>.frag</code> files open unchanged; the bundled library (<i>Library ▸ Examples</i>)
 is FragM's. Files saved as <code>.fafrag</code> carry Fractalchemy's render and animation settings in a comment
 FragM ignores.</p>
+<p>(5) New to distance estimators? <i>Library ▸ Examples ▸ Fractalchemy Tutorials</i> holds four fragments that explain
+themselves step by step; open the <i>Walkthrough</i> dock (<i>Windows</i> menu) to jump between the steps.</p>
 <p>See <i>Help ▸ Fragment language and guide</i> for the directives, the annotations and every control.</p>"""
 
 LINKS = (("FragM on GitHub (3Dickulus)", "https://github.com/3Dickulus/FragM"),

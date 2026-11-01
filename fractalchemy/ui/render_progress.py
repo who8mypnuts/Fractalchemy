@@ -133,7 +133,7 @@ class RenderProgressPanel(QWidget):
         if outcome.path is not None:
             p = outcome.path
             line += f"<br>Saved {self.file_link(p)} in {self.file_link(p.parent, str(p.parent))}"
-            extras = [x for x in (outcome.sidecar, outcome.report) if x is not None]
+            extras = [x for x in (outcome.sidecar, outcome.report, getattr(outcome, "details", None)) if x is not None]
             if extras:
                 line += " (+ " + ", ".join(self.file_link(x) for x in extras) + ")"
         elif not r.complete:

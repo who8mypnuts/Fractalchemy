@@ -5,20 +5,26 @@ The highlighter knows GLSL's keywords, types, built-in functions and variables, 
 `checkbox[…]`, `menu[…]`, `file[…]` and the lock words) in their own colour, strings, numbers and both comment
 styles; `#preset` blocks are dimmed so the code stands out. Completion (Tab / Ctrl+Space, or by itself after two
 letters) offers GLSL's built-ins, the directives, the special uniforms and every identifier the document already
-uses. Enter after `{` indents; `}` on a blank indented line outdents; Ctrl+/ comments with `//`.
+uses. Enter after `{` indents; `}` on a blank indented line outdents; Ctrl+/ comments with `//`. On top of that
+(`editor_tools.py`): the build's remarks are wavy underlines with the message on hover; hovering a name shows its
+signature (GLSL built-ins, the fragment's own functions); Ctrl+click goes to a definition (`definition_requested`
+when it is not in this text); snippets carry `${1:stops}` that Tab walks through; Ctrl+Shift+D selects the next
+occurrence of the word as one more cursor (Ctrl+Shift+L all of them) so typing edits every occurrence; Esc ends both.
 """
 
 from __future__ import annotations
 
 import re
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument
-from PySide6.QtWidgets import QTextEdit, QWidget
+from PySide6.QtWidgets import QTextEdit, QToolTip, QWidget
 
 from ...fragments import glsl_keywords as K
+from ...fragments.definitions import find_definition
 from ...scripting.completion import Completion, Item
 from ...widgets.base_code_editor import INDENT, BaseCodeEditor
+from .editor_tools import DiagnosticMarks, MultiSelection, SnippetSession, word_at
 
 COLORS = {"keyword": "#7b2fa0", "type": "#1565c0", "function": "#3b5f9e", "builtin": "#8d5a00", "string": "#2e7d32",
           "comment": "#8a8a8a", "number": "#c45200", "preprocessor": "#4a7a48", "annotation": "#b5541c", "preset": "#9a9a9a",
@@ -168,9 +174,11 @@ class GlslCodeEditor(BaseCodeEditor):
 
     Signals:
         zoom_requested(int): Ctrl + wheel / Ctrl + plus / minus / 0 — +1, −1, or 0 to reset the font size.
+        definition_requested(str): Ctrl+click on a name this text does not define (the window searches the includes).
     """
     comment_prefix = "//"
     zoom_requested = Signal(int)
+    definition_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -179,6 +187,112 @@ class GlslCodeEditor(BaseCodeEditor):
         self.completer = lambda text, pos, explicit: complete(text, pos, explicit)
         self.cursorPositionChanged.connect(self._match_brackets)
         self._bracket_selections: list = []
+        self.diagnostics = DiagnosticMarks(self)
+        self.multi = MultiSelection(self)
+        self._snippet: SnippetSession | None = None
+        self.setMouseTracking(True)
+
+    # --- diagnostics, hover, go to definition ----------------------------------------------------------------------------
+    def set_diagnostics(self, items: list[tuple[int, str, str]]) -> None:
+        """`(line, severity, message)` marks (wavy underlines); an empty list clears them."""
+        self.diagnostics.set(items)
+        self._highlight_lines()
+
+    def set_text(self, text: str) -> None:
+        self.diagnostics.clear()
+        self.multi.clear()
+        self._snippet = None
+        super().set_text(text)
+
+    def event(self, event) -> bool:  # noqa: N802 - Qt override
+        if event.type() == QEvent.Type.ShortcutOverride and event.key() == Qt.Key.Key_Escape and (self.multi.active or self._snippet is not None or self.popup.isVisible()):
+            event.accept()                       # keep Esc for the editor (the window's Esc toggles fullscreen)
+            return True
+        if event.type() == QEvent.Type.ToolTip:
+            text = self.hover_text(event.pos())
+            if text:
+                QToolTip.showText(event.globalPos(), text, self)
+            else:
+                QToolTip.hideText()
+            return True
+        return super().event(event)
+
+    def hover_text(self, pos) -> str:
+        """The diagnostic on the line under `pos`, else the signature of the name there (empty: nothing to say)."""
+        cursor = self.cursorForPosition(pos)
+        message = self.diagnostics.message_at(cursor.blockNumber() + 1)
+        if message:
+            return message
+        word = word_at(self, cursor.position())
+        if not word:
+            return ""
+        doc = K.DOCS.get(word)
+        if doc is not None:
+            return f"<b>{doc[0]}</b><br>{doc[1]}" if doc[1] else f"<b>{doc[0]}</b>"
+        found = find_definition(self.toPlainText(), word)
+        return f"<b>{found.signature}</b><br>{found.kind}, line {found.line}" if found is not None else ""
+
+    def goto_definition(self, word: str) -> bool:
+        """Jump to where `word` is defined in this text; False (and `definition_requested`) when it is not here."""
+        found = find_definition(self.toPlainText(), word)
+        if found is None:
+            self.definition_requested.emit(word)
+            return False
+        self.goto_line(found.line)
+        return True
+
+    # --- snippets with tab-stops -------------------------------------------------------------------------------------------
+    def insert_template(self, template: str) -> None:
+        """Insert a snippet; `${1:name}` / `$2` / `$0` become stops Tab walks through (a plain text inserts as is)."""
+        text, stops = SnippetSession.expand(template)
+        cursor = self.textCursor()
+        base = cursor.selectionStart()
+        cursor.insertText(text)
+        self._snippet = SnippetSession(self, base, stops) if stops else None
+        if self._snippet is not None and not self._snippet.next():
+            self._snippet = None
+
+    def _snippet_next(self) -> bool:
+        if self._snippet is None:
+            return False
+        if not self._snippet.next():
+            self._snippet = None
+        return True
+
+    # --- multi-selection ------------------------------------------------------------------------------------------------------
+    def select_next_occurrence(self) -> None:
+        """Ctrl+Shift+D: one more cursor on the next occurrence of the selection / word."""
+        if self.multi.add_next_occurrence():
+            self.status.emit(f"{self.multi.count} selections — type to edit them all, Esc to leave")
+        else:
+            self.status.emit("No further occurrence")
+        self._highlight_lines()
+
+    def select_all_occurrences(self) -> None:
+        count = self.multi.add_all_occurrences()
+        self.status.emit(f"{count} selections — type to edit them all, Esc to leave")
+        self._highlight_lines()
+
+    def _multi_key(self, event: QKeyEvent) -> bool:
+        """While extra cursors exist: printable text, Backspace and Delete apply to all; anything else ends the mode."""
+        if not self.multi.active:
+            return False
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self.multi.clear()
+        elif key == Qt.Key.Key_Backspace:
+            self.multi.delete(backwards=True)
+        elif key == Qt.Key.Key_Delete:
+            self.multi.delete(backwards=False)
+        elif event.text() and event.text().isprintable() and not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.multi.type_text(event.text())
+        elif key in (Qt.Key.Key_Shift, Qt.Key.Key_Control, Qt.Key.Key_Alt, Qt.Key.Key_Meta):
+            return True
+        else:
+            self.multi.clear()
+            return False
+        self._highlight_lines()
+        return True
 
     def indent_after(self, line: str) -> bool:
         return line.rstrip().endswith("{")
@@ -187,12 +301,38 @@ class GlslCodeEditor(BaseCodeEditor):
         return len(prefix) >= 2 and not before.rstrip().endswith(("//",))
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        ctrl, shift = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier), bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        if ctrl and shift and event.key() == Qt.Key.Key_D:
+            self.select_next_occurrence()
+            return
+        if ctrl and shift and event.key() == Qt.Key.Key_L:
+            self.select_all_occurrences()
+            return
+        if self._multi_key(event):
+            return
+        if event.key() == Qt.Key.Key_Tab and not ctrl and not self.popup.isVisible() and self._snippet_next():
+            return
+        if event.key() == Qt.Key.Key_Escape and self._snippet is not None:
+            self._snippet = None
+            return
         if event.text() == "}" and self._close_brace():
             return
-        if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus, Qt.Key.Key_0):
+        if ctrl and event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus, Qt.Key.Key_0):
             self.zoom_requested.emit(0 if event.key() == Qt.Key.Key_0 else -1 if event.key() == Qt.Key.Key_Minus else 1)
             return
         super().keyPressEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """Ctrl+click: go to the definition of the name under the cursor."""
+        if event.button() == Qt.MouseButton.LeftButton and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            word = word_at(self, self.cursorForPosition(event.position().toPoint()).position())
+            if word:
+                self.goto_definition(word)
+                event.accept()
+                return
+        if self.multi.active:
+            self.multi.clear()
+        super().mousePressEvent(event)
 
     def wheelEvent(self, event) -> None:  # noqa: N802 - Qt override
         """Ctrl + wheel zooms the font (every tab follows through the window)."""
@@ -258,9 +398,11 @@ class GlslCodeEditor(BaseCodeEditor):
 
     def _highlight_lines(self) -> None:
         super()._highlight_lines()
-        brackets = getattr(self, "_bracket_selections", [])      # the base class highlights during its own __init__
-        if brackets:
-            self.setExtraSelections(list(self.extraSelections()) + brackets)
+        extra = list(getattr(self, "_bracket_selections", []))      # the base class highlights during its own __init__
+        if hasattr(self, "diagnostics"):
+            extra += self.diagnostics.selections() + self.multi.selections()
+        if extra:
+            self.setExtraSelections(list(self.extraSelections()) + extra)
 
     # --- FragM's indenter -------------------------------------------------------------------------------------------------
     def indent_script(self) -> None:

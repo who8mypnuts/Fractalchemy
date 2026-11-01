@@ -74,8 +74,20 @@ class CameraActions:
         if self.menu is None:
             return
         self.menu.clear()
-        self.menu.addAction(self.w.actions.add_bookmark)
-        self.menu.addAction(self.w.actions.reset_camera)
+        a = self.w.actions
+        style = self.menu.addMenu("Navigation style")
+        style.addAction(a.nav_orbit)
+        style.addAction(a.nav_fragm)
+        views = self.menu.addMenu("View from")
+        for action in a.views.values():
+            views.addAction(action)
+        views.addSeparator()
+        views.addAction(a.flip_view)
+        views.addAction(a.frame_origin)
+        self.menu.addAction(a.turntable)
+        self.menu.addSeparator()
+        self.menu.addAction(a.add_bookmark)
+        self.menu.addAction(a.reset_camera)
         entries = self.bookmarks()
         if entries:
             self.menu.addSeparator()
@@ -86,6 +98,21 @@ class CameraActions:
                 remove.addAction(bookmark["name"], lambda n=bookmark["name"]: self.remove(n))
         self.menu.addSeparator()
         self.menu.addAction(self.w.actions.record_path)
+
+    # --- keyframe handles ----------------------------------------------------------------------------------------------------
+    def move_keyframe(self, name: str, eye: tuple) -> None:
+        """A keyframe handle was dropped in the viewport: rewrite the preset's `Eye` line and rebuild (the program is unchanged)."""
+        document = self.w.tabs.document
+        if document is None or document.source is None or name not in document.source.presets:
+            return
+        body = document.source.presets[name]
+        line = "Eye = " + ",".join(f"{v:.10g}" for v in eye)
+        lines = [line if ln.split("=")[0].strip() == "Eye" else ln for ln in body.splitlines()]
+        if line not in lines:
+            lines.append(line)
+        self.w.replace_text(presets.replace_preset(document.text, name, "\n".join(lines)))
+        self.w.build_document(document)
+        self.w.message(f"{name}: Eye moved to {eye[0]:.4g}, {eye[1]:.4g}, {eye[2]:.4g}")
 
     # --- recording -------------------------------------------------------------------------------------------------------
     @property

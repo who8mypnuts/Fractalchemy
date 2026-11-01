@@ -372,6 +372,23 @@ SNIPPETS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Snippets with tab-stops (`${1:placeholder}`, `$2`, `$0` = the final cursor): the menu shows the label, Tab walks the stops.
+CODE_SNIPPETS: dict[str, str] = {
+    "Distance estimator: float DE(vec3 p)": "float DE(vec3 ${1:p}) {\n\t${2:return length(p) - 1.0;}\n}\n$0",
+    "Colour function: vec3 color(vec3 p)": "#define providesColor\nvec3 color(vec3 ${1:p}) {\n\treturn ${2:vec3(0.5) + 0.5 * sin(p * 3.0)};\n}\n$0",
+    "Iteration loop with bailout": "for (int ${1:i} = 0; $1 < ${2:Iterations}; $1++) {\n\t$0\n\tif (dot(${3:z}, $3) > ${4:Bailout}) break;\n}\n",
+    "Float slider uniform": "uniform float ${1:Name}; slider[${2:0.0},${3:1.0},${4:2.0}]\n$0",
+    "Vector slider uniform": "uniform vec3 ${1:Name}; slider[(${2:-1},-1,-1),(${3:0},0,0),(${4:1},1,1)]\n$0",
+    "Colour uniform": "uniform vec3 ${1:Name}; color[${2:1.0},${3:0.5},${4:0.2}]\n$0",
+    "Checkbox uniform": "uniform bool ${1:Name}; checkbox[${2:true}]\n$0",
+    "Integer slider uniform": "uniform int ${1:Iterations}; slider[${2:1},${3:10},${4:100}]\n$0",
+    "Parameter group": "#group ${1:Group name}\n$0",
+    "Preset block": "#preset ${1:Name}\n$0\n#endpreset\n",
+    "Box fold": "${1:z} = clamp($1, -${2:FoldLimit}, $2) * 2.0 - $1;\n$0",
+    "Sphere fold": "float r2 = dot(${1:z}, $1);\nif (r2 < ${2:MinRadius2}) { $1 *= ${3:FixedRadius2} / $2; ${4:dr} *= $3 / $2; }\nelse if (r2 < $3) { $1 *= $3 / r2; $4 *= $3 / r2; }\n$0",
+    "Rotation matrix (axis, angle)": "mat3 ${1:rot} = rotationMatrix3(normalize(${2:vec3(0.0, 1.0, 0.0)}), ${3:Angle});\n$0",
+}
+
 
 def template_named(name: str) -> Template | None:
     for template in BUILTIN_TEMPLATES:
@@ -410,5 +427,5 @@ def save_user_template(name: str, text: str, folder: Path | None = None) -> Path
     return path
 
 
-__all__ = ["NEW_2D", "NEW_3D", "PRIMITIVES", "Template", "BUILTIN_TEMPLATES", "SNIPPETS", "template_named", "user_templates", "user_templates_dir",
+__all__ = ["NEW_2D", "NEW_3D", "PRIMITIVES", "Template", "BUILTIN_TEMPLATES", "SNIPPETS", "CODE_SNIPPETS", "template_named", "user_templates", "user_templates_dir",
            "save_user_template"]

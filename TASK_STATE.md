@@ -509,3 +509,41 @@ from FragM*). User guide + language reference: `docs/fragments.md`; README secti
   (`viewport_menu_requested` on a right-click without drag), *Copy image*, *Reset camera*, tab context menu + middle-click
   close, `Ctrl+E` editor pane, editor font zoom (`GlslCodeEditor.zoom_requested`), status-bar accumulation progress, log
   warning de-duplication. Inventory: 221 examples.
+* Round 10d (the 21 suggestions + 4 items): **layout** — `parameter_groups.py` (collapsible sections / FragM tabs, the ⊞
+  button, preference `parameter_layout`), the Grading page inside the Parameters dock; **navigation** — orbit style
+  (`Camera3D.orbit / pan_screen / dolly_target / view_from / turned_about_target`, `FragViewport.navigation`, numpad views,
+  turntable, the Navigation toolbar, Camera ▸ Navigation style / View from, preference `navigation`); **reports** —
+  `fragments/report.py` on the host's `render/report` package (`FragFinalSettings.report / report_format`, tile timings);
+  **fractals** — Apollonian gasket, Indra's Pearls, Kleinian limit set, Dragon curves, Dragon ribbon, `Examples/Fractalchemy
+  Tutorials/` 01–04 (`// STEP n:` comments); **editor** — `editor_tools.py` (`DiagnosticMarks` wavy underlines + hover,
+  `SnippetSession` tab-stops, `MultiSelection` Ctrl+Shift+D / L), `fragments/definitions.py` (go to definition, Ctrl+click,
+  into the includes via `goto_include_definition`), hover signatures, `CODE_SNIPPETS`, Esc kept from the fullscreen shortcut
+  while a snippet / multi-selection / popup is active; `diff_dialog.py` + `file_actions.origin_path` (metadata `tabs.origin`);
+  `walkthrough_panel.py` (steps + outline dock); **parameters** — favourites (`FAVOURITES_GROUP`, metadata `tabs.favourites`,
+  row menu pin / unpin), `NudgeSlider` / `ExpSpinBox.stepBy` (Shift ×10, Ctrl ×0.1), `GuiParameter.mutated_value` +
+  `ParameterPanel.mutate`, `history_strip.py` + `explore.py` (History dock: snapshots, auto, mutate, randomize),
+  `preset_gallery.py`; **viewport** — `viewport_overlays.py` (`MiniMap`, `CompareWipe`, `RegionSelect`, `KeyframeHandles`),
+  `region_selected` / `keyframe_moved` signals, `CameraActions.move_keyframe`; **rendering** — `fragments/stereo.py`
+  (stereo eye shift, anaglyph / side-by-side compositing, region and tile matrices), `FragFinalSettings.region / stereo /
+  eye_separation / panorama / tile_range / tile_dir / resume`, `FragFinalRenderer._render_eye` + tile `.npz` files,
+  `FrameImage.missing_tiles`, the View panel, `TilesPanel.set_region`, `render_queue.py` (`RenderQueueWindow`,
+  `FragRenderWindow.make_input`), `render_actions.py` (the Render menu's commands moved out of the window), CLI `--region --stereo --eye-separation --panorama --tile-range --tile-dir --resume
+  --assemble`; **post stack** — `Grading.bloom / bloom_threshold / bloom_radius / aberration / grain / lut / lut_strength`,
+  `fragments/lut.py` (`.cube` 3D / 1D), `GradingStage` bright + blur passes, 3D LUT texture, `take_notes`; **animation** —
+  `graph_editor.py` (`GraphCanvas` with draggable curve handles, keyframe tracks) as the timeline's Graph tab,
+  `TimelineWindow.curve_changed`; **mesh** — `DEMeshSettings.normals = gradient` (`gradient_normals`), `DEExportSettings.texture
+  / uv_mode / texture_size / blender_script` (`bake_texture`, `fragments/blender_script.py`); **export DE** —
+  `fragments/export_de.py` (closure of `DE` + `init`, baked constants, GLSL / Shadertoy / Unity / Unreal with a mechanical
+  HLSL translation and notes), `export_de_dialog.py`; **library** — `fragments/library_meta.py` (tags, ratings, favourites
+  in `<cache>/fragments/library_meta.json`, a regex index, search words, captions), `library_extras.py` (context menu,
+  Show filter, thumbnail sizes, indexing on `root_scanned`), host `LibraryModel.set_search_text / set_caption`
+  (`CAPTION_ROLE`), `FragThumbnailProvider.set_size`; **sessions** — `fragments/session.py` (`Session`, `SessionTab`,
+  `AutosaveStore`), `session_actions.py` (save / open / autosave every `autosave_minutes` / *Recover last session*,
+  announced in the log, never a start-up dialog), `FragDocument.mark_modified`. Shortcuts moved: record path
+  `Ctrl+Shift+P`, queue `Ctrl+Shift+Q`, mutate `Shift+F6`, snapshot `Ctrl+F6`. Tests: `test_fragments_extras.py`
+  (Qt-free) and `test_fragments_ui_extras.py` (Qt); the window test's drag assertion follows the orbit default.
+  **controllers** — `fragments/controllers.py` (joystick `struct js_event` and raw MIDI parsers, `ControlMapping` /
+  `Binding` / `apply_control`), `controller_input.py` (`DeviceReader` thread on Linux device files, `ControllerCoordinator`
+  with learn mode and a 30 Hz apply tick, `ControllerDialog`; metadata `tabs.controllers`). Inventory: 230 examples (223
+  compile). Not done: the shared-context GL blit (as before); controllers are Linux device files only (no MIDI / HID
+  library in the environment — `DeviceReader` is the place to add a `mido` / `hid` backend).

@@ -23,6 +23,7 @@ from ..animation import AnimationSettings, camera_path, keyframe_blend
 from ..document_format import PARAMS_SUFFIX, write_fragment, write_parameters
 from ..easing import EasingSetting
 from ..render_settings import FragFinalSettings, safe_stem
+from ..report import build_fragment_report, write_fragment_report
 from ..source import FragmentSource
 from ..state import ParameterState
 from .engine import FragEngine
@@ -50,6 +51,7 @@ class FragOutcome:
     notes: list[str] = field(default_factory=list)
     frames: list[Path] = field(default_factory=list)
     video: Path | None = None
+    details: Path | None = None
 
 
 @dataclass
@@ -66,6 +68,8 @@ class FragRenderInput:
         curves: The easing curves.
         settings: The plan.
         settings_text: The parameters as settings text (embedded in the image, written beside it).
+        path: The fragment's file (None when unsaved) — for the report.
+        preset: The preset in effect — for the report.
     """
     request: FragRequest
     state: ParameterState
@@ -76,6 +80,8 @@ class FragRenderInput:
     curves: list[EasingSetting]
     settings: FragFinalSettings
     settings_text: str
+    path: Path | None = None
+    preset: str = ""
 
 
 class FragRenderJob(QThread):
@@ -143,7 +149,22 @@ class FragRenderJob(QThread):
             outcome.sidecar = self._written[0].with_suffix(PARAMS_SUFFIX)
         if i.settings.save_fragment and not i.settings.preview:
             outcome.report = self._fragment_path()
+        if i.settings.report and not i.settings.preview and self._written:
+            self._write_report(outcome)
         self.succeeded.emit(outcome)
+
+    def _write_report(self, outcome: FragOutcome) -> None:
+        """The render details beside the (first) image."""
+        i = self.inputs
+        try:
+            report = build_fragment_report(i.name, i.path, i.settings, outcome.result, i.settings_text, self._written[0],
+                                           list(i.source.dependencies) if hasattr(i.source, "dependencies") else [], i.preset, i.animation,
+                                           self._written if len(self._written) > 1 else [])
+            outcome.details = write_fragment_report(report, self._written[0], i.settings.report_format)
+            self._notes.append(f"render details written to {outcome.details.name}")
+        except OSError as exc:
+            self._notes.append(f"could not write the report: {exc}")
+        outcome.notes = list(self._notes)
 
     def _report(self, progress: FinalProgress) -> None:
         self._last_progress = progress
@@ -162,6 +183,10 @@ class FragRenderJob(QThread):
             self.last_frame = image
             return
         if not i.settings.save_incomplete and self.control.cancelled():
+            return
+        if image.missing_tiles:
+            self._notes.append(f"frame {image.frame}: tiles {image.missing_tiles[0]}–{image.missing_tiles[-1]} were not rendered "
+                               f"(tile range); the tiles drawn are in {i.settings.tile_dir or 'no tile folder'}")
             return
         path = i.settings.frame_path(image.frame, i.animation.frames)
         if i.settings.unique_name:

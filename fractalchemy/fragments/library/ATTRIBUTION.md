@@ -37,3 +37,11 @@ thanks to Knighty and Kali.
   kamoshika, yonatan, Kali, Nameless, Jos Leys & Knighty via tdhooper, Lewpen, butadiene, michael0884, mrange —
   CC BY-NC-SA 3.0 unless the header says otherwise; `iq - Apollonian.frag` is Inigo Quilez's, MIT), each wrapped in
   a `DE-Raytracer.frag` fragment with sliders and a preset. The formulas are the authors'; the parameterisation is ours.
+* `Examples/Fractalchemy Collection/` — fragments written for Fractalchemy (the formulas are classical: Nova, Magnet,
+  Phoenix, the Buddhabrot, Koch curves, the Dragon curves, the Apollonian gasket, the Mandelbulb family, the
+  Jerusalem cube, the Mosely snowflake …). `2D - Kleinian Limit Set.frag` follows Jos Leys and Knighty's Maskit-slice
+  construction (translate, fold, invert) in two dimensions; `2D - Indra's Pearls.frag` is after Mumford, Series &
+  Wright's *Indra's Pearls*. The parameterisation and the code are ours.
+* `Examples/Fractalchemy Tutorials/` — four fragments written for Fractalchemy that explain themselves in `// STEP n:`
+  comments (the Walkthrough dock lists them): a first distance estimator, folds, colouring and orbit traps, animation
+  and rendering.

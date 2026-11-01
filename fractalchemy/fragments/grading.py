@@ -2,9 +2,11 @@
 
 FragM leaves tone mapping to each fragment's buffer shader (the *Post* group). This is the grading a viewer expects
 on top of that: exposure, gamma, contrast, saturation, a hue shift, a vignette, a tone-mapping operator and an
-invert, applied to the displayed image (and to hi-res renders) by `gl/grading.py`. The settings live in the
-`.fafrag` metadata, cost one cheap full-screen pass, and changing them only re-runs the display pass — the
-accumulation is untouched. `is_identity` lets the engine skip the stage entirely.
+invert, plus a small post stack — bloom (a bright pass blurred and added back), chromatic aberration (the channels
+sampled at slightly different radii), film grain, and a `.cube` colour LUT — applied to the displayed image (and to
+hi-res renders) by `gl/grading.py`. The settings live in the `.fafrag` metadata, cost one or a few cheap full-screen
+passes, and changing them only re-runs the display pass — the accumulation is untouched. `is_identity` lets the
+engine skip the stage entirely.
 """
 
 from __future__ import annotations
@@ -27,6 +29,13 @@ class Grading:
         vignette: Darkening towards the corners (0 = none, 1 = black corners).
         tonemap: `none`, `reinhard`, `filmic` (Hable) or `aces`.
         invert: Negative image.
+        bloom: Strength of the glow added around bright parts (0 = none).
+        bloom_threshold: Brightness above which a pixel glows.
+        bloom_radius: Blur radius of the glow in pixels (at half resolution).
+        aberration: Chromatic aberration: how far the red / blue channels drift towards the edges (0 = none).
+        grain: Film grain amount (0 = none).
+        lut: Path of a `.cube` LUT ("" = none).
+        lut_strength: How much of the LUT's look is applied (1 = fully).
     """
     exposure: float = 0.0
     gamma: float = 1.0
@@ -36,6 +45,13 @@ class Grading:
     vignette: float = 0.0
     tonemap: str = "none"
     invert: bool = False
+    bloom: float = 0.0
+    bloom_threshold: float = 0.8
+    bloom_radius: float = 12.0
+    aberration: float = 0.0
+    grain: float = 0.0
+    lut: str = ""
+    lut_strength: float = 1.0
 
     @property
     def is_identity(self) -> bool:
@@ -61,27 +77,80 @@ class Grading:
         grading = cls(**values)
         return grading if grading.tonemap in TONEMAPS else grading.with_(tonemap="none")
 
+    @property
+    def has_bloom(self) -> bool:
+        return self.bloom > 0.0
+
+    @property
+    def has_lut(self) -> bool:
+        return bool(self.lut) and self.lut_strength > 0.0
+
     def uniforms(self) -> dict:
-        """Name → value for the grading program (`gl/grading.py`)."""
+        """Name → value for the grading program (`gl/grading.py`; the samplers and `u_lut_size` are the stage's)."""
         return {"u_exposure": 2.0 ** float(self.exposure), "u_gamma": max(0.05, float(self.gamma)), "u_contrast": float(self.contrast),
                 "u_saturation": float(self.saturation), "u_hue": float(self.hue) * 3.14159265 / 180.0, "u_vignette": float(self.vignette),
-                "u_tonemap": TONEMAPS.index(self.tonemap), "u_invert": 1 if self.invert else 0}
+                "u_tonemap": TONEMAPS.index(self.tonemap), "u_invert": 1 if self.invert else 0, "u_bloom": float(self.bloom),
+                "u_aberration": float(self.aberration) * 0.02, "u_grain": float(self.grain) * 0.25,
+                "u_lut_strength": float(self.lut_strength) if self.has_lut else 0.0}
 
 
 def _cast(name: str, value):
     if name == "invert":
         return value in (True, "true", "True", 1, "1")
-    if name == "tonemap":
+    if name in ("tonemap", "lut"):
         return str(value)
     return float(value)
 
 
+BRIGHT_FRAGMENT = """#version 330 core
+in vec2 v_uv;
+uniform sampler2D frontbuffer;
+uniform float u_threshold;
+out vec4 fragColor;
+void main() {
+    vec3 c = max(texture(frontbuffer, v_uv).rgb, 0.0);
+    float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    fragColor = vec4(c * smoothstep(u_threshold, u_threshold + 0.5, luma), 1.0);
+}
+"""
+
+BLUR_FRAGMENT = """#version 330 core
+in vec2 v_uv;
+uniform sampler2D frontbuffer;
+uniform vec2 u_step;            // one texel along the blur direction
+uniform float u_radius;         // in texels (the Gaussian's sigma is a third of it)
+out vec4 fragColor;
+void main() {
+    float sigma = max(0.5, u_radius / 3.0);
+    int taps = int(min(32.0, ceil(u_radius)));
+    vec3 sum = texture(frontbuffer, v_uv).rgb;
+    float weight = 1.0;
+    for (int i = 1; i <= 32; i++) {
+        if (i > taps) break;
+        float w = exp(-float(i * i) / (2.0 * sigma * sigma));
+        vec2 o = u_step * float(i);
+        sum += (texture(frontbuffer, v_uv + o).rgb + texture(frontbuffer, v_uv - o).rgb) * w;
+        weight += 2.0 * w;
+    }
+    fragColor = vec4(sum / weight, 1.0);
+}
+"""
+
 GRADING_FRAGMENT = """#version 330 core
 in vec2 v_uv;
 uniform sampler2D frontbuffer;
-uniform float u_exposure, u_gamma, u_contrast, u_saturation, u_hue, u_vignette;
+uniform sampler2D bloomTex;
+uniform sampler3D lutTex;
+uniform float u_exposure, u_gamma, u_contrast, u_saturation, u_hue, u_vignette, u_bloom, u_aberration, u_grain, u_lut_strength, u_lut_size;
 uniform int u_tonemap, u_invert;
 out vec4 fragColor;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+vec4 fetch(vec2 uv) {
+    if (u_aberration <= 0.0) return texture(frontbuffer, uv);
+    vec2 d = (uv - 0.5) * u_aberration;
+    return vec4(texture(frontbuffer, uv - d).r, texture(frontbuffer, uv).g, texture(frontbuffer, uv + d).b, texture(frontbuffer, uv).a);
+}
 
 vec3 hable(vec3 x) {
     const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
@@ -95,8 +164,10 @@ vec3 hueShift(vec3 c, float a) {
 }
 
 void main() {
-    vec4 src = texture(frontbuffer, v_uv);
-    vec3 c = max(src.rgb, 0.0) * u_exposure;
+    vec4 src = fetch(v_uv);
+    vec3 c = max(src.rgb, 0.0);
+    if (u_bloom > 0.0) c += texture(bloomTex, v_uv).rgb * u_bloom;
+    c *= u_exposure;
     if (u_tonemap == 1) c = c / (1.0 + c);
     else if (u_tonemap == 2) c = hable(c) / hable(vec3(11.2));
     else if (u_tonemap == 3) c = aces(c);
@@ -109,9 +180,14 @@ void main() {
         c *= 1.0 - u_vignette * smoothstep(0.2, 0.9, dot(d, d) * 2.0);
     }
     c = pow(max(c, 0.0), vec3(1.0 / u_gamma));
+    if (u_lut_strength > 0.0) {
+        vec3 uvw = clamp(c, 0.0, 1.0) * (u_lut_size - 1.0) / u_lut_size + 0.5 / u_lut_size;      // sample cell centres
+        c = mix(c, texture(lutTex, uvw).rgb, u_lut_strength);
+    }
+    if (u_grain > 0.0) c += (hash(v_uv * 1024.0) - 0.5) * u_grain * (0.3 + 0.7 * (1.0 - clamp(dot(c, vec3(0.333)), 0.0, 1.0)));
     if (u_invert != 0) c = 1.0 - c;
     fragColor = vec4(clamp(c, 0.0, 1.0), src.a);
 }
 """
 
-__all__ = ["Grading", "TONEMAPS", "GRADING_FRAGMENT"]
+__all__ = ["Grading", "TONEMAPS", "GRADING_FRAGMENT", "BRIGHT_FRAGMENT", "BLUR_FRAGMENT"]

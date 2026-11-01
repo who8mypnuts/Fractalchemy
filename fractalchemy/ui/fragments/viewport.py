@@ -7,6 +7,8 @@ orients, Shift orbits the origin, Shift+Alt orbits the target, right-drag pans, 
 zooms about the press point, the wheel zooms, `A D W S Q E` pan and zoom. A click without a drag reports the 3D point
 under the cursor (the depth probe), middle-click puts `Target` (Ctrl: `LightPos`) there. While a button is held the
 driver renders small and one subframe at a time. Esc toggles fullscreen; Shift+right-click opens the context menu.
+The overlays (`viewport_overlays.py`) add Ctrl+drag for a render region, a draggable divider in A/B compare mode,
+draggable keyframe handles on the camera path, and the mini-map in the corner.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from ...widgets.fractal_preview import fitted_rect
 from ...widgets.images import rgba_to_qimage
 from .document import FragDocument
 from .render_driver import RenderDriver
+from .viewport_overlays import CompareWipe, KeyframeHandles, MiniMap, RegionSelect
 
 BACKGROUND = QColor(30, 30, 30)
 TEXT = QColor(150, 150, 150)
@@ -41,12 +44,16 @@ class FragViewport(QWidget):
         context_menu_requested(QPoint): Shift + right-click (global position): the menu bar as a popup (fullscreen).
         viewport_menu_requested(QPoint): A right-click without a drag (global position): the viewport's own menu.
         play_toggle_requested(): Space was pressed (FragM toggles play / stop).
+        region_selected(tuple): Ctrl+drag ended: `(x, y, w, h)` as fractions of the image (y down).
+        keyframe_moved(str, tuple): A keyframe handle was dropped: the preset name and the new `Eye`.
     """
     status = Signal(str)
     fullscreen_requested = Signal()
     context_menu_requested = Signal(QPoint)
     viewport_menu_requested = Signal(QPoint)
     play_toggle_requested = Signal()
+    region_selected = Signal(tuple)
+    keyframe_moved = Signal(str, tuple)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -57,9 +64,17 @@ class FragViewport(QWidget):
         self._message = ""
         self._drag: _Drag | None = None
         self.traveling_wheel = False           # the 2D wheel preference (*traveling* vs *fixed*)
+        self.navigation = "orbit"               # "orbit" (DCC style: orbit / pan / dolly about the target) or "fragm" (FragM's fly)
+        self._turntable = QTimer(self, interval=40)
+        self._turntable.timeout.connect(self._turntable_tick)
         self.path = None                        # the keyframe camera path to draw over the image (None: nothing)
         self.draw_paths = True
         self.hud_enabled = False
+        self.minimap = MiniMap()
+        self.compare = CompareWipe()
+        self.region = RegionSelect()
+        self.handles = KeyframeHandles()
+        self._overlay_drag = ""                 # "region" / "divider" / "handle" while one of the overlays owns the mouse
         self._resize_timer = QTimer(self, singleShot=True, interval=RESIZE_MS)
         self._resize_timer.timeout.connect(self._after_resize)
         self.setMinimumSize(MIN_SIZE, MIN_SIZE)
@@ -113,8 +128,12 @@ class FragViewport(QWidget):
         if self._image is not None and not self._image.isNull():
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self._image.size() != self.size())
             painter.drawImage(self.image_rect(), self._image)
+            self.compare.paint(painter, self.image_rect())
         if self.path is not None and self.draw_paths and self._image is not None:
             self._paint_path(painter)
+        if self.minimap.enabled and self.document is not None and self.document.has_camera():
+            self.minimap.paint(painter, self.rect(), self.document.camera3d() if self._kind() == "3D" else self.document.camera2d(), self.path, self._kind())
+        self.region.paint(painter, self.image_rect())
         if self.hud_enabled and self._image is not None:
             self._paint_hud(painter)
         painter.setPen(TEXT)
@@ -169,6 +188,7 @@ class FragViewport(QWidget):
     def set_path(self, path) -> None:
         """The camera path (`CameraPath`) to draw, or None."""
         self.path = path if path is not None and path.valid else None
+        self.handles = KeyframeHandles()          # the handle positions belong to this path; the next paint places them
         self.update()
 
     def _project(self, points, matrix, rect: QRect) -> list[QPointF | None]:
@@ -205,6 +225,86 @@ class FragViewport(QWidget):
             for point in self._project([keyframe.eye, keyframe.target], matrix, rect):
                 if point is not None:
                     painter.drawEllipse(point, 3.5, 3.5)
+        self.handles.update(self.path, matrix, rect, self._project)
+        self.handles.paint(painter, self._project)
+
+    # --- overlays: compare, region, handles, mini-map -----------------------------------------------------------------------
+    def set_minimap(self, enabled: bool) -> None:
+        self.minimap.enabled = enabled
+        self.update()
+
+    def freeze_reference(self) -> bool:
+        """*Compare ▸ Freeze reference*: the current image becomes A; the live render shows right of the divider."""
+        ok = self.compare.freeze(self._image)
+        self.update()
+        return ok
+
+    def set_compare(self, enabled: bool) -> None:
+        if enabled and self.compare.reference is None:
+            self.freeze_reference()
+        self.compare.enabled = enabled and self.compare.reference is not None
+        self.update()
+
+    def _overlay_press(self, event: QMouseEvent) -> bool:
+        """Give the press to an overlay when it wants it (region drag, the divider, a keyframe handle)."""
+        pos = event.position()
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        if event.modifiers() == Qt.KeyboardModifier.ControlModifier and self._image is not None:
+            self.region.begin(pos)
+            self._overlay_drag = "region"
+        elif self.compare.hits_divider(pos, self.image_rect()):
+            self.compare.dragging = True
+            self._overlay_drag = "divider"
+        elif event.modifiers() == Qt.KeyboardModifier.NoModifier and self.draw_paths and self.path is not None and self._kind() == "3D":
+            name = self.handles.hit(pos)
+            keyframe = next((k for k in self.path.keyframes if k.name == name), None) if name is not None else None
+            if keyframe is None:
+                return False
+            self.handles.begin(name, keyframe.eye)
+            self._overlay_drag = "handle"
+            self.status.emit(f"Dragging {name} (release to rewrite the preset)")
+        else:
+            return False
+        event.accept()
+        return True
+
+    def _overlay_move(self, event: QMouseEvent) -> bool:
+        if not self._overlay_drag:
+            if self.compare.hits_divider(event.position(), self.image_rect()):
+                self.setCursor(Qt.CursorShape.SplitHCursor)
+            elif self.draw_paths and self.path is not None and self._kind() == "3D" and self.handles.hit(event.position()):
+                self.setCursor(Qt.CursorShape.OpenHandCursor)
+            else:
+                self.setCursor(Qt.CursorShape.CrossCursor)
+            return False
+        if self._overlay_drag == "region":
+            self.region.move(event.position())
+        elif self._overlay_drag == "divider":
+            self.compare.drag_to(event.position(), self.image_rect())
+        elif self._overlay_drag == "handle":
+            self.handles.drag_to(event.position())
+        self.update()
+        event.accept()
+        return True
+
+    def _overlay_release(self, event: QMouseEvent) -> bool:
+        kind, self._overlay_drag = self._overlay_drag, ""
+        if not kind:
+            return False
+        if kind == "region":
+            region = self.region.finish(self.image_rect())
+            if region is not None:
+                self.region_selected.emit(region)
+        elif kind == "divider":
+            self.compare.dragging = False
+        elif kind == "handle":
+            moved = self.handles.finish()
+            if moved is not None:
+                self.keyframe_moved.emit(*moved)
+        self.update()
+        event.accept()
+        return True
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
@@ -250,6 +350,8 @@ class FragViewport(QWidget):
             return
         if self.document is None or not self.document.has_camera():
             return super().keyPressEvent(event)
+        if self._numpad_key(event):
+            return
         key = event.key()
         if key in STEP_KEYS and not event.isAutoRepeat():
             default = STEP_3D_DEFAULT if self._kind() == "3D" else STEP_2D_DEFAULT
@@ -279,6 +381,9 @@ class FragViewport(QWidget):
         notches = event.angleDelta().y() / 120.0
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self._set_step(self.step() * (2.0 if notches > 0 else 0.5))
+        elif self._kind() == "3D" and self.navigation == "orbit":
+            factor = 0.9 ** notches if not event.modifiers() & Qt.KeyboardModifier.ControlModifier else 0.98 ** notches
+            self.document.set_camera3d(self.document.camera3d().dolly_target(factor), merge_key="wheel")
         elif self._kind() == "3D":
             self.document.set_camera3d(self.document.camera3d().wheel(notches, self.step()), merge_key="wheel")
         else:
@@ -291,6 +396,8 @@ class FragViewport(QWidget):
         if event.button() == Qt.MouseButton.RightButton and event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
             self.context_menu_requested.emit(event.globalPosition().toPoint())
             return
+        if self._overlay_press(event):
+            return
         if self.document is None or not self.document.has_camera():
             return
         x, y, w, h = self._buffer_point(event.position())
@@ -302,6 +409,8 @@ class FragViewport(QWidget):
         event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._overlay_move(event):
+            return
         if self._drag is None or self.document is None or event.buttons() == Qt.MouseButton.NoButton:
             return
         self._drag.moved = True
@@ -315,6 +424,9 @@ class FragViewport(QWidget):
         drag = self._drag
         dp = ((drag.origin.x() - event.position().x()) / max(1, self.width()), (drag.origin.y() - event.position().y()) / max(1, self.height()))
         buttons, mods = event.buttons(), event.modifiers()
+        if self.navigation == "orbit":
+            self._drag_orbit(drag, dp, buttons, mods)
+            return
         if buttons == (Qt.MouseButton.LeftButton | Qt.MouseButton.RightButton):
             kind = "dolly"
         elif buttons == Qt.MouseButton.RightButton:
@@ -335,6 +447,86 @@ class FragViewport(QWidget):
         camera = self.document.camera3d().drag(kind, drag.camera, dp, self.step())
         self.document.set_camera3d(camera, merge_key=("drag", id(drag)), interactive=True)
 
+    def _drag_orbit(self, drag, dp, buttons, mods) -> None:
+        """DCC-style navigation: left orbits the target, middle (or Shift+right) pans, right (or Ctrl+middle) dollies;
+        Shift+left looks around (FragM's orient), Alt+left orbits the origin."""
+        camera = self.document.camera3d()
+        shift, ctrl, alt = (bool(mods & m) for m in (Qt.KeyboardModifier.ShiftModifier, Qt.KeyboardModifier.ControlModifier,
+                                                       Qt.KeyboardModifier.AltModifier))
+        if buttons == Qt.MouseButton.LeftButton:
+            if shift:
+                new = camera.drag("orient", drag.camera, dp, self.step())
+            elif alt:
+                new = camera.drag("orbit_origin", drag.camera, dp, self.step())
+            else:
+                new = camera.orbit(drag.camera, (-dp[0], -dp[1]))
+        elif buttons == Qt.MouseButton.MiddleButton:
+            new = camera.orbit(drag.camera, (-dp[0], -dp[1])) if alt else drag.camera.dolly_target(2.0 ** (dp[1] * 4.0)) if ctrl \
+                else camera.pan_screen(drag.camera, (dp[0], dp[1]))
+        elif buttons == Qt.MouseButton.RightButton:
+            new = camera.pan_screen(drag.camera, (dp[0], dp[1])) if shift else drag.camera.dolly_target(2.0 ** (dp[1] * 4.0))
+        else:
+            return
+        self.document.set_camera3d(new, merge_key=("drag", id(drag)), interactive=True)
+
+    # --- views (the numpad and the View menu) --------------------------------------------------------------------------
+    def view_from(self, side: str) -> None:
+        """`front` / `back` / `left` / `right` / `top` / `bottom` at the current distance from the target."""
+        if self.document is not None and self._kind() == "3D" and self.document.has_camera():
+            self.document.set_camera3d(self.document.camera3d().view_from(side), merge_key=None, interactive=False)
+            self.status.emit(f"View: {side}")
+
+    def orbit_by(self, degrees: float, axis: str) -> None:
+        if self.document is not None and self._kind() == "3D" and self.document.has_camera():
+            self.document.set_camera3d(self.document.camera3d().turned_about_target(degrees, axis), merge_key=("orbit", axis), interactive=False)
+
+    def flip_view(self) -> None:
+        """Numpad 9: the opposite side of the target."""
+        if self.document is not None and self._kind() == "3D" and self.document.has_camera():
+            camera = self.document.camera3d()
+            eye = tuple(2 * t - e for e, t in zip(camera.eye, camera.target))
+            self.document.set_camera3d(camera.__class__(eye, camera.target, camera.up, camera.fov).orthogonalized(), merge_key=None, interactive=False)
+
+    def frame_origin(self) -> None:
+        """Numpad `.`: put the target on the origin, keeping the distance and direction."""
+        if self.document is not None and self._kind() == "3D" and self.document.has_camera():
+            camera = self.document.camera3d()
+            offset = tuple(e - t for e, t in zip(camera.eye, camera.target))
+            self.document.set_camera3d(camera.__class__(offset, (0.0, 0.0, 0.0), camera.up, camera.fov), merge_key=None, interactive=False)
+
+    def set_turntable(self, on: bool) -> None:
+        """Auto-rotate around the target (a slow turntable) while on."""
+        if on:
+            self._turntable.start()
+        else:
+            self._turntable.stop()
+
+    def _turntable_tick(self) -> None:
+        if self.document is None or self._kind() != "3D" or not self.document.has_camera():
+            return
+        self.document.set_camera3d(self.document.camera3d().turned_about_target(0.6, "up"), merge_key="turntable", interactive=False)
+
+    def _numpad_key(self, event: QKeyEvent) -> bool:
+        """Blender's numpad views: 1 / 3 / 7 front / right / top (Ctrl: the opposite), 9 flips, 4 6 8 2 orbit 15°, `.` frames the origin."""
+        if not event.modifiers() & Qt.KeyboardModifier.KeypadModifier or self._kind() != "3D":
+            return False
+        ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        key = event.key()
+        views = {Qt.Key.Key_1: ("front", "back"), Qt.Key.Key_3: ("right", "left"), Qt.Key.Key_7: ("top", "bottom")}
+        if key in views:
+            self.view_from(views[key][1 if ctrl else 0])
+        elif key == Qt.Key.Key_9:
+            self.flip_view()
+        elif key in (Qt.Key.Key_4, Qt.Key.Key_6):
+            self.orbit_by(15.0 if key == Qt.Key.Key_4 else -15.0, "up")
+        elif key in (Qt.Key.Key_8, Qt.Key.Key_2):
+            self.orbit_by(15.0 if key == Qt.Key.Key_8 else -15.0, "right")
+        elif key == Qt.Key.Key_Period:
+            self.frame_origin()
+        else:
+            return False
+        return True
+
     def _drag_2d(self, event: QMouseEvent) -> None:
         drag = self._drag
         x, y, w, h = self._buffer_point(event.position())
@@ -345,6 +537,8 @@ class FragViewport(QWidget):
         self.document.set_camera2d(camera, merge_key=("drag", id(drag)), interactive=True)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._overlay_release(event):
+            return
         drag, self._drag = self._drag, None
         if self.driver is not None:
             self.driver.set_interactive(False)
