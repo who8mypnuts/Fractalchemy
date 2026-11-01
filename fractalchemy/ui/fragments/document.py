@@ -17,6 +17,7 @@ from typing import Any
 from PySide6.QtCore import QObject, Signal
 
 from ...fragments.animation import AnimationSettings, camera_path, frame_values, keyframe_blend
+from ...fragments.grading import Grading
 from ...fragments.camera import Camera2D, Camera3D
 from ...fragments.document_format import FragmentMetadata
 from ...fragments.easing import EasingSetting, parse_all, with_setting, without_slider
@@ -59,6 +60,7 @@ class FragDocument(QObject):
         needs_build_changed(bool): Whether the shown program is stale.
         built(object): A `FragmentSource` was produced (the request is ready for the driver).
         build_failed(list): Preprocessing failed or the driver rejected the program: `Message`s / `Diagnostic`s.
+        grading_changed(): The display colour grading changed (only the display pass needs to re-run).
         facts_changed(object): `BuildFacts` arrived from the first rendered pass.
         parameters_changed(list, bool, bool): (names, recompile needed, buffer-shader-only change).
         parameters_replaced(): Many values changed at once (preset, reset, undo): the panel refreshes everything.
@@ -73,6 +75,7 @@ class FragDocument(QObject):
     needs_build_changed = Signal(bool)
     built = Signal(object)
     build_failed = Signal(list)
+    grading_changed = Signal()
     facts_changed = Signal(object)
     parameters_changed = Signal(list, bool, bool)
     parameters_replaced = Signal()
@@ -102,6 +105,8 @@ class FragDocument(QObject):
         self.easing: list[EasingSetting] = []        # the active easing curves (FragM's `curveSettings`)
         self._include_paths: list[Path] = []
         self.animation = AnimationSettings.from_dict(self.metadata.animation)
+        self.grading = Grading.from_dict(self.metadata.grading)
+        self.debug_view = ""                      # "" or "depth" (not saved)
         self._undo: list[ParameterState] = []
         self._redo: list[ParameterState] = []
         self._last_merge_key: object = None
@@ -216,7 +221,28 @@ class FragDocument(QObject):
         return FragRequest(self.modern, self.buffer_modern, dict(self.state.values), self.source.buffer, self.source.clear_on_change,
                            self.source.subframes_between_redraws, self.source.depth_to_alpha,
                            dict(self.source.texture_params.get("backbuffer", {})),
-                           texture_specs(self.source, self.state, FileManager(self._include_paths, self.path)))
+                           texture_specs(self.source, self.state, FileManager(self._include_paths, self.path)),
+                           None if self.grading.is_identity else self.grading, self.debug_view)
+
+    def set_debug_view(self, view: str) -> None:
+        """*Debug view*: what the display pass shows ("" picture, "depth" the depth buffer)."""
+        if view != self.debug_view:
+            self.debug_view = view
+            self.grading_changed.emit()           # only the display pass needs to re-run
+
+    def set_tab_metadata(self, key: str, value) -> None:
+        """One entry of the metadata's `tabs` section (camera bookmarks, the current preset …)."""
+        if self.metadata.tabs.get(key) != value:
+            self.metadata.tabs[key] = value
+            self._set_modified(True)
+
+    def set_grading(self, grading: Grading) -> None:
+        """The display colour grading (kept in the metadata; only the display pass re-runs)."""
+        if grading != self.grading:
+            self.grading = grading
+            self.metadata.grading = {} if grading.is_identity else grading.to_dict()
+            self._set_modified(True)
+            self.grading_changed.emit()
 
     def set_build_facts(self, facts: BuildFacts) -> None:
         """The driver rendered the first pass: the program's active / unused uniforms are known."""

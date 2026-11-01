@@ -26,6 +26,9 @@ options (*Edit ▸ Preferences…*) and open tabs are remembered between runs.
   view (*Library ▸ Thumbnails*: each fragment rendered once at a small size and cached). Double-click opens a
   tab; drag a file onto the window to open it; the host's library features (copy / move / rename, per-folder
   views) apply to your folders.
+* **Grading** (dock, tabbed with Parameters): exposure, tone mapping (Reinhard / filmic / ACES), gamma, contrast,
+  saturation, hue shift, vignette, invert — applied by the display pass on top of the fragment's own buffer shader,
+  so every change shows at once without touching the accumulation; saved in the `.fafrag`; applies to hi-res renders.
 * **Animation toolbars**: *Progressive* (accumulate one still) / *Animation* (advance `time` while playing), Rewind
   `F10`, Play `F11`, Stop `F12`, the time slider with a keyframe mark per `KeyFrame.nnnn` preset, the length in
   seconds and the frame rate. Space in the viewport toggles play.
@@ -59,6 +62,25 @@ options (*Edit ▸ Preferences…*) and open tabs are remembered between runs.
    Mandelbox, a 2D Julia / Mandelbrot with a map, a Shadertoy-style shader, a buffer-feedback system, the fast
    raytracer) or one of yours (*Save as template…* keeps the current source under
    `~/.config/Fractalchemy/fragments/templates`).
+
+### Camera menu
+
+*Add camera bookmark…* (`Ctrl+B`) keeps the current camera under a name in the `.fafrag`; the menu lists the
+bookmarks (one click applies one, undoable) and removes them. *Record camera path* (`Ctrl+Shift+R`) samples the
+camera every 0.4 s while you fly and, when turned off, writes the samples into the source as `KeyFrame.nnnn`
+presets — the path of a flight without pressing `F8` at every turn.
+
+### Build menu extras
+
+*Manual rendering* holds every render until *Render now* (`Shift+F5`) or a build (FragM's *Manual* mode; the
+change made meanwhile renders when the mode is turned off). *DE Composer…* builds a distance estimator from folds,
+transforms and a primitive (below). *Debug view ▸ Depth buffer* shows the depth the raytracer wrote (near bright, far
+dark, background black, iso-depth lines); *Debug view ▸ DE slice…* samples the distance estimator on a plane (facing
+the camera through *Target*, or XY / XZ / YZ through a centre) as a heat map — inside blue, the surface white,
+outside through yellow to red, contour lines every step: a good estimator has evenly spaced contours, one that
+overestimates (the "dust" of a noisy render) shows contours bunching towards the surface; *Follow the camera*
+re-samples after every move. *Windows ▸ Performance HUD* (`Ctrl+H`) overlays images per second, milliseconds per
+subframe against the watchdog budget, subframes, tiling, size and the GPU load limit.
 
 ### Mouse and keyboard
 
@@ -147,6 +169,16 @@ python tools/render_frag.py --check "Examples/**/*.frag"
 `--preset`, `--keyframes`, `--padding`, `--format` (`png16`, `exr`, …), `--depth-alpha`, `--include-path` and `--quiet`
 complete the set; the exit code is the number of failures.
 
+### Importing from Shadertoy
+
+*File ▸ Import from Shadertoy…*: paste the *Image* tab (and optionally *Buffer A*), say what each `iChannel` is
+(a texture file, Buffer A, the previous frame) and import. Shadertoy's uniforms (`iResolution`, `iTime`, `iFrame`,
+`iMouse` as a slider pair, `iDate`, `iChannelResolution`) are declared on top of the host's, `mainImage` is called
+from `main`. With a Buffer A the import writes two files next to each other: Buffer A becomes the main program
+(its self-reading channel is the `backbuffer`, `DontClearOnChange` keeps the feedback) and Image becomes its
+`#buffershader` reading `frontbuffer`. Buffers B–D, cube maps, keyboard, sound and video inputs are not mapped
+(the log says what was left out).
+
 ## Textures
 
 `uniform sampler2D tex; file[name.png]` binds a texture: the file is looked up beside the fragment, then on the
@@ -182,7 +214,10 @@ decimation) and checked (watertight, pieces, volume, thin walls). *Fit* runs a c
 to where the fractal is. A preview still and the report appear in the dialog; *Export* writes OBJ / STL / PLY / glTF /
 USD (with vertex colours, in world units or scaled to a size in millimetres) plus a markdown report; *Send to 3D
 Editor* saves a PLY asset and opens it on the 3D Editor's Instances tab for instancing and lighting there.
-Resolution is capped at 512³ with a memory estimate; the job runs on its own thread and context and can be cancelled.
+A dense grid is capped at 512³ with a memory estimate; **sparse blocks** lift that to 4096³: a coarse pass finds the
+blocks the surface crosses, each is sampled with two voxel layers of padding, meshed on its own and trimmed to its
+box, and a weld joins the identical boundary vertices — the result is the same mesh a dense grid would give, with
+only the occupied blocks ever in memory. The job runs on its own thread and context and can be cancelled.
 
 ## Primitives, operators and folds
 
@@ -203,6 +238,17 @@ both).
 | Operators | `opUnion / opSubtract / opIntersect`, `opSmoothUnion / opSmoothSubtract / opSmoothIntersect(a, b, k)`, `opRound`, `opOnion`, `opElongate`, `opRepeat`, `opRepeatLimited`, `opRepeatMirror`, `opRepeatPolar(p.xz, n)`, `opTwist`, `opBend`, `opTranslate`, `opMirror`, `opFoldPlane`, `opDisplaceSine` |
 | Folds | `foldBox(p, limit)`, `foldSphere(p, scale, minR2, fixedR2)`, `foldMenger`, `foldSierpinski`, `foldKaleido(p.xz, n)` |
 | Helpers | `rot2(a)`, `rot3(axis, a)`, `lpNorm`, `lengthN`, `length6`, `dot2`, `smin`, `PHI` |
+
+### The DE Composer
+
+*Build ▸ DE Composer…* is the visual way to the same thing: a loop of steps — mirror, Menger / Sierpinski / kaleido
+/ plane folds, box fold, sphere fold, sphere inversion, scale + offset (Knighty's IFS), scale + start point (the
+Mandelbox), scale + constant (Julia), rotate, translate, repeat, twist, Knighty's Menger z shift — and an end shape
+(box, sphere, octahedron, torus, cross, cylinder, point, dodecahedron, gyroid). Every parameter becomes a slider of
+the generated fragment; *Create tab* opens it, *Update tab* rewrites it as you change the recipe (the recipe is kept
+in the tab's metadata, so reopening the composer on that tab continues where you left off). Presets: Menger sponge,
+Sierpinski tetrahedron, Mandelbox. Only steps with a well-defined distance estimate are offered (isometries,
+scalings and conformal folds tracked in the scale `s`; the distance is `shape(p) / s`).
 
 *Edit ▸ Insert command ▸ Primitives* and *Operators and folds* insert calls; *File ▸ New from template ▸ Primitives
 playground* starts a fragment with them; *Library ▸ Examples ▸ Primitives* shows every primitive (*Primitives
@@ -306,7 +352,7 @@ errors still point into the right file. Doubles (`double`, `dvec`) need an expli
 FragM. The translated text is what *Show preprocessed source* shows; a rejected program's sources and the driver's
 log are written to `<cache>/Fractalchemy/glsl-failures/`.
 
-Of the 206 bundled examples 199 compile; the seven that do not (listed in `tests/test_fragments_engine.py`) fail in
+Of the 218 bundled examples 211 compile; the seven that do not (listed in `tests/test_fragments_engine.py`) fail in
 FragM as well — they use functions before including them, undeclared uniforms, or `double` code that never compiled.
 
 ## Files
@@ -321,7 +367,8 @@ same text plus, at most once, a block FragM's preprocessor sees as a comment:
 ```
 
 It carries the render settings, the animation clock and the library's tags / thumbnail; saving as `.frag` omits it.
-`.fragparams` files are the settings text (*Parameters ▸ Save parameters to file…* / *Load parameters from file…*); images written by the
+`.fragparams` files are the settings text (*Parameters ▸ Colours from the Gradient Library* (all colour parameters, or *of this tab*) and *Colours from gradient
+file…* give every `color[…]` parameter a colour sampled evenly along a gradient — one undo step. *Parameters ▸ Save parameters to file…* / *Load parameters from file…*); images written by the
 window (screenshots, renders) carry the settings under the `frAg` key, the one FragM uses, so either program reads the
 other's images. A file changed by another program is reloaded when its tab has no unsaved edits. Recent files are on
 the File menu; the tabs that were open are reopened on the next start.
@@ -339,6 +386,13 @@ a subframe that takes longer than the budget (`FRAG_SUBFRAME_BUDGET_MS`, 500 ms)
 ones as 2×2, 3×3 … scissored rectangles of the same surface. Hi-res renders are tiled by construction. The GL
 display path (a shared-context blit instead of the read-back) is a possible later addition; measured on llvmpipe
 the read-back is not the bottleneck.
+
+## Fractalchemy's own fragments
+
+`Examples/Fractalchemy Collection/`: 2D — Nova, Magnet (type I), Phoenix, a gathering Buddhabrot (slow to converge:
+*Subframe max* 0 and patience); 3D — Amazing Surf and ABoxMod1 (Mandelbulb3D's), FoldingIntPow, Juliabulb,
+Lambdabulb, the Jerusalem cube, the Mosely snowflake, a sphere-inversion IFS. `Include/Triplex.frag` has the
+Mandelbulb arithmetic they share (`tPow`, `tPowDeriv`, `tMul`, `tDistance`).
 
 ## What differs from FragM
 

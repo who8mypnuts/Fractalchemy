@@ -35,6 +35,8 @@ class Surface:
         self.dtype, self.format = buffer_dtype(buffer)
         self.textures = [ctx.texture((self.width, self.height), 4, dtype=self.dtype) for _ in range(2)]
         self.depths = [ctx.depth_texture((self.width, self.height)) for _ in range(2)]
+        for depth in self.depths:
+            depth.compare_func = ""               # sampled as values by the depth view, not as a shadow comparison
         for texture in self.textures:
             texture.filter = (ctx.LINEAR, ctx.LINEAR)
             texture.repeat_x = texture.repeat_y = False
@@ -75,6 +77,10 @@ class Surface:
     def front_texture(self):
         """What was drawn last (`frontbuffer` for the display pass)."""
         return self.textures[self.front]
+
+    @property
+    def front_depth(self):
+        return self.depths[self.front]
 
     @property
     def front_fbo(self):

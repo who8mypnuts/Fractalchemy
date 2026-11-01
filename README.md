@@ -457,7 +457,7 @@ environments), is `docs/3d-editor-plan.md`.
 fractals written as GLSL fragment shaders — Mandelbulbs, Mandelboxes, kaleidoscopic IFS, escape-time sets, feedback
 systems — edited, tweaked and rendered on the GPU. It reads Fragmentarium / FragM `.frag` files unchanged (their
 directives, `#include`s, annotated uniforms and `#preset`s), ships FragM's example library and include files
-(*Library ▸ Examples*, 206 fragments in 16 categories), and saves `.fafrag` / `.frag`. A tool window like the others:
+(*Library ▸ Examples*, 218 fragments in 17 categories), and saves `.fafrag` / `.frag`. A tool window like the others:
 closing hides it; layout, options and tabs are remembered. See [docs/fragments.md](docs/fragments.md) for the guide
 and the language reference; the plan is `plans/fragments-plan.md`.
 
@@ -499,12 +499,22 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   with its includes saved beside the image (FragM's autosave), ffmpeg video afterwards, pause / stop / save
   incomplete. *Batch render presets…* renders every preset or keyframe of a file; `tools/render_frag.py` does the
   same from the command line (what `.fqs` scripts were for).
+* **Tools**: a **Grading** dock (exposure, Reinhard / filmic / ACES tone mapping, gamma, contrast, saturation, hue,
+  vignette, invert — a display-pass stage, instant, saved with the fragment, applied to renders); **camera
+  bookmarks** and **flight recording** (samples the camera while you fly and writes the keyframe presets);
+  *Manual rendering* (FragM's manual mode); **Debug views** — the depth buffer as a picture and a **DE slice** heat
+  map with contours for debugging estimators; a **Performance HUD**; **Colours from a gradient** (every colour
+  parameter sampled along the Gradient Library's gradient or a file); a **DE Composer** (folds, transforms and a
+  primitive as a recipe → a fragment with sliders, Menger / Sierpinski / Mandelbox presets); **Import from
+  Shadertoy** (Image and Buffer A, channels to textures / feedback); sparse-block mesh export up to 4096³.
 * **Primitives**: `#include "Primitives.frag"` — ~60 signed distance primitives (boxes, tori, cones, prisms,
   polyhedra, gyroids…), the boolean / smooth / repetition / twist operators and the box / sphere / Menger /
   Sierpinski / kaleido folds as plain GLSL; *Insert command* menus, a *Primitives playground* template, a *Primitives*
   example folder (gallery, booleans, Menger from crosses, Mandelbox from folds, domain repetition, gyroid, chain
   maille) and a *Distance Estimator Compendium* folder of parameterised fractal estimators (gaz, kamoshika, yonatan,
-  Kali, Nameless, Kleinian, Lewpen, butadiene, Marble Marcher levels, mrange, iq's Apollonian).
+  Kali, Nameless, Kleinian, Lewpen, butadiene, Marble Marcher levels, mrange, iq's Apollonian), plus a *Fractalchemy
+  Collection* (Nova, Magnet, Phoenix, a gathering Buddhabrot; Amazing Surf, ABoxMod1, FoldingIntPow, Juliabulb,
+  Lambdabulb, Jerusalem cube, Mosely snowflake, sphere-inversion IFS) on a `Triplex.frag` include.
 * **Textures**: `file[…]` samplers (LDR through Pillow, `.hdr` / `.exr` float, cube-map strips, integer samplers),
   `#TexParameter` filters / wrapping / anisotropy with mipmaps, a cache keyed by file and modification time.
 * **Insert gradient…**: any gradient the host reads (the Gradient Library's current one, `.ugr`, `.map`, palettes,
@@ -522,7 +532,7 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   (ping-pong accumulation surfaces that survive parameter edits for `DontClearOnChange` fragments, a program cache,
   a buffer-shader display pass, depth reads for the 3D pick, engine chores such as the version test as priority
   jobs); the legacy GLSL 1.10 / 1.20 the fragment world is written in is translated to 3.30 core so it runs on every
-  modern context (`fragments/glsl_compat.py`); 199 of the 206 bundled examples compile, the rest fail in FragM too.
+  modern context (`fragments/glsl_compat.py`); 211 of the 218 bundled examples compile, the rest fail in FragM too.
   Heavy fragments stay clear of the GPU watchdog: half-size rendering while the camera moves, subframes per image
   adapting to the refresh interval, and automatic **tiling** of a subframe that exceeds the time budget (the status
   bar shows *tiled n×n*).
@@ -683,7 +693,8 @@ fractalchemy/
                         .fragparams, the frAg image key), library_format, spline / easing / animation (the camera path,
                         the easing curves, frame values), render_settings + batch (the hi-res plan, the CLI's work),
                         textures (file[…] decoding, #TexParameter), gradient_glsl (gradients → GLSL), mesh (DE → voxel
-                        grid → surface nets → files), preferences; gl/ (moderngl): engine + program cache, surfaces
+                        grid → surface nets → files, dense or sparse blocks), preferences, const_fold, grading (the
+                        display colour grading), shadertoy (the importer's converter), composer (the DE recipe → GLSL); gl/ (moderngl): engine + program cache, surfaces
                         (ping-pong accumulation), uniforms, passes, job (the render-service job with the watchdog
                         tiling), tasks (engine chores as jobs), textures (the GL cache), final + final_job (the hi-res
                         renderer and its thread), mesh (the DE probe), diagnostics
@@ -736,7 +747,8 @@ fractalchemy/
                         GlslCodeEditor, LogPanel (with log-to-file), BufferSizeBar, actions / file_actions, library_panel
                         (the library dock + thumbnails), animation_controls / easing_dialog / timeline_window,
                         render_window + render_panels / batch_dialog, gradient_dialog, mesh_export_dialog + mesh_job,
-                        preferences_dialog, help),
+                        preferences_dialog, help, grading_panel, camera_actions (bookmarks, flight recording),
+                        de_slice_dialog, composer_dialog, shadertoy_dialog),
                         three_d/ (the 3D Editor: Scene3DDocument with its undo history, Viewport3D with the orbit rig
                         and the mesh display, the Render / Camera / Materials / Lights / Environment panels, mesh_panels:
                         the Mesh and Export tabs with the density histogram, instances_panel: assets, instancers and the

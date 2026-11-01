@@ -43,20 +43,24 @@ class FragmentMetadata:
         render: The render window's settings for this fragment (size, tiles, subframes, format …).
         animation: fps, length, interpolation mode, loop flags.
         library: Tags, author, a thumbnail (base64 PNG) for the library pane.
-        tabs: Editor state worth keeping (the current preset name).
+        tabs: Editor state worth keeping (the current preset name, camera bookmarks).
+        grading: The display colour grading (`fragments.grading.Grading`).
     """
     render: dict[str, Any] = field(default_factory=dict)
     animation: dict[str, Any] = field(default_factory=dict)
     library: dict[str, Any] = field(default_factory=dict)
     tabs: dict[str, Any] = field(default_factory=dict)
+    grading: dict[str, Any] = field(default_factory=dict)
+
+    SECTIONS = ("render", "animation", "library", "tabs", "grading")
 
     @property
     def empty(self) -> bool:
-        return not (self.render or self.animation or self.library or self.tabs)
+        return not any(getattr(self, name) for name in self.SECTIONS)
 
     def to_dict(self) -> dict:
         out: dict[str, Any] = {"version": VERSION}
-        for name in ("render", "animation", "library", "tabs"):
+        for name in self.SECTIONS:
             if getattr(self, name):
                 out[name] = getattr(self, name)
         return out
@@ -65,7 +69,7 @@ class FragmentMetadata:
     def from_dict(cls, data: dict) -> "FragmentMetadata":
         if not isinstance(data, dict):
             raise FragmentFormatError("the fractalchemy block must hold a JSON object")
-        return cls(**{name: dict(data.get(name) or {}) for name in ("render", "animation", "library", "tabs")})
+        return cls(**{name: dict(data.get(name) or {}) for name in cls.SECTIONS})
 
     @property
     def thumbnail_png(self) -> bytes | None:

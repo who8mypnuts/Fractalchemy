@@ -8,6 +8,7 @@ reports through signals and can be cancelled.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +18,7 @@ from ...fractal.scene import Camera
 from ...fragments.gl.engine import FragEngine
 from ...fragments.gl.job import FragRequest
 from ...fragments.gl.mesh import DistanceProbe
-from ...fragments.mesh import DEExportSettings, DEMeshResult, DEMeshSettings, build_de_mesh, export_de_mesh
+from ...fragments.mesh import DEExportSettings, DEMeshResult, DEMeshSettings, build_de_mesh, build_de_mesh_sparse, export_de_mesh
 from ...scene3d.model import Scene3D
 from ...solid.mesh import Mesh
 from ...solid.mesh_preview import render_mesh
@@ -77,10 +78,44 @@ class MeshFromDEJob(QThread):
             bounds = probe.fit_bounds(bounds, s.threshold_voxels * bounds.spacing(48) + bounds.spacing(48))
         if self._cancelled():
             return None
+        if s.sparse:
+            return build_de_mesh_sparse(probe, replace(s, bounds=bounds), lambda f, m: self.progressed.emit(0.05 + 0.95 * f, m), self._cancelled)
         sampled = probe.sample(bounds, s.resolution, s.colors, lambda f, m: self.progressed.emit(0.05 + 0.45 * f, m), self._cancelled)
         if sampled is None:
             return None
         return build_de_mesh(sampled, s, lambda f, m: self.progressed.emit(0.5 + 0.5 * f, m), self._cancelled)
+
+
+class DESliceJob(QThread):
+    """Sample the DE on a plane (the *DE slice* debug view) on its own context.
+
+    Signals:
+        finished_with(object): `(res, res)` float32 distances.
+        failed(str)
+    """
+    finished_with = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, request: FragRequest, centre, u, v, size: float, resolution: int, parent: QObject | None = None):
+        super().__init__(parent)
+        self.request = request.copy()
+        self.centre, self.u, self.v, self.size, self.resolution = tuple(centre), tuple(u), tuple(v), float(size), int(resolution)
+
+    def run(self) -> None:  # noqa: D401 - QThread entry point
+        engine = probe = None
+        try:
+            engine = FragEngine()
+            probe = DistanceProbe(engine, self.request)
+            values = probe.sample_plane(self.centre, self.u, self.v, self.size, self.resolution)
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(str(exc) or exc.__class__.__name__)
+            return
+        finally:
+            if probe is not None:
+                probe.close()
+            if engine is not None:
+                engine.close()
+        self.finished_with.emit(values)
 
 
 class DEExportJob(QThread):
@@ -146,4 +181,4 @@ def preview_camera(mesh: Mesh, width: int, height: int) -> Camera:
                   pitch=-0.9, yaw=0.6, zpos=float(centre[2]))
 
 
-__all__ = ["MeshFromDEJob", "DEExportJob", "DEPreviewJob", "preview_camera"]
+__all__ = ["MeshFromDEJob", "DEExportJob", "DEPreviewJob", "DESliceJob", "preview_camera"]

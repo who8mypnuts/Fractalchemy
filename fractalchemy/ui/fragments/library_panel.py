@@ -206,7 +206,7 @@ class FragThumbnailProvider(QObject):
             self._store(key, item, QIcon(QPixmap.fromImage(image.scaled(self._size))), write=False)
             return
         settings = FragRenderSettings(self._size.width(), self._size.height(), subframe_max=self._subframes,
-                                      subframes_per_pass=self._subframes, surface_key=("fragthumb", key))
+                                      subframes_per_pass=self._subframes, surface_key=("fragthumb", key), drop_surface=True)
         self._service.submit(("fragthumb", key), payload, settings, PRIORITY_THUMBNAIL)
 
     def _on_pass(self, key: object, image: np.ndarray, stats) -> None:

@@ -96,3 +96,23 @@ def test_settings_checks():
     assert DEMeshSettings(resolution=64, bounds=Bounds(size=0.0)).check()
     assert not DEMeshSettings().check()
     assert estimated_bytes(128, True) == 128 ** 3 * 4 * 6
+
+
+def test_sparse_blocks_match_the_dense_mesh(tmp_path, engine):
+    from fractalchemy.fragments.mesh import active_blocks, build_de_mesh_sparse
+
+    prepared = _prepared(tmp_path, engine)
+    probe = DistanceProbe(engine, prepared.request)
+    dense_settings = DEMeshSettings(resolution=64, bounds=Bounds((0.0, 0.0, 0.0), 3.0), fit=False, threshold_voxels=0.0, clean="none")
+    dense = build_de_mesh(probe.sample(dense_settings.bounds, 64, colors=True), dense_settings)
+    sparse_settings = DEMeshSettings(resolution=64, bounds=Bounds((0.0, 0.0, 0.0), 3.0), fit=False, threshold_voxels=0.0, clean="none",
+                                     sparse=True, block=32)
+    sparse = build_de_mesh_sparse(probe, sparse_settings)
+    coarse = probe.sample(sparse_settings.bounds, 16)
+    probe.close()
+    assert sparse.full.face_count == dense.full.face_count and sparse.full_report.watertight
+    assert abs(sparse.full_report.volume - dense.full_report.volume) < 1e-6
+    assert np.allclose(sparse.full.colors.mean(axis=0), (1.0, 0.0, 0.0), atol=0.02)
+    blocks = active_blocks(coarse, sparse_settings.bounds, 64, 32, 0.0)
+    assert 1 <= len(blocks) <= 8 and not DEMeshSettings(resolution=2048, sparse=True).check()
+    assert DEMeshSettings(resolution=2048).check()

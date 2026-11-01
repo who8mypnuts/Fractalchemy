@@ -56,6 +56,10 @@ class RenderDriver(QObject):
         self.refresh_ms = DEFAULT_REFRESH_MS
         self.interactive_scale = INTERACTIVE_SCALE
         self.gpu_load = 1.0                      # the duty cycle the viewport may keep the GPU at (preferences)
+        self.manual = False                      # FragM's *Manual* mode: render only on request (F5 / Render now)
+        self.fps = 0.0                           # delivered images per second (the HUD and the status bar)
+        self.subframe_budget_ms = float(config.FRAG_SUBFRAME_BUDGET_MS)
+        self.pending = False                     # a change arrived while manual
         self.interactive = False
         self.depth_probe: tuple[int, int] | None = None
         self.window_size = (640, 360)
@@ -87,6 +91,7 @@ class RenderDriver(QObject):
         if document is not None:
             document.built.connect(self._on_built)
             document.parameters_changed.connect(self._on_parameters)
+            document.grading_changed.connect(lambda: self.render(clear=False, redisplay_only=True) if self.document.request() is not None else None)
             if document.request() is not None:
                 self.render(clear=True)
 
@@ -104,10 +109,18 @@ class RenderDriver(QObject):
     def _on_parameters(self, names: list, recompile: bool, buffer_only: bool) -> None:
         if recompile or self.document is None or self.document.request() is None:
             return
+        if self.manual:
+            self.pending = True
+            return
         if buffer_only:
             self.render(clear=False, redisplay_only=True)
         else:
             self.render(clear=self.document.source.clear_on_change)
+
+    def render_now(self) -> None:
+        """*Render now* (manual mode): start a fresh accumulation with the current values."""
+        self.pending = False
+        self.render(clear=True)
 
     def set_interactive(self, interactive: bool) -> None:
         """A mouse button or camera key is held: render small and one subframe at a time; release settles to full size."""
@@ -186,7 +199,8 @@ class RenderDriver(QObject):
         if self._last_pass_at:
             elapsed = now - self._last_pass_at
             self._pass_times = [t for t in self._pass_times if now - t < 1.0] + [now]
-            self.fps_changed.emit(len(self._pass_times) / 1.0)
+            self.fps = len(self._pass_times) / 1.0
+            self.fps_changed.emit(self.fps)
             if not self.interactive and not stats.finished:
                 target = self.refresh_ms / 1000.0
                 if elapsed < target / 2 and self._per_pass < MAX_SUBFRAMES_PER_PASS:
@@ -198,6 +212,7 @@ class RenderDriver(QObject):
     def _on_finished(self, key: object, stats: RenderStats) -> None:
         if key == self._key:
             self.stats = stats
+            self.fps = 0.0
             self.fps_changed.emit(-1.0)
             self._last_pass_at = 0.0
 

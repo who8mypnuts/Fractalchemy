@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QF
 
 from ...fragments.gl.job import FragRequest
 from ...fragments.gl.mesh import Bounds, provides_color
-from ...fragments.mesh import CLEAN_LEVELS, MAX_RESOLUTION, DEExportSettings, DEMeshResult, DEMeshSettings, estimated_bytes
+from ...fragments.mesh import (BLOCK_PAD, CLEAN_LEVELS, MAX_RESOLUTION, MAX_SPARSE_RESOLUTION, DEExportSettings, DEMeshResult, DEMeshSettings,
+                               estimated_bytes)
 from ...solid.io import EXPORT_FORMATS
 from ...widgets.images import rgba_to_qimage
 from ...widgets.layouts import row
@@ -82,11 +83,20 @@ class MeshExportDialog(QDialog):
         group = QGroupBox("Sampling the distance estimator")
         form = QFormLayout(group)
         self.resolution = QSpinBox()
-        self.resolution.setRange(8, MAX_RESOLUTION)
+        self.resolution.setRange(8, MAX_SPARSE_RESOLUTION)
         self.resolution.setSingleStep(16)
-        self.resolution.setToolTip("Voxels per axis (memory and time grow with the cube)")
+        self.resolution.setToolTip("Voxels per axis (memory and time grow with the cube; sparse blocks lift the memory limit)")
         self.resolution.valueChanged.connect(self._refresh_estimate)
         form.addRow("Resolution", self.resolution)
+        self.sparse = QCheckBox("Sparse blocks (only where the surface is; for high resolutions)")
+        self.sparse.setToolTip("A coarse pass finds the blocks the surface crosses; each is sampled and meshed on its own, then welded")
+        self.sparse.toggled.connect(self._refresh_estimate)
+        form.addRow(self.sparse)
+        self.block = QSpinBox()
+        self.block.setRange(16, 256)
+        self.block.setSingleStep(16)
+        self.block.valueChanged.connect(self._refresh_estimate)
+        form.addRow("Block size", self.block)
         self.fit = QCheckBox("Fit the box to the fractal (coarse pass first)")
         form.addRow(self.fit)
         self.centre = [self._coord_spin() for _ in range(3)]
@@ -199,6 +209,8 @@ class MeshExportDialog(QDialog):
         s = self._settings
         g = SETTINGS_GROUP
         self.resolution.setValue(int(s.value(f"{g}/resolution", 128)))
+        self.sparse.setChecked(s.value(f"{g}/sparse", False, type=bool))
+        self.block.setValue(int(s.value(f"{g}/block", 96)))
         self.fit.setChecked(s.value(f"{g}/fit", True, type=bool))
         for spin, axis in zip(self.centre, "xyz"):
             spin.setValue(float(s.value(f"{g}/centre_{axis}", 0.0)))
@@ -226,6 +238,8 @@ class MeshExportDialog(QDialog):
         g = SETTINGS_GROUP
         m = self.mesh_settings()
         s.setValue(f"{g}/resolution", m.resolution)
+        s.setValue(f"{g}/sparse", m.sparse)
+        s.setValue(f"{g}/block", m.block)
         s.setValue(f"{g}/fit", m.fit)
         for axis, value in zip("xyz", m.bounds.center):
             s.setValue(f"{g}/centre_{axis}", value)
@@ -248,7 +262,7 @@ class MeshExportDialog(QDialog):
         """The sampling / meshing settings as set in the dialog."""
         return DEMeshSettings(self.resolution.value(), Bounds(tuple(spin.value() for spin in self.centre), self.size.value()),
                               self.fit.isChecked(), self.threshold.value(), self.colors.isChecked(), self.clean.currentData(),
-                              self.smoothing.value(), self.target_faces.value())
+                              self.smoothing.value(), self.target_faces.value(), self.sparse.isChecked(), self.block.value())
 
     def export_settings(self) -> DEExportSettings:
         """The export settings as set in the dialog."""
@@ -258,8 +272,15 @@ class MeshExportDialog(QDialog):
 
     # --- building ------------------------------------------------------------------------------------------------------------
     def _refresh_estimate(self) -> None:
-        size = estimated_bytes(self.resolution.value(), self.colors.isChecked())
-        self.estimate.setText(f"{self.resolution.value()}³ voxels ≈ {size / 1e6:,.0f} MB")
+        res = self.resolution.value()
+        if self.sparse.isChecked():
+            padded = self.block.value() + 2 * BLOCK_PAD
+            blocks = -(-res // self.block.value())
+            self.estimate.setText(f"{res}³ voxels in up to {blocks}³ blocks of {padded}³ ≈ {estimated_bytes(padded, self.colors.isChecked()) / 1e6:,.0f} MB each")
+        else:
+            self.estimate.setText(f"{res}³ voxels ≈ {estimated_bytes(res, self.colors.isChecked()) / 1e6:,.0f} MB"
+                                  + ("  — over the limit: use sparse blocks" if res > MAX_RESOLUTION else ""))
+        self.block.setEnabled(self.sparse.isChecked())
 
     def _refresh_buttons(self) -> None:
         running = self._job is not None or self._export_job is not None

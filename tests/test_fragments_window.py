@@ -159,6 +159,12 @@ def test_bundled_examples_are_never_overwritten_by_save(window, monkeypatch):
     monkeypatch.setattr(window.files, "save_as", lambda *a, **k: called.append(True) or True)
     document.set_value("Power", 4.0)
     assert window.files.save() and called and MANDELBULB.read_text().count("#preset") == 2
+    assert "(example)" in window.tabs.bar.tabText(window.tabs.bar.currentIndex())
+    # a Save as aimed into the library is refused and asks again
+    before = MANDELBULB.read_bytes()
+    monkeypatch.setattr("fractalchemy.ui.fragments.file_actions.QMessageBox.information", lambda *a, **k: None)
+    assert window.files._write(document, MANDELBULB) and len(called) == 2 and MANDELBULB.read_bytes() == before
+    assert window.document_folder(document) is None      # files of an example (gradient strips, meshes) are asked for, not dropped in the library
 
 
 def test_buffer_size_rule_and_widgets(window):

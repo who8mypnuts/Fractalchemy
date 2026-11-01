@@ -52,6 +52,8 @@ class FragRequest:
         depth_to_alpha: The fragment has `DepthToAlpha` (output option for EXR).
         backbuffer_params: `#TexParameter backbuffer …` lines (filtering / wrapping of the accumulation textures).
         textures: Sampler uniform name → `TextureSpec` (the files to bind).
+        grading: Colour grading applied by the display pass (None / identity: none).
+        debug_view: `""` for the picture, `"depth"` for the depth buffer as an image.
     """
     modern: ModernSource
     buffer_modern: ModernSource | None = None
@@ -62,6 +64,8 @@ class FragRequest:
     depth_to_alpha: bool = False
     backbuffer_params: dict[str, str] = field(default_factory=dict)
     textures: dict[str, object] = field(default_factory=dict)
+    grading: object | None = None
+    debug_view: str = ""
 
     def copy(self) -> "FragRequest":
         """The service copies payloads; a request is immutable, so a shallow copy suffices."""
@@ -87,6 +91,8 @@ class FragRenderSettings:
             (the GPU watchdog mitigation; 0 = never split).
         gpu_load: The share of wall time the job may keep the GPU busy (1 = no limit): after every pass it idles
             for `elapsed · (1 − load) / load`, so a viewport that would pin the GPU at 100 % runs at this duty cycle.
+        drop_surface: Release the surface when the job closes (one-off renders such as thumbnails, so they never
+            evict a viewport's accumulation from the cache).
     """
     width: int = 640
     height: int = 360
@@ -100,6 +106,7 @@ class FragRenderSettings:
     depth_probe: tuple[int, int] | None = None
     subframe_budget_ms: float = config.FRAG_SUBFRAME_BUDGET_MS
     gpu_load: float = 1.0
+    drop_surface: bool = False
 
     def scaled(self, factor: float) -> "FragRenderSettings":
         return replace(self, width=max(1, int(self.width * factor)), height=max(1, int(self.height * factor)))
@@ -119,6 +126,7 @@ class BuildFacts:
         renderer: The GL renderer string.
         probe_depth: The depth buffer value at the settings' `depth_probe` after the last pass (None: no probe).
         tiled: Subframes are drawn as `tiled × tiled` scissored rectangles (1 = whole draws) — the watchdog mitigation.
+        subframe_ms: How long the last subframe took on the GPU (measured when a watchdog budget is set).
     """
     compile_ms: float = 0.0
     active: list[str] = field(default_factory=list)
@@ -129,6 +137,7 @@ class BuildFacts:
     renderer: str = ""
     probe_depth: float | None = None
     tiled: int = 1
+    subframe_ms: float = 0.0
 
 
 class FragJob:
@@ -164,6 +173,9 @@ class FragJob:
         compile_ms = sum(p.compile_ms for p in (self.program, self.buffer_program) if p is not None)
         s = self.settings
         self.surface = self.engine.surfaces.get(s.surface_key, s.width, s.height, self.request.buffer, clear=s.clear)
+        if s.redisplay_only and self.surface.subframe == 0:      # nothing accumulated to redisplay: render normally
+            self.settings = s = replace(s, redisplay_only=False, clear=True)
+            self.stats.passes_total = s.subframe_max or UNLIMITED
         self.surface.apply_params(self.request.backbuffer_params)
         facts = BuildFacts(compile_ms=compile_ms, active=self.program.user_uniform_names(),
                            unused=unused_names(self.program, list(self.request.values)), version=self.request.modern.version,
@@ -223,7 +235,8 @@ class FragJob:
         draw_subframe(self.engine, self.program, self.surface, self.request, s.time, projection, self._splits)
         if s.subframe_budget_ms > 0:
             self.ctx.finish()
-            self._watch((time.perf_counter() - started) * 1000.0)
+            self.stats.facts.subframe_ms = (time.perf_counter() - started) * 1000.0
+            self._watch(self.stats.facts.subframe_ms)
         self.stats.passes_done = self.surface.subframe
 
     def _watch(self, subframe_ms: float) -> None:
@@ -252,6 +265,8 @@ class FragJob:
         self._closed = True
         self._out_fbo.release()
         self._out_tex.release()
+        if self.settings.drop_surface:
+            self.engine.surfaces.drop(self.settings.surface_key)
 
 
 __all__ = ["FragJob", "FragRequest", "FragRenderSettings", "TileSpec", "BuildFacts", "UNLIMITED"]

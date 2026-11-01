@@ -20,6 +20,8 @@ from ..glsl_compat import ModernSource
 from .diagnostics import Diagnostic, parse_log
 from .program import Program
 from .surfaces import SurfaceCache
+from .debug import DepthView
+from .grading import GradingStage
 from .textures import TextureCache
 
 PROGRAM_CACHE_LIMIT = 24
@@ -92,6 +94,8 @@ class FragEngine:
         self._programs: dict[tuple[str, str], Program] = {}
         self.copy_program = Program(self.ctx, self.ctx.program(vertex_shader=COPY_VERTEX, fragment_shader=COPY_FRAGMENT), self.triangle)
         self.textures = TextureCache(self.ctx)
+        self.grading = GradingStage(self.ctx, self.triangle, COPY_VERTEX)
+        self.depth_view = DepthView(self.ctx, self.triangle, COPY_VERTEX)
 
     # --- programs ------------------------------------------------------------------------------------------------------
     def build(self, modern: ModernSource) -> tuple[Program, bool]:
@@ -144,6 +148,8 @@ class FragEngine:
         self._programs.clear()
         self.surfaces.release()
         self.textures.release()
+        self.grading.release()
+        self.depth_view.release()
         self.copy_program.release()
         self.triangle.release()
         if self.owns_context:

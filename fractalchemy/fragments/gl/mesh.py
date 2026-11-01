@@ -29,6 +29,9 @@ Cancelled = Callable[[], bool]
 
 PROBE_MAIN = """
 uniform vec3 probeOrigin;
+uniform vec3 probeU;
+uniform vec3 probeV;
+uniform vec3 probeW;
 uniform float probeStep;
 uniform int probeRes;
 uniform int probeFirstSlice;
@@ -42,7 +45,7 @@ float probeDE(vec3 p) {
 void main() {
     ivec2 pix = ivec2(gl_FragCoord.xy);
     int row = pix.y / probeRes;
-    vec3 p = probeOrigin + vec3(float(pix.x), float(pix.y - row * probeRes), float(probeFirstSlice + row)) * probeStep;
+    vec3 p = probeOrigin + float(pix.x) * probeU + float(pix.y - row * probeRes) * probeV + float(probeFirstSlice + row) * probeW;
     float d = probeDE(p);
     vec3 c = vec3(0.0);
 #ifdef providesColor
@@ -153,7 +156,8 @@ class DistanceProbe:
             if cancelled is not None and cancelled():
                 return None
             count = min(per_draw, res - first)
-            block = self._draw(origin, spacing, res, first, count, want_color)
+            axes = ((spacing, 0.0, 0.0), (0.0, spacing, 0.0), (0.0, 0.0, spacing))
+            block = self._draw(origin, axes, spacing, res, first, count, want_color)
             # block rows: slice-major then y; pixel x is the voxel's x → arrays indexed [x, y, z]
             block = block.reshape(count, res, res, 4)               # (slice, y, x, channel)
             distance[:, :, first:first + count] = np.transpose(block[..., 0], (2, 1, 0))
@@ -162,6 +166,17 @@ class DistanceProbe:
             if progress is not None:
                 progress((first + count) / res, f"Sampling the distance estimator ({first + count}/{res} slices)")
         return ProbeResult(distance, color, bounds, spacing)
+
+    def sample_plane(self, centre, u, v, size: float, resolution: int) -> np.ndarray:
+        """`(resolution, resolution)` DE values on the plane through `centre` spanned by unit vectors `u`, `v` (`size` wide);
+        row 0 is the −v edge, column 0 the −u edge."""
+        res = max(2, int(resolution))
+        step = size / res
+        centre, u, v = (np.asarray(x, dtype=np.float64) for x in (centre, u, v))
+        origin = centre - (u + v) * (size / 2.0 - step / 2.0)
+        axes = (tuple(u * step), tuple(v * step), (0.0, 0.0, 0.0))
+        block = self._draw(tuple(origin), axes, step, res, 0, 1, False)
+        return block.reshape(res, res, 4)[..., 0].copy()
 
     def fit_bounds(self, bounds: Bounds, threshold: float, coarse: int = 48, margin: float = 0.08) -> Bounds:
         """Shrink `bounds` to the box where the DE is below `threshold` (+ a margin); unchanged when nothing is found."""
@@ -190,7 +205,7 @@ class DistanceProbe:
             self._shape = (width, height)
         return self._fbo
 
-    def _draw(self, origin, spacing: float, res: int, first: int, count: int, want_color: bool) -> np.ndarray:
+    def _draw(self, origin, axes, spacing: float, res: int, first: int, count: int, want_color: bool) -> np.ndarray:
         ctx = self.engine.ctx
         fbo = self._target(res, res * count)
         fbo.use()
@@ -199,6 +214,8 @@ class DistanceProbe:
         self.engine.bind_textures(self.program, self.request)
         upload_values(self.program, self.request.values)
         self.program.set("probeOrigin", tuple(float(v) for v in origin))
+        for name, axis in zip(("probeU", "probeV", "probeW"), axes):
+            self.program.set(name, tuple(float(v) for v in axis))
         self.program.set("probeStep", float(spacing))
         self.program.set("probeRes", int(res))
         self.program.set("probeFirstSlice", int(first))

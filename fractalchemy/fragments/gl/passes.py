@@ -51,9 +51,18 @@ def split_rects(width: int, height: int, splits: int) -> list[tuple[int, int, in
 
 
 def display(engine, buffer_program: Program | None, surface: Surface, request, target_fbo, width: int, height: int, time: float) -> None:
-    """The display pass over `surface.front_texture` into `target_fbo`."""
+    """The display pass over `surface.front_texture` into `target_fbo`, then the request's colour grading if any."""
     ctx = engine.ctx
-    target_fbo.use()
+    if getattr(request, "debug_view", "") == "depth":
+        engine.depth_view.apply(surface, target_fbo, width, height, *depth_range(surface))
+        return
+    grading = getattr(request, "grading", None)
+    graded = grading is not None and not grading.is_identity
+    if graded and buffer_program is None:
+        engine.grading.apply(grading, surface.front_texture, target_fbo, width, height)      # straight from the accumulation
+        return
+    first_target = engine.grading.intermediate(width, height) if graded else target_fbo
+    first_target.use()
     ctx.viewport = (0, 0, width, height)
     surface.front_texture.use(0)
     if buffer_program is not None:
@@ -64,6 +73,20 @@ def display(engine, buffer_program: Program | None, surface: Surface, request, t
     else:
         engine.copy_program.set("frontbuffer", 0)
         engine.copy_program.render()
+    if graded:
+        engine.grading.apply(grading, engine.grading.texture, target_fbo, width, height)
 
 
-__all__ = ["draw_subframe", "display", "split_rects"]
+def depth_range(surface: Surface) -> tuple[float, float]:
+    """`(near, far)` depth values of the hits in the front buffer, for a readable depth display (0, 1 when nothing hit)."""
+    import numpy as np
+
+    data = np.frombuffer(surface.front_fbo.read(components=1, attachment=-1, dtype="f4"), dtype=np.float32)
+    hits = data[data < 1.0]
+    if hits.size == 0:
+        return 0.0, 1.0
+    near, far = float(np.percentile(hits, 1)), float(np.percentile(hits, 99))
+    return (near, far) if far > near else (near, near + 1e-6)
+
+
+__all__ = ["draw_subframe", "display", "split_rects", "depth_range"]

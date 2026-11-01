@@ -1529,3 +1529,4 @@ All six phases are implemented; the code map of §4 holds with these additions a
 | Editor themes, Shader Asm, EXR tools menu, spline depth occlusion | not ported (documented in `docs/fragments.md`) |
 | Fragments without `#vertex` | extension: a pass-through vertex shader is supplied (FragM refuses them) |
 | Primitives (user request after phase 6) | `Include/Primitives.frag` (SDF primitives, operators, folds), `Examples/Primitives/`, `Examples/Distance Estimator Compendium/`, template and snippets; `const_fold.py` for the `Math.frag` / `sqrt` constant-expression failure; GPU load limit + pause when hidden |
+| Post-delivery round (points 6 and 7) | new fractals (Fractalchemy Collection, Triplex.frag), grading dock, debug views (depth, DE slice), DE composer, Shadertoy importer, camera bookmarks + flight recording, manual render mode, performance HUD, colours from a gradient, sparse-block meshing; shared-context blit still not done (see TASK_STATE) |

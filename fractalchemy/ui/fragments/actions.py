@@ -40,6 +40,8 @@ class FragmentActions:
         self.save = act("Save", action_icon("save"), w.files.save, QKeySequence.StandardKey.Save, "Save the fragment")
         self.save_as = act("Save as…", action_icon("save-as"), lambda: w.files.save_as(), QKeySequence.StandardKey.SaveAs,
                            "Save the fragment under a new name (.fafrag or .frag)")
+        self.import_shadertoy = act("Import from Shadertoy…", None, w.import_shadertoy, None,
+                                    "Paste Shadertoy's Image (and Buffer A) code and get a fragment")
         self.save_template = act("Save as template…", None, w.save_as_template, None, "Keep the current source as one of your templates")
         self.open_templates_folder = act("Open templates folder", None, w.open_templates_folder, None, "Your templates are plain .fafrag files")
         self.save_params = act("Save parameters to file…", None, w.files.save_parameters, None, "The settings text as a .fragparams file")
@@ -59,6 +61,18 @@ class FragmentActions:
         # build
         self.build = act("Build", editor_icon("build"), w.build, "F5", "Preprocess, compile and render the fragment")
         self.auto_build = act("Auto-build", None, w.set_auto_build, None, "Rebuild by itself a moment after the source changes", checkable=True)
+        self.manual_render = act("Manual rendering", None, w.set_manual_render, None,
+                                 "Parameter changes do not re-render; use Render now (Shift+F5) or Build (F5)", checkable=True)
+        self.render_now = act("Render now", None, w.driver.render_now, "Shift+F5", "Start a fresh accumulation with the current values")
+        self.view_picture = act("Picture", None, lambda: w.set_debug_view(""), None, "The rendered image", checkable=True)
+        self.view_depth = act("Depth buffer", None, lambda: w.set_debug_view("depth"), None,
+                              "The depth the raytracer wrote: near bright, far dark, background black", checkable=True)
+        views = QActionGroup(w)
+        views.addAction(self.view_picture)
+        views.addAction(self.view_depth)
+        self.view_picture.setChecked(True)
+        self.composer = act("DE Composer…", None, w.show_composer, None, "Compose a distance estimator from folds, transforms and a primitive")
+        self.de_slice = act("DE slice…", None, w.show_de_slice, None, "The distance estimator on a plane as a heat map with contours")
         self.preprocessed = act("Show preprocessed source…", None, w.show_preprocessed, None,
                                 "The exact GLSL handed to the driver, with the original file:line of every line")
         self.preferences = act("Preferences…", None, w.show_preferences, None, "Editor, build, animation, paths and log options")
@@ -74,6 +88,8 @@ class FragmentActions:
         self.batch = act("Batch render presets…", None, w.show_batch_dialog, None, "One image per preset or keyframe of the saved fragment")
         self.export_mesh = act("Export mesh…", None, w.show_mesh_export, None,
                                "Sample the fragment's distance estimator on a voxel grid and export it as a printable mesh")
+        self.hud = act("Performance HUD", None, w.viewport.set_hud, "Ctrl+H",
+                       "Images per second, ms per subframe against the watchdog budget, tiling, size, GPU load — over the viewport", checkable=True)
         self.fullscreen = act("Fullscreen", None, w.toggle_fullscreen, "Esc", "Show only the viewport (Esc toggles)", checkable=True)
         # library
         self.show_library = act("Show library pane", None, w.library_dock.setVisible, "Ctrl+L", "Show / hide the fragment library", checkable=True)
@@ -91,6 +107,11 @@ class FragmentActions:
         self.reset_group = act("Reset group", None, lambda: w.parameters.group_action("reset"), None, "The current tab's parameters back to their defaults")
         self.lock_group = act("Lock group", editor_icon("lock"), lambda: w.parameters.group_action("lock"), None, "Lock every parameter of the current tab")
         self.unlock_group = act("Unlock group", editor_icon("unlock"), lambda: w.parameters.group_action("unlock"), None, "Unlock every parameter of the current tab")
+        self.colors_library = act("Colours from the Gradient Library", None, lambda: w.params.colors_from_library(False), None,
+                                  "Every colour parameter takes a colour sampled along the Gradient Library's current gradient")
+        self.colors_library_group = act("Colours of this tab from the Gradient Library", None, lambda: w.params.colors_from_library(True), None,
+                                        "Only the current tab's colour parameters")
+        self.colors_file = act("Colours from gradient file…", None, w.params.colors_from_file, None, "Sample the colours from a .ugr / .ggr / .map / .flame / image")
         self.hide_unused = act("Hide unused parameters", None, w.parameters.set_hide_unused, None,
                                "Hide parameters the compiler optimised away (locked ones stay)", checkable=True)
         self.hide_unused.setChecked(True)
@@ -99,6 +120,9 @@ class FragmentActions:
                                  "Write the current settings into the source as a #preset (a KeyFrame for 3D cameras)")
         self.select_preset = act("Select preset in source", None, w.params.select_preset, "F9", "Select the current preset's text in the editor")
         # animation
+        self.add_bookmark = act("Add camera bookmark…", None, w.camera.add_bookmark, "Ctrl+B", "Keep the current camera under a name (saved in the .fafrag)")
+        self.record_path = act("Record camera path", None, w.camera.set_recording, "Ctrl+Shift+R",
+                               "Sample the camera while you fly; turning it off writes KeyFrame presets", checkable=True)
         self.easing = act("Add easing curve…", None, w.animation.add_easing_curve, "F7", "Animate the last edited slider between two frames")
         self.timeline = act("Timeline editor…", None, w.animation.show_timeline, None, "Keyframes and easing curves on a ruler")
         self.clear_animation = act("Clear animation actions", None, w.animation.clear_animation, None, "Drop every easing curve")
@@ -125,7 +149,7 @@ class FragmentActions:
         self.templates_menu = QMenu("New from template", w)
         populate(self.file_menu, self.new_2d, self.new_3d)
         self.file_menu.addMenu(self.templates_menu)
-        populate(self.file_menu, None, self.open, self.reload, self.save, self.save_as, None)
+        populate(self.file_menu, None, self.open, self.reload, self.save, self.save_as, None, self.import_shadertoy, None)
         self.file_menu.addMenu(self.recent_menu)
         populate(self.file_menu, None, self.screenshot, None, self.close_tab, self.close_window)
         self.refresh_templates()
@@ -135,18 +159,23 @@ class FragmentActions:
         self._build_snippets(insert)
         populate(edit, self.insert_gradient, None, self.preferences)
         build = bar.addMenu("&Build")
-        populate(build, self.build, self.auto_build, None, self.preprocessed, self.test_versions, self.clear_textures, None, self.clear_log)
+        populate(build, self.build, self.auto_build, None, self.manual_render, self.render_now, None, self.composer, None, self.preprocessed, self.test_versions, self.clear_textures)
+        debug = build.addMenu("Debug view")
+        populate(debug, self.view_picture, self.view_depth, None, self.de_slice)
+        populate(build, None, self.clear_log)
         render = bar.addMenu("&Render")
         populate(render, self.render, self.batch, self.export_mesh, None, self.screenshot, None, self.fullscreen)
         params = bar.addMenu("&Parameters")
         populate(params, self.reset_all, self.reset_group, None, self.copy_settings, self.copy_group, self.paste_settings, self.paste_selected,
                  None, self.group_preset, self.insert_preset, self.select_preset, None, self.lock_group, self.unlock_group, None, self.hide_unused,
-                 None, self.save_params, self.load_params)
+                 None, self.colors_library, self.colors_library_group, self.colors_file, None, self.save_params, self.load_params)
         animation = bar.addMenu("&Animation")
         populate(animation, *w.anim.actions_list, None, self.easing, self.insert_preset, self.select_preset, None, self.timeline,
                  self.clear_animation, None, self.loop_play, self.loop_path, self.draw_paths, self.save_easing)
         interpolation = animation.addMenu("Interpolation")
         populate(interpolation, self.interpolate_camera, self.interpolate_all)
+        w.camera.menu = bar.addMenu("&Camera")
+        w.camera.refresh_menu()
         self.library_menu = bar.addMenu("&Library")
         self._build_examples(self.library_menu)
         populate(self.library_menu, None, self.show_library, self.thumbnails, self.refresh_library, None, self.add_folder, self.edit_library)
@@ -227,6 +256,8 @@ class FragmentActions:
         self.windows_menu.addSeparator()
         for toolbar in (self.toolbar, self.mode_toolbar, self.time_toolbar):
             self.windows_menu.addAction(toolbar.toggleViewAction())
+        self.windows_menu.addSeparator()
+        self.windows_menu.addAction(self.hud)
 
     def refresh_recent(self, paths: list) -> None:
         self.recent_menu.clear()

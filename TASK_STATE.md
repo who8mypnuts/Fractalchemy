@@ -492,3 +492,14 @@ from FragM*). User guide + language reference: `docs/fragments.md`; README secti
   SDF primitives, operators, folds; includes QuilezLib.frag), `Examples/Primitives/` (8) and `Examples/Distance
   Estimator Compendium/` (12, parameterised, attributed), the *Primitives playground* template, *Insert command ▸
   Primitives / Operators and folds*; inventory snapshot 206 examples.
+* Round 10b (user requests): `Examples/Fractalchemy Collection/` (12 fragments) + `Include/Triplex.frag`; colour grading
+  (`fragments/grading.py`, `gl/grading.py`, `grading_panel.py`; metadata `grading`); debug views (`gl/debug.py` depth display,
+  `de_slice_dialog.py` on `DistanceProbe.sample_plane`); DE composer (`fragments/composer.py`, `composer_dialog.py`;
+  metadata `tabs.composer`); Shadertoy importer (`fragments/shadertoy.py`, `shadertoy_dialog.py`); camera bookmarks +
+  flight recording (`camera_actions.py`; metadata `tabs.bookmarks`); manual render mode (`RenderDriver.manual`);
+  performance HUD (`FragViewport.hud_lines`, `BuildFacts.subframe_ms`); colours from a gradient (`ParameterActions`);
+  sparse-block meshing (`mesh.build_de_mesh_sparse`, up to 4096³). Fixes: the colour picker's window close now keeps the
+  colour (`KeepingColorPicker`), thumbnails no longer evict the viewport's accumulation (`FragRenderSettings.drop_surface`;
+  a redisplay on an empty surface renders normally), bundled files guarded on every write path (`_write` refuses the
+  library, `document_folder`, "(example)" tab marker). Not done: the shared-context GL blit (read-back is not the
+  bottleneck; a Qt/moderngl share is platform-fragile and cannot be verified offscreen). Inventory: 218 examples.

@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox, QStackedWidget, QTabBar, QVBoxLayout, QWidget
 
 from ...fragments.document_format import FragmentFormatError, FragmentMetadata, read_fragment
+from ...fragments.library_format import is_bundled_path
 from .code_editor import GlslCodeEditor
 from .document import FragDocument
 
@@ -132,7 +133,8 @@ class TabManager(QObject):
     # --- titles ----------------------------------------------------------------------------------------------------------
     def _title(self, tab: Tab) -> str:
         name = tab.document.path.name if tab.document.path else "Unnamed"
-        return name + (" *" if tab.document.modified else "") + (" (read-only)" if tab.read_only else "")
+        kind = " (read-only)" if tab.read_only else " (example)" if tab.document.path and is_bundled_path(tab.document.path) else ""
+        return name + (" *" if tab.document.modified else "") + kind
 
     def _refresh_title(self, tab: Tab) -> None:
         if tab in self._tabs:

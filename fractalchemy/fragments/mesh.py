@@ -27,7 +27,9 @@ Progress = Callable[[float, str], None]
 Cancelled = Callable[[], bool]
 CLEAN_LEVELS = ("none", "simple", "aggressive")
 MAX_RESOLUTION = 512
+MAX_SPARSE_RESOLUTION = 4096
 MEMORY_GUARD_BYTES = 1_500_000_000  # distance + colour + working copies
+BLOCK_PAD = 2                        # voxel layers sampled around a block so its surface continues into the neighbours
 
 
 @dataclass
@@ -43,6 +45,9 @@ class DEMeshSettings:
         clean: `none`, `simple` or `aggressive` (the host's clean-up levels).
         smooth_iterations: Taubin passes in the clean-up.
         target_faces: Decimate to about this many faces (0 = keep all).
+        sparse: Sample the grid block by block and skip blocks the coarse pass shows empty — the way to resolutions
+            beyond the memory of one dense grid (`MAX_SPARSE_RESOLUTION`).
+        block: Voxels per block side in sparse mode.
     """
     resolution: int = 128
     bounds: Bounds = field(default_factory=Bounds)
@@ -52,6 +57,8 @@ class DEMeshSettings:
     clean: str = "simple"
     smooth_iterations: int = 0
     target_faces: int = 0
+    sparse: bool = False
+    block: int = 96
 
     def copy(self) -> "DEMeshSettings":
         return replace(self)
@@ -59,10 +66,13 @@ class DEMeshSettings:
     def check(self) -> list[str]:
         """Problems that make the settings unusable (empty when fine)."""
         problems = []
-        if not 8 <= self.resolution <= MAX_RESOLUTION:
-            problems.append(f"resolution must be between 8 and {MAX_RESOLUTION}")
-        if estimated_bytes(self.resolution, self.colors) > MEMORY_GUARD_BYTES:
+        top = MAX_SPARSE_RESOLUTION if self.sparse else MAX_RESOLUTION
+        if not 8 <= self.resolution <= top:
+            problems.append(f"resolution must be between 8 and {top}" + ("" if self.sparse else " (more with sparse blocks)"))
+        if not self.sparse and estimated_bytes(self.resolution, self.colors) > MEMORY_GUARD_BYTES:
             problems.append(f"{self.resolution}³ voxels would need about {estimated_bytes(self.resolution, self.colors) / 1e9:.1f} GB")
+        if self.sparse and not 16 <= self.block <= 256:
+            problems.append("the block size must be between 16 and 256 voxels")
         if self.bounds.size <= 0:
             problems.append("the box size must be positive")
         if self.clean not in CLEAN_LEVELS:
@@ -166,6 +176,127 @@ def build_de_mesh(probe: ProbeResult, settings: DEMeshSettings, progress: Progre
     report(1.0, "Mesh ready")
     used = replace(settings, bounds=probe.bounds)
     return DEMeshResult(used, probe.distance.shape, probe.spacing, inside, full, cleaned, full_report, clean_report, seconds)
+
+
+# --- sparse blocks ---------------------------------------------------------------------------------------------------
+def active_blocks(coarse: ProbeResult, bounds: Bounds, resolution: int, block: int, threshold_world: float) -> list[tuple[int, int, int]]:
+    """The block indices a coarse probe shows the surface may cross (DE below the threshold plus the coarse cell's reach)."""
+    blocks_per_side = -(-resolution // block)
+    cell = coarse.spacing
+    reach = threshold_world + cell * 1.8                     # a coarse sample can miss the surface by its cell's diagonal
+    near = np.argwhere(coarse.distance <= reach)
+    if near.shape[0] == 0:
+        return []
+    block_world = bounds.spacing(resolution) * block
+    centres = coarse.origin + (near + 0.5) * cell
+    found: set[tuple[int, int, int]] = set()
+    origin = np.asarray(bounds.origin)
+    for offset in np.array([[dx, dy, dz] for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)]) * cell:
+        index = np.floor((centres + offset - origin) / block_world).astype(int)
+        ok = np.all((index >= 0) & (index < blocks_per_side), axis=1)
+        found.update(map(tuple, index[ok].tolist()))
+    return sorted(found)
+
+
+def block_mesh(probe_result: ProbeResult, core_lo: np.ndarray, core_hi: np.ndarray, iso: float, colors: bool) -> Mesh:
+    """The isosurface of one padded block, trimmed to the faces whose centroid lies in the block's own box."""
+    grid = grid_from_probe(probe_result)
+    mesh = surface_nets(grid, iso, with_color=False)
+    if mesh.face_count == 0:
+        return Mesh.empty()
+    centroids = mesh.vertices[mesh.faces].mean(axis=1)
+    keep = np.all((centroids >= core_lo) & (centroids < core_hi), axis=1)
+    faces = mesh.faces[keep]
+    used = np.unique(faces)
+    remap = np.full(mesh.vertex_count, -1, dtype=np.int64)
+    remap[used] = np.arange(used.shape[0])
+    trimmed = Mesh(mesh.vertices[used], remap[faces])
+    if colors:
+        trimmed.colors = vertex_colors(trimmed, probe_result)
+    return trimmed
+
+
+def build_de_mesh_sparse(probe, settings: DEMeshSettings, progress: Progress | None = None, cancelled: Cancelled | None = None
+                         ) -> DEMeshResult | None:
+    """Block-by-block meshing at `settings.resolution` over `settings.bounds` (None when cancelled).
+
+    A coarse probe picks the blocks near the surface; each is sampled with `BLOCK_PAD` voxel layers of padding, meshed
+    on its own and trimmed to its box, so neighbouring blocks produce identical vertices along their shared cubes; a
+    weld joins them into one mesh.
+    """
+    report = progress or (lambda fraction, message: None)
+    cancelled = cancelled or (lambda: False)
+    started = time.perf_counter()
+    seconds: dict[str, float] = {}
+    bounds, res, block = settings.bounds, settings.resolution, settings.block
+    spacing = bounds.spacing(res)
+    iso = -settings.threshold_voxels * spacing
+    report(0.0, "Coarse pass: finding the blocks near the surface")
+    coarse = probe.sample(bounds, max(16, min(64, -(-res // block) * 4)))
+    if coarse is None:
+        return None
+    blocks = active_blocks(coarse, bounds, res, block, settings.threshold_voxels * spacing)
+    origin = np.asarray(bounds.origin)
+    pieces: list[Mesh] = []
+    padded = block + 2 * BLOCK_PAD
+    for n, (bx, by, bz) in enumerate(blocks):
+        if cancelled():
+            return None
+        report(0.05 + 0.6 * n / max(1, len(blocks)), f"Sampling block {n + 1} of {len(blocks)} ({padded}³ voxels)")
+        core_lo = origin + np.array([bx, by, bz]) * block * spacing
+        core_hi = core_lo + block * spacing
+        centre = tuple(float(c) for c in (core_lo + core_hi) / 2.0)
+        sampled = probe.sample(Bounds(centre, padded * spacing), padded, settings.colors)
+        if sampled is None:
+            return None
+        piece = block_mesh(sampled, core_lo - 1e-9, core_hi - 1e-9, iso, settings.colors and sampled.color is not None)
+        if piece.face_count:
+            pieces.append(piece)
+    seconds["isosurface"] = time.perf_counter() - started
+    started = time.perf_counter()
+    report(0.7, "Joining the blocks")
+    full = _join(pieces, spacing)
+    full_report = full.report(spacing, None)
+    if cancelled():
+        return None
+    if settings.clean == "none" or full.face_count == 0:
+        cleaned, clean_report = full, full_report
+    else:
+        report(0.8, f"Cleaning ({settings.clean})")
+        cleaned, clean_report = _clean_sparse(full, settings, spacing, report, cancelled)
+        if cleaned is None:
+            return None
+    seconds["clean"] = time.perf_counter() - started
+    report(1.0, f"Mesh ready ({len(blocks)} of {(-(-res // block)) ** 3} blocks held surface)")
+    inside = np.zeros((1, 1, 1), dtype=bool)
+    return DEMeshResult(settings.copy(), (res, res, res), spacing, inside, full, cleaned, full_report, clean_report, seconds)
+
+
+def _join(pieces: list[Mesh], spacing: float) -> Mesh:
+    if not pieces:
+        return Mesh.empty()
+    offsets = np.cumsum([0] + [p.vertex_count for p in pieces[:-1]])
+    vertices = np.concatenate([p.vertices for p in pieces])
+    faces = np.concatenate([p.faces + o for p, o in zip(pieces, offsets)])
+    colors = np.concatenate([p.colors for p in pieces]) if all(p.colors is not None for p in pieces) else None
+    mesh = Mesh(vertices, faces, colors=colors).weld(spacing * 1e-3)
+    mesh, _dropped = mesh.remove_degenerate()
+    if mesh.face_count and mesh.signed_volume() < 0:
+        mesh = mesh.flipped()
+    mesh.compute_normals()
+    return mesh
+
+
+def _clean_sparse(full: Mesh, settings: DEMeshSettings, spacing: float, report: Progress, cancelled: Cancelled):
+    def decimation_progress(fraction: float, faces: int) -> None:
+        report(0.85 + 0.14 * fraction, f"Decimating ({faces:,} faces)")
+        if cancelled():
+            raise _Cancelled()
+
+    try:
+        return clean(full, clean_settings_for(settings), spacing, None, progress=decimation_progress)
+    except _Cancelled:
+        return None, None
 
 
 class _Cancelled(Exception):
@@ -286,5 +417,6 @@ def _report_table(title: str, rep: MeshReport) -> list[str]:
     return lines
 
 
-__all__ = ["DEMeshSettings", "DEMeshResult", "DEExportSettings", "DEExportOutcome", "CLEAN_LEVELS", "MAX_RESOLUTION",
+__all__ = ["DEMeshSettings", "DEMeshResult", "DEExportSettings", "DEExportOutcome", "CLEAN_LEVELS", "MAX_RESOLUTION", "MAX_SPARSE_RESOLUTION",
+           "build_de_mesh_sparse", "active_blocks", "block_mesh",
            "grid_from_probe", "vertex_colors", "build_de_mesh", "export_de_mesh", "report_markdown", "estimated_bytes"]

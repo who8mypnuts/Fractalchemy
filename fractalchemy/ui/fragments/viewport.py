@@ -57,6 +57,7 @@ class FragViewport(QWidget):
         self.traveling_wheel = False           # the 2D wheel preference (*traveling* vs *fixed*)
         self.path = None                        # the keyframe camera path to draw over the image (None: nothing)
         self.draw_paths = True
+        self.hud_enabled = False
         self._resize_timer = QTimer(self, singleShot=True, interval=RESIZE_MS)
         self._resize_timer.timeout.connect(self._after_resize)
         self.setMinimumSize(MIN_SIZE, MIN_SIZE)
@@ -112,6 +113,8 @@ class FragViewport(QWidget):
             painter.drawImage(self.image_rect(), self._image)
         if self.path is not None and self.draw_paths and self._image is not None:
             self._paint_path(painter)
+        if self.hud_enabled and self._image is not None:
+            self._paint_hud(painter)
         painter.setPen(TEXT)
         if self._message:
             painter.drawText(self.rect().adjusted(8, 8, -8, -8), Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
@@ -123,6 +126,43 @@ class FragViewport(QWidget):
         elif self._building and self.driver is not None and self.driver.stats is None:
             painter.drawText(self.rect().adjusted(8, 8, -8, -8), Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft, "Building…")
         painter.end()
+
+    # --- performance HUD ---------------------------------------------------------------------------------------------------
+    def set_hud(self, enabled: bool) -> None:
+        self.hud_enabled = enabled
+        self.update()
+
+    def hud_lines(self) -> list[str]:
+        """What the HUD shows: images / s, ms per subframe with the watchdog margin, subframes, tiling, size, GPU load."""
+        driver = self.driver
+        if driver is None or driver.stats is None:
+            return ["no render yet"]
+        stats, facts = driver.stats, driver.stats.facts
+        lines = [f"{driver.fps:.1f} images/s" if driver.fps > 0 else "idle", f"{stats.passes_done} subframes  ·  {stats.width}×{stats.height}"
+                 + ("  ·  interactive" if driver.interactive else "")]
+        if facts is not None:
+            budget = driver.subframe_budget_ms
+            margin = f"  ({facts.subframe_ms / budget * 100:.0f}% of the {budget:.0f} ms watchdog budget)" if budget > 0 and facts.subframe_ms > 0 else ""
+            lines.append(f"{facts.subframe_ms:.1f} ms / subframe{margin}")
+            if facts.tiled > 1:
+                lines.append(f"tiled {facts.tiled}×{facts.tiled}")
+            lines.append(f"GLSL {facts.version}  ·  compile {facts.compile_ms:.0f} ms  ·  {len(facts.active)} uniforms")
+        if driver.gpu_load < 1.0:
+            lines.append(f"GPU load limit {driver.gpu_load * 100:.0f}%")
+        return lines
+
+    def _paint_hud(self, painter: QPainter) -> None:
+        lines = self.hud_lines()
+        metrics = painter.fontMetrics()
+        width = max(metrics.horizontalAdvance(line) for line in lines) + 16
+        height = metrics.height() * len(lines) + 12
+        rect = QRect(self.width() - width - 8, 8, width, height)
+        painter.fillRect(rect, QColor(0, 0, 0, 150))
+        painter.setPen(QColor(230, 230, 230))
+        y = rect.top() + 6 + metrics.ascent()
+        for line in lines:
+            painter.drawText(rect.left() + 8, y, line)
+            y += metrics.height()
 
     def set_path(self, path) -> None:
         """The camera path (`CameraPath`) to draw, or None."""

@@ -154,6 +154,10 @@ class FragmentFileActions(QObject):
         return self._write(document, path)
 
     def _write(self, document: FragDocument, path: Path) -> bool:
+        if is_bundled(path):
+            QMessageBox.information(self.window, "Fragments", f"{path.name} is part of the bundled library, which is never overwritten.\n"
+                                    "Choose a folder of your own for the copy.")
+            return self.save_as()
         try:
             self._just_wrote.add(str(path))
             write_fragment(path, document.text, document.metadata)

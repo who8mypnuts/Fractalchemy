@@ -403,8 +403,17 @@ class BoolWidget(VariableWidget):
         return self.check.isChecked()
 
 
+class KeepingColorPicker(ColorPickerDialog):
+    """The host's picker, except that closing its window keeps the colour (only *Cancel* reverts) — the colour is
+    applied live while picking, so a close must not silently undo what the viewport already shows."""
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        event.accept()
+        self.accept()
+
+
 class ColorSwatch(QFrame):
-    """A clickable colour rectangle opening the host's live colour picker.
+    """A clickable colour rectangle opening the host's live colour picker (closing the picker keeps the colour).
 
     Signals:
         color_changed(tuple, bool): (r, g, b) in 0..1 and whether the edit is final (the dialog closed with OK).
@@ -437,7 +446,7 @@ class ColorSwatch(QFrame):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         if self._dialog is None:
-            self._dialog = ColorPickerDialog(self.window())
+            self._dialog = KeepingColorPicker(self.window())
             self._dialog.color_changed.connect(lambda c: self._on_picked(c, False))
             self._dialog.finished_with.connect(self._on_finished)
         original = self._rgb

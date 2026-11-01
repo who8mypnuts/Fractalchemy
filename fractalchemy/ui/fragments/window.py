@@ -39,11 +39,13 @@ from ...widgets.layouts import row
 from .actions import FragmentActions
 from .animation_actions import AnimationCoordinator
 from .animation_controls import AnimationControls
+from .camera_actions import CameraActions
 from .buffer_size import BufferSize, BufferSizeBar
 from .code_editor import GlslCodeEditor
 from .document import BuildOptions, FragDocument
 from .file_actions import FragmentFileActions, is_bundled
 from .gradient_dialog import GradientDialog
+from .grading_panel import GradingPanel
 from .library_panel import FragThumbnailProvider, FragmentLibraryController, FragmentLibraryPanel, make_roots
 from .log_panel import LogPanel
 from .parameter_actions import ParameterActions
@@ -89,7 +91,7 @@ class FragmentsWindow(QMainWindow):
         self.setWindowTitle(WINDOW_TITLE)
         self.setWindowIcon(fragments_icon())
         self._settings = settings if settings is not None else QSettings()
-        self._gradient_provider = gradient_provider
+        self.gradient_provider = gradient_provider
         self._three_d = three_d
         self.service = RenderService(self, prefer_gpu=prefer_gpu, factory=FragEngineFactory())
         self.buffer_size = BufferSize()
@@ -97,6 +99,7 @@ class FragmentsWindow(QMainWindow):
         self.tabs = TabManager(self)
         self.viewport = FragViewport(self)
         self.parameters = ParameterPanel(self)
+        self.grading_panel = GradingPanel(self)
         self.log = LogPanel(self)
         self.files = FragmentFileActions(self.tabs, self, self._settings)
         self.library_panel = FragmentLibraryPanel(self)
@@ -122,6 +125,7 @@ class FragmentsWindow(QMainWindow):
         self._auto_timer.timeout.connect(self._auto_build)
         self.animation = AnimationCoordinator(self)
         self.params = ParameterActions(self)
+        self.camera = CameraActions(self)
         self.actions = FragmentActions(self)
         self.actions.build_menus()
         self.actions.build_toolbars()
@@ -166,7 +170,10 @@ class FragmentsWindow(QMainWindow):
         self.parameters.setMinimumWidth(380)
         self.parameters_dock = self._dock("Parameters", "fragmentsParameters", self.parameters, Qt.DockWidgetArea.RightDockWidgetArea)
         self.log_dock = self._dock("Log", "fragmentsLog", self.log, Qt.DockWidgetArea.BottomDockWidgetArea)
-        self.actions.add_dock_toggles([self.library_dock, self.parameters_dock, self.log_dock])
+        self.grading_dock = self._dock("Grading", "fragmentsGrading", self.grading_panel, Qt.DockWidgetArea.RightDockWidgetArea)
+        self.tabifyDockWidget(self.parameters_dock, self.grading_dock)
+        self.parameters_dock.raise_()
+        self.actions.add_dock_toggles([self.library_dock, self.parameters_dock, self.grading_dock, self.log_dock])
         self.library_panel.setMinimumWidth(220)
         bar = QStatusBar(self)
         bar.addPermanentWidget(self.fps_label)
@@ -232,6 +239,13 @@ class FragmentsWindow(QMainWindow):
         compat = CompatOptions(self.prefs.compat_mode, caps.glsl_version if caps else 330, caps.has_fp64 if caps else False)
         return BuildOptions(self.prefs.move_main, self.prefs.use_defines, compat, self.include_paths())
 
+    @staticmethod
+    def document_folder(document: FragDocument) -> Path | None:
+        """The folder files belonging to the document go to — never the bundled library (None: ask)."""
+        if document.path is None or is_bundled(document.path):
+            return None
+        return document.path.parent
+
     def include_paths(self) -> list[Path]:
         """The user's extra include folders (preferences)."""
         return [Path(p) for p in self.prefs.include_paths]
@@ -268,6 +282,7 @@ class FragmentsWindow(QMainWindow):
         self.driver.set_document(document)
         self.viewport.set_document(document)
         self.parameters.set_document(document)
+        self.grading_panel.set_document(document)
         if document is not None and document.source is not None and document.source.subframe_max >= 0:
             self.subframe_spin.setValue(document.source.subframe_max)
         self.anim.stop()
@@ -278,6 +293,7 @@ class FragmentsWindow(QMainWindow):
             self.actions.interpolate_all.setChecked(document.animation.interpolation == "all")
             self.actions.interpolate_camera.setChecked(document.animation.interpolation != "all")
         self.animation.refresh(document)
+        self.camera.refresh_menu()
         self._refresh_title()
         self._refresh_actions()
         self._refresh_build_label()
@@ -344,6 +360,13 @@ class FragmentsWindow(QMainWindow):
         if document is not None and document.needs_build:
             self.build_document(document)
 
+    def set_manual_render(self, enabled: bool) -> None:
+        """*Manual rendering*: the viewport only renders on request (a change made while manual renders when turned off)."""
+        self.driver.manual = enabled
+        self.message("Manual rendering: use Render now (Shift+F5)" if enabled else "Automatic rendering")
+        if not enabled and self.driver.pending:
+            self.driver.render_now()
+
     def set_auto_build(self, enabled: bool) -> None:
         self.prefs.auto_build = enabled
         if enabled:
@@ -404,6 +427,36 @@ class FragmentsWindow(QMainWindow):
         """*Clear texture cache*: drop the engine's textures; the next subframe reloads them from disk."""
         self.run_engine_task("Clear texture cache", clear_textures, lambda _r: (self.log.add("info", "Texture cache cleared"), self.driver.render(clear=True)))
 
+    def set_debug_view(self, view: str) -> None:
+        """*Debug view*: the picture, or the depth buffer."""
+        document = self.tabs.document
+        if document is not None:
+            document.set_debug_view(view)
+        self.message("Depth buffer view: near bright, far dark, background black" if view == "depth" else "Picture view")
+
+    def show_composer(self) -> None:
+        """*DE Composer…*: folds + transforms + a primitive → a fragment tab (reopens the current tab's recipe if it has one)."""
+        from ...fragments.composer import Recipe
+        from .composer_dialog import RECIPE_KEY, ComposerDialog
+        document = self.tabs.document
+        recipe_data = document.metadata.tabs.get(RECIPE_KEY) if document is not None else None
+        dialog = ComposerDialog(self, Recipe.from_dict(recipe_data) if recipe_data else None, document if recipe_data else None)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.show()
+
+    def show_de_slice(self) -> None:
+        """*Debug view ▸ DE slice…* for fragments with a distance estimator."""
+        from ...fragments.gl.mesh import has_distance_estimator
+        from .de_slice_dialog import DESliceDialog
+        document = self.tabs.document
+        request = document.request() if document is not None else None
+        if request is None or not has_distance_estimator(request.modern):
+            self.message("The DE slice needs a built fragment with `float DE(vec3 p)`")
+            return
+        dialog = DESliceDialog(self, document)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.show()
+
     def show_preprocessed(self) -> None:
         """*Show preprocessed source*: the GLSL handed to the driver, line by line with its origin."""
         document = self.tabs.document
@@ -431,6 +484,8 @@ class FragmentsWindow(QMainWindow):
     # --- rendering facts ------------------------------------------------------------------------------------------------------
     def _on_stats(self, stats: RenderStats) -> None:
         self.done_label.setText(f" {stats.passes_done} rendered")
+        if self.viewport.hud_enabled:
+            self.viewport.update()
         tiled = f"  tiled {stats.facts.tiled}×{stats.facts.tiled}" if stats.facts is not None and stats.facts.tiled > 1 else ""
         self.size_label.setText(f"{stats.width}×{stats.height}  aspect {stats.width / max(1, stats.height):.3f}{tiled}")
 
@@ -450,6 +505,28 @@ class FragmentsWindow(QMainWindow):
     # --- files, templates, examples -------------------------------------------------------------------------------------------
     def new_from_template(self, template: Template) -> None:
         self.files.new_from_template(template)
+
+    def import_shadertoy(self) -> None:
+        """*Import from Shadertoy…*: paste the passes, get a fragment tab (two files next to each other with a Buffer A)."""
+        from .shadertoy_dialog import ShadertoyDialog
+        dialog = ShadertoyDialog(self, Path(str(self._settings.value("fragments/folder", str(Path.home())))))
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.result_conversion is None:
+            return
+        conversion = dialog.result_conversion
+        for note in conversion.notes:
+            self.log.add("info", f"Shadertoy import: {note}")
+        if conversion.image is None:
+            self.open_text(conversion.main)
+            return
+        folder = dialog.target_folder
+        main_path = folder / f"{conversion.image_file[:-len('-image.frag')]}.frag"
+        try:
+            (folder / conversion.image_file).write_text(conversion.image, encoding="utf-8")
+            main_path.write_text(conversion.main, encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(self, "Fragments", f"Cannot write the fragment files:\n{exc}")
+            return
+        self.open_path(main_path)
 
     def open_example(self, path: Path) -> None:
         self.files.open_path(path)
@@ -554,7 +631,7 @@ class FragmentsWindow(QMainWindow):
         document = self.tabs.document
         if document is None:
             return
-        dialog = GradientDialog(self, self._gradient_provider, document.path.parent if document.path else None)
+        dialog = GradientDialog(self, self.gradient_provider, self.document_folder(document))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         strip = dialog.write_texture_if_needed()
@@ -633,8 +710,7 @@ class FragmentsWindow(QMainWindow):
         if not has_distance_estimator(request.modern):
             self.message("Export mesh needs a fragment with `float DE(vec3 p)` (a 3D distance estimator)")
             return
-        dialog = MeshExportDialog(self, request, document.name, self._settings, self._three_d,
-                                  document.path.parent if document.path else None)
+        dialog = MeshExportDialog(self, request, document.name, self._settings, self._three_d, self.document_folder(document))
         dialog.show()
         self._mesh_dialog = dialog
 

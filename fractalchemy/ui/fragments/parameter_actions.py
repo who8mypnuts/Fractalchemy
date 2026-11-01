@@ -134,4 +134,51 @@ class ParameterActions:
 
 
 
+    # --- colours from a gradient --------------------------------------------------------------------------------------
+    def colors_from_gradient(self, gradient, group: str | None = None) -> int:
+        """Give every colour parameter (of `group`, or all) a colour sampled evenly along `gradient`; returns how many."""
+        document = self.w.tabs.document
+        if document is None or gradient is None or not gradient.stops:
+            return 0
+        names = [n for n, p in document.state.params.items() if p.kind in ("color", "floatcolor") and (group is None or p.group == group)
+                 and not document.state.is_locked(n)]
+        if not names:
+            self.w.message("No unlocked colour parameters" + (f" in {group}" if group else ""))
+            return 0
+        values = {}
+        for i, name in enumerate(names):
+            t = 0.5 if len(names) == 1 else i / (len(names) - 1)
+            rgb = tuple(c / 255.0 for c in gradient.color_at(t))
+            current = document.state.get(name)
+            values[name] = rgb if document.state.params[name].kind == "color" else (*rgb, current[3])
+        document.set_values(values)
+        document.end_merge()
+        self.w.message(f"{len(values)} colour parameters set from '{gradient.name}'")
+        return len(values)
+
+    def colors_from_library(self, current_group_only: bool = False) -> None:
+        """*Colours from the Gradient Library* (all colour parameters, or the current tab's)."""
+        provider = self.w.gradient_provider
+        gradient = provider() if provider is not None else None
+        if gradient is None:
+            self.w.message("The Gradient Library has no gradient loaded")
+            return
+        self.colors_from_gradient(gradient, self.w.parameters.current_group() if current_group_only else None)
+
+    def colors_from_file(self) -> None:
+        """*Colours from gradient file…*: any gradient file the host reads."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from ...formats import FormatError, load_gradient, open_dialog_filter
+        chosen, _filter = QFileDialog.getOpenFileName(self.w, "Gradient file", "", open_dialog_filter())
+        if not chosen:
+            return
+        try:
+            gradient = load_gradient(chosen)
+        except (OSError, FormatError, ValueError) as exc:
+            self.w.message(f"Could not read {chosen}: {exc}")
+            return
+        self.colors_from_gradient(gradient)
+
+
 __all__ = ["ParameterActions"]
