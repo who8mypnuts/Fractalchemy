@@ -217,7 +217,7 @@ def test_parameter_state_apply_clamp_reset_and_rebuild():
     result = state.apply_settings("Power = 32\nJulia = false\nNope = 1\nCenter = 0.25,0.5 Locked\nMode = 7\n")
     assert state.get("Power") == 16 and any("clamped" in w for w in result.warnings)
     assert state.get("Julia") is False and state.get("Center") == (0.25, 0.5) and state.get("Mode") == 2
-    assert "Could not find: Nope" in result.warnings and result.recompile      # Power is locked: its value is in the source
+    assert any(w.startswith("Could not find: Nope") for w in result.warnings) and result.recompile      # Power is locked: its value is in the source
     assert state.locked_names() == ["Power", "Center"] and "Tex" not in state.locked_names()
     text = state.to_text()
     assert "Power = 16 Logarithmic" not in text and "Power = 16" in text      # defaults of the annotation are not repeated

@@ -165,3 +165,15 @@ def test_camera2d_keys_drags_and_wheel():
     assert np.allclose(traveling.center, (0.25 / 2.0, 0.0))
     transformed = Camera2D(enable_transform=True, rotate_angle=90.0)
     assert np.allclose(transformed.transform() @ vec(1, 0), (0, 1), atol=1e-12)
+
+
+def test_const_initializers_with_calls_are_folded():
+    from fractalchemy.fragments.const_fold import evaluate, fold_const_initializers
+
+    lines = ["#define PI 3.14159265", "const float phi = (sqrt(5.0) + 1.0) / 2.0;", "const float tau = 2.0 * PI;",
+             "const int n = int(floor(7.9));", "const float bad = DE(vec3(0.0));", "const float k = pow(2.0f, 3.0); // c"]
+    out, folded = fold_const_initializers(lines)
+    assert folded == ["phi", "n", "k"]
+    assert out[1].startswith("const float phi = 1.61803399;") and out[2] == lines[2] and out[3].startswith("const int n = 7;")
+    assert out[4] == lines[4] and out[5].startswith("const float k = 8.0; // c")
+    assert abs(evaluate("atan(1.0, 1.0) * 4.0", {}) - 3.14159265) < 1e-6

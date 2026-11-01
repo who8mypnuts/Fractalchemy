@@ -91,6 +91,7 @@ class FragDocument(QObject):
         self.metadata = metadata if metadata is not None else FragmentMetadata()   # the .fafrag block (render / animation / library)
         self._modified = False
         self._needs_build = True
+        self.build_failed_last = False           # the last build attempt was rejected (preprocessor, translator or driver)
         self.source: FragmentSource | None = None
         self.modern: ModernSource | None = None
         self.buffer_modern: ModernSource | None = None
@@ -158,7 +159,7 @@ class FragDocument(QObject):
         for msg in source.messages:
             self.message.emit(msg)
         if any(m.level == CRITICAL for m in source.messages) and not source.fragment:
-            self.build_failed.emit([m for m in source.messages if m.level == CRITICAL])
+            self._fail([m for m in source.messages if m.level == CRITICAL])
             return False
         self.source = source
         self.state = self.state.rebuilt(source.all_params)
@@ -168,12 +169,19 @@ class FragDocument(QObject):
             self.modern = modernise(source, options.compat)
             self.buffer_modern = modernise(source.buffer_shader, options.compat) if source.buffer_shader else None
         except CompatError as exc:
-            self.build_failed.emit([Message(CRITICAL, str(exc), self.path)])
+            self._fail([Message(CRITICAL, str(exc), self.path)])
             return False
         self.facts = None
+        self.build_failed_last = False
         self.set_needs_build(False)
         self.built.emit(source)
         return True
+
+    def _fail(self, diagnostics: list) -> None:
+        self.build_failed_last = True
+        self.set_needs_build(True)
+        self.build_failed.emit(list(diagnostics))
+        self.needs_build_changed.emit(True)      # the label shows *Build failed* even when it was already stale
 
     def _apply_default_preset(self) -> None:
         """FragM applies the `Default` preset when a fragment is first built."""
@@ -217,8 +225,7 @@ class FragDocument(QObject):
 
     def set_build_error(self, diagnostics: list) -> None:
         """The driver rejected the program."""
-        self.set_needs_build(True)
-        self.build_failed.emit(list(diagnostics))
+        self._fail(diagnostics)
 
     @property
     def camera_kind(self) -> str:

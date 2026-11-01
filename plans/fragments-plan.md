@@ -1528,3 +1528,4 @@ All six phases are implemented; the code map of §4 holds with these additions a
 | Completer polish | done: GLSL built-ins with signatures and one-line docs, the host's words, own functions with signatures |
 | Editor themes, Shader Asm, EXR tools menu, spline depth occlusion | not ported (documented in `docs/fragments.md`) |
 | Fragments without `#vertex` | extension: a pass-through vertex shader is supplied (FragM refuses them) |
+| Primitives (user request after phase 6) | `Include/Primitives.frag` (SDF primitives, operators, folds), `Examples/Primitives/`, `Examples/Distance Estimator Compendium/`, template and snippets; `const_fold.py` for the `Math.frag` / `sqrt` constant-expression failure; GPU load limit + pause when hidden |

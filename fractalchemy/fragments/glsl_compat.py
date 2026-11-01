@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field, replace
 
+from .const_fold import fold_const_initializers
 from .source import FragmentSource, LineMap
 
 MIN_VERSION = 330
@@ -175,6 +176,8 @@ def modernise(source: FragmentSource, options: CompatOptions = CompatOptions()) 
     version = target_version(source, options) if options.mode != "off" else requested_version(source.version_line)[0]
     notes: list[str] = []
     source = _with_default_vertex(source, notes)
+    if options.mode != "off":
+        source = _with_folded_consts(source, notes)
     if options.mode == "off":
         vertex, vmap = _plain(source.vertex, source.vertex_line_map)
         fragment, fmap = _plain(source.fragment, source.line_map)
@@ -192,6 +195,15 @@ def _note(notes: list[str], text: str) -> None:
     """Record a remark once (several `#extension` lines would otherwise repeat it)."""
     if text not in notes:
         notes.append(text)
+
+
+def _with_folded_consts(source: FragmentSource, notes: list[str]) -> FragmentSource:
+    """`const` initializers that call functions (`sqrt` after Math.frag redefined it) become literals (`const_fold.py`)."""
+    fragment, folded = fold_const_initializers(source.fragment)
+    if not folded:
+        return source
+    _note(notes, "const initializer evaluated at build time (a redefined function made it non-constant): " + ", ".join(folded))
+    return replace(source, fragment=fragment)
 
 
 def _with_default_vertex(source: FragmentSource, notes: list[str]) -> FragmentSource:

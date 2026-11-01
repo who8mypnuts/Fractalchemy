@@ -284,6 +284,42 @@ class Template:
     description: str = ""
 
 
+PRIMITIVES = '''// Primitives playground: compose the distance primitives of Primitives.frag
+#include "MathUtils.frag"
+#include "DE-Raytracer.frag"
+#include "Primitives.frag"
+
+#group Shapes
+uniform float Smoothness; slider[0.001,0.2,1]
+uniform vec3 SphereOffset; slider[(-3,-3,-3),(0.9,0.5,0),(3,3,3)]
+uniform float Twist; slider[-3,0,3]
+
+// Primitives: sdSphere, sdBox, sdRoundBox, sdBoxFrame, sdTorus(p, R, r), sdCapsule, sdCylinder(p, r, h), sdCone,
+// sdOctahedron, sdIcosahedron, sdDodecahedron, fGDF, sdGyroid, sdHexPrism ... (see Primitives.frag)
+// Operators: opUnion, opSubtract, opIntersect, opSmoothUnion, opOnion, opRound, opRepeat, opRepeatPolar, opTwist, opBend
+// Folds:     foldBox, foldSphere, foldMenger, foldSierpinski, foldKaleido
+float DE(vec3 p) {
+	p = opTwist(p, Twist);
+	float box = sdRoundBox(p, vec3(0.8, 0.5, 0.8), 0.05);
+	float ball = sdSphere(p - SphereOffset, 0.6);
+	float ring = sdTorus(p - vec3(0.0, 0.7, 0.0), 1.1, 0.08);
+	return opUnion(opSmoothUnion(box, ball, Smoothness), ring);
+}
+
+#preset Default
+FOV = 0.4
+Eye = 2.6,2.2,-3.6
+Target = 0,0.2,0
+Up = 0,1,0
+Detail = -2.8
+DetailAO = -1.2
+BaseColor = 0.85,0.8,0.7
+OrbitStrength = 0
+BackgroundColor = 0.35,0.4,0.5
+GradientBackground = 0.3
+#endpreset
+'''
+
 BUILTIN_TEMPLATES = (
     Template("New 2D fragment", NEW_2D, "2D", "A Mandelbrot on Progressive2D.frag with Iñigo Quilez's colouring (FragM's New 2D)"),
     Template("New 3D fragment", NEW_3D, "3D", "A sphere-shell distance estimator on DE-Raytracer.frag (FragM's New 3D)"),
@@ -293,6 +329,7 @@ BUILTIN_TEMPLATES = (
     Template("Shadertoy-style shader", SHADERTOY, "2D", "iResolution / iGlobalTime / gl_FragCoord, no camera"),
     Template("Buffer feedback", FEEDBACK, "2D", "Reads the previous frame back: a feedback system with DontClearOnChange"),
     Template("Fast raytracer", FAST_RAYTRACER, "3D", "A DE on Fast-Raytracer.frag (quick, no shadows or AO)"),
+    Template("Primitives playground", PRIMITIVES, "3D", "Boxes, spheres, tori and the operators of Primitives.frag on DE-Raytracer.frag"),
 )
 
 # FragM's Edit ▸ Insert Command menu, group by group
@@ -310,6 +347,20 @@ SNIPPETS: dict[str, tuple[str, ...]] = {
         "uniform bool b; checkbox[true]", "uniform sampler2D tex; file[tex.jpg]", "uniform samplerCube cubetex; file[cubetex.jpg]",
         "uniform vec3 color; color[0.0,0.0,0.0]", "uniform vec4 color; color[0.0,1.0,0.0,0.0,0.0,0.0]",
         "uniform bool DepthToAlpha; checkbox[true]", "uniform bool AutoFocus; checkbox[true]",
+    ),
+    "Primitives (Primitives.frag)": (
+        '#include "Primitives.frag"', "sdSphere(p, 1.0)", "sdBox(p, vec3(1.0))", "sdRoundBox(p, vec3(1.0), 0.1)", "sdBoxFrame(p, vec3(1.0), 0.05)",
+        "sdTorus(p, 1.0, 0.25)", "sdCapsule(p, 0.5, 0.2)", "sdCapsuleLine(p, vec3(0.0), vec3(1.0), 0.1)", "sdCylinder(p, 0.5, 1.0)",
+        "sdCone(p, 0.5, 1.0)", "sdCappedCone(p, 0.5, 0.5, 0.2)", "sdHexPrism(p, 0.5, 0.2)", "sdOctahedron(p, 1.0)", "sdIcosahedron(p, 1.0)",
+        "sdDodecahedron(p, 1.0)", "fGDF(p, 1.0, 16.0, 3, 18)", "sdEllipsoid(p, vec3(1.0, 0.5, 0.7))", "sdPyramid(p, 1.0)",
+        "sdGyroid(p, 7.0, 0.05, 0.0)", "sdPlane(p, vec3(0.0, 1.0, 0.0), 1.0)",
+    ),
+    "Operators and folds (Primitives.frag)": (
+        "opUnion(a, b)", "opSubtract(a, b)", "opIntersect(a, b)", "opSmoothUnion(a, b, 0.2)", "opSmoothSubtract(a, b, 0.2)",
+        "opSmoothIntersect(a, b, 0.2)", "opOnion(d, 0.05)", "opRound(d, 0.1)", "p = opRepeat(p, vec3(2.0));", "p = opRepeatLimited(p, 2.0, vec3(2.0));",
+        "p.xz = opRepeatPolar(p.xz, 8.0);", "p = opTwist(p, 1.0);", "p = opBend(p, 0.5);", "p = opElongate(p, vec3(0.5, 0.0, 0.0));",
+        "p = foldBox(p, 1.0);", "p = foldSphere(p, dr, 0.25, 1.0);", "p = foldMenger(p);", "p = foldSierpinski(p);",
+        "p.xz = foldKaleido(p.xz, 6.0);", "p *= rot3(vec3(0.0, 1.0, 0.0), 0.5);",
     ),
     "2D texture options": (
         "#TexParameter textureName GL_TEXTURE_MAG_FILTER GL_NEAREST", "#TexParameter textureName GL_TEXTURE_WRAP_S GL_CLAMP",
@@ -359,5 +410,5 @@ def save_user_template(name: str, text: str, folder: Path | None = None) -> Path
     return path
 
 
-__all__ = ["NEW_2D", "NEW_3D", "Template", "BUILTIN_TEMPLATES", "SNIPPETS", "template_named", "user_templates", "user_templates_dir",
+__all__ = ["NEW_2D", "NEW_3D", "PRIMITIVES", "Template", "BUILTIN_TEMPLATES", "SNIPPETS", "template_named", "user_templates", "user_templates_dir",
            "save_user_template"]

@@ -99,6 +99,12 @@ class PreferencesDialog(QDialog):
         self.interactive_scale.setSingleStep(0.05)
         self.interactive_scale.setToolTip("Render scale while the camera moves (1 = full size)")
         form.addRow("Interactive scale", self.interactive_scale)
+        self.gpu_load = _spin(5, 100, 5)
+        self.gpu_load.setSuffix(" %")
+        self.gpu_load.setToolTip("The viewport's GPU duty cycle: below 100 % the renderer idles between passes (slower accumulation, cooler machine)")
+        form.addRow("GPU load limit", self.gpu_load)
+        self.pause_when_hidden = QCheckBox("Pause rendering while the window is hidden or minimised")
+        form.addRow(self.pause_when_hidden)
         return page
 
     def _paths_tab(self) -> QWidget:
@@ -158,6 +164,8 @@ class PreferencesDialog(QDialog):
         self.default_fps.setValue(p.default_fps)
         self.refresh_ms.setValue(p.refresh_ms)
         self.interactive_scale.setValue(p.interactive_scale)
+        self.gpu_load.setValue(p.gpu_load)
+        self.pause_when_hidden.setChecked(p.pause_when_hidden)
         self.include_list.clear()
         self.include_list.addItems(p.include_paths)
         self.log_to_file.setChecked(p.log_to_file)
@@ -173,7 +181,8 @@ class PreferencesDialog(QDialog):
             jump_to_error=self.jump_to_error.isChecked(), autoload=self.autoload.isChecked(), autorun=self.autorun.isChecked(),
             auto_build=self.auto_build.isChecked(), move_main=self.move_main.isChecked(), use_defines=self.use_defines.isChecked(),
             compat_mode=self.compat_mode.currentData(), save_easing=self.save_easing.isChecked(), default_fps=self.default_fps.value(),
-            refresh_ms=self.refresh_ms.value(), interactive_scale=self.interactive_scale.value(),
+            refresh_ms=self.refresh_ms.value(), interactive_scale=self.interactive_scale.value(), gpu_load=self.gpu_load.value(),
+            pause_when_hidden=self.pause_when_hidden.isChecked(),
             include_paths=[self.include_list.item(i).text() for i in range(self.include_list.count())],
             log_to_file=self.log_to_file.isChecked(), log_file=self.log_file.text().strip(), log_file_max_kb=self.log_file_max_kb.value(),
             verbose=self.verbose.isChecked()).normalised()

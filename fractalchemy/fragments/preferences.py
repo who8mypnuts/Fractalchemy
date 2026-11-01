@@ -39,6 +39,9 @@ class FragPreferences:
         default_fps: Frames per second for fragments without their own animation settings.
         refresh_ms: The viewport aims for one delivered image per this many milliseconds.
         interactive_scale: Render scale while the camera moves (1 = full size).
+        gpu_load: The viewport's GPU duty cycle in percent (100 = render flat out, FragM's behaviour; lower values idle
+            between passes so the machine stays responsive and cool).
+        pause_when_hidden: Stop accumulating while the window is hidden or minimised; resume on show.
         include_paths: Extra folders searched for `#include` files (the bundled folder is always last).
         log_to_file: Mirror the log to a file.
         log_file: That file ("" = `fragments.log` in the cache folder).
@@ -62,6 +65,8 @@ class FragPreferences:
     default_fps: int = 25
     refresh_ms: int = config.FRAG_REFRESH_MS
     interactive_scale: float = config.FRAG_INTERACTIVE_SCALE
+    gpu_load: int = 100
+    pause_when_hidden: bool = True
     include_paths: list[str] = field(default_factory=list)
     log_to_file: bool = False
     log_file: str = ""
@@ -91,6 +96,7 @@ class FragPreferences:
                        font_size=max(0, min(48, int(self.font_size))), compat_mode=self.compat_mode if self.compat_mode in MODES else "modernise",
                        default_fps=max(1, min(240, int(self.default_fps))), refresh_ms=max(5, min(2000, int(self.refresh_ms))),
                        interactive_scale=max(0.1, min(1.0, float(self.interactive_scale))), log_file_max_kb=max(16, int(self.log_file_max_kb)),
+                       gpu_load=max(5, min(100, int(self.gpu_load))),
                        include_paths=[str(p) for p in self.include_paths if str(p).strip()])
 
 

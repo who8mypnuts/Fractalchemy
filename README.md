@@ -457,7 +457,7 @@ environments), is `docs/3d-editor-plan.md`.
 fractals written as GLSL fragment shaders — Mandelbulbs, Mandelboxes, kaleidoscopic IFS, escape-time sets, feedback
 systems — edited, tweaked and rendered on the GPU. It reads Fragmentarium / FragM `.frag` files unchanged (their
 directives, `#include`s, annotated uniforms and `#preset`s), ships FragM's example library and include files
-(*Library ▸ Examples*, 186 fragments in 14 categories), and saves `.fafrag` / `.frag`. A tool window like the others:
+(*Library ▸ Examples*, 206 fragments in 16 categories), and saves `.fafrag` / `.frag`. A tool window like the others:
 closing hides it; layout, options and tabs are remembered. See [docs/fragments.md](docs/fragments.md) for the guide
 and the language reference; the plan is `plans/fragments-plan.md`.
 
@@ -499,6 +499,12 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   with its includes saved beside the image (FragM's autosave), ffmpeg video afterwards, pause / stop / save
   incomplete. *Batch render presets…* renders every preset or keyframe of a file; `tools/render_frag.py` does the
   same from the command line (what `.fqs` scripts were for).
+* **Primitives**: `#include "Primitives.frag"` — ~60 signed distance primitives (boxes, tori, cones, prisms,
+  polyhedra, gyroids…), the boolean / smooth / repetition / twist operators and the box / sphere / Menger /
+  Sierpinski / kaleido folds as plain GLSL; *Insert command* menus, a *Primitives playground* template, a *Primitives*
+  example folder (gallery, booleans, Menger from crosses, Mandelbox from folds, domain repetition, gyroid, chain
+  maille) and a *Distance Estimator Compendium* folder of parameterised fractal estimators (gaz, kamoshika, yonatan,
+  Kali, Nameless, Kleinian, Lewpen, butadiene, Marble Marcher levels, mrange, iq's Apollonian).
 * **Textures**: `file[…]` samplers (LDR through Pillow, `.hdr` / `.exr` float, cube-map strips, integer samplers),
   `#TexParameter` filters / wrapping / anisotropy with mipmaps, a cache keyed by file and modification time.
 * **Insert gradient…**: any gradient the host reads (the Gradient Library's current one, `.ugr`, `.map`, palettes,
@@ -510,13 +516,13 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   preview, OBJ / STL / PLY / glTF / USD output, and *Send to 3D Editor* (a PLY asset on the Instances tab).
 * **Preferences…**: recent files, loop play, camera paths, 2D wheel mode, editor font, jump to error, reload on
   change, autorun / auto-build, moveMain, `#define` locks, the compatibility layer, easing in presets, frame rate,
-  refresh interval, interactive scale, include paths, log to file, verbose. *Build ▸ Test GLSL versions* compiles at
+  refresh interval, interactive scale, a GPU load limit and pause-when-hidden, include paths, log to file, verbose. *Build ▸ Test GLSL versions* compiles at
   every version the driver offers; *Clear texture cache*; Help has the guide, the CLI, a welcome note and links.
 * **Under the hood**: a second render service thread with its own OpenGL context runs the fragment engine
   (ping-pong accumulation surfaces that survive parameter edits for `DontClearOnChange` fragments, a program cache,
   a buffer-shader display pass, depth reads for the 3D pick, engine chores such as the version test as priority
   jobs); the legacy GLSL 1.10 / 1.20 the fragment world is written in is translated to 3.30 core so it runs on every
-  modern context (`fragments/glsl_compat.py`); 178 of the 186 bundled examples compile, the rest fail in FragM too.
+  modern context (`fragments/glsl_compat.py`); 199 of the 206 bundled examples compile, the rest fail in FragM too.
   Heavy fragments stay clear of the GPU watchdog: half-size rendering while the camera moves, subframes per image
   adapting to the refresh interval, and automatic **tiling** of a subframe that exceeds the time budget (the status
   bar shows *tiled n×n*).

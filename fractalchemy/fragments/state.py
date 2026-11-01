@@ -163,7 +163,7 @@ class ParameterState:
         for line in parsed.lines:
             param = self.params.get(line.name)
             if param is None:
-                result.warnings.append(f"Could not find: {line.name}")
+                result.warnings.append(f"Could not find: {line.name} (the preset sets a parameter this fragment does not declare; ignored)")
                 continue
             if line.lock is not None and self.set_lock(line.name, line.lock):
                 result.recompile = True

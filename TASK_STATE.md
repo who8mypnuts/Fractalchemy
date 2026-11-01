@@ -485,3 +485,10 @@ from FragM*). User guide + language reference: `docs/fragments.md`; README secti
   FragM's too) / window / files / animation / render / gradient / mesh / textures`, `tests/fragments_inventory.json`.
 * Not ported (documented): Shader Asm, the EXR tools menu, `.fqs` scripts (→ the Python CLI), editor themes, spline
   occlusion by depth; the shared-context GL blit stays a possible later addition (read-back is not the bottleneck).
+* Follow-up: `fragments/const_fold.py` (const initializers that call redefined functions — Math.frag's `sqrt` — are
+  evaluated at build time; the lyapunov example now compiles, KNOWN_FAILURES = 7), *Build failed — see the log* label
+  state (`FragDocument.build_failed_last`), clearer *Could not find* warning, GPU duty-cycle limiter
+  (`FragRenderSettings.gpu_load`, preference *GPU load limit*) and *pause when hidden*, `Include/Primitives.frag` (~60
+  SDF primitives, operators, folds; includes QuilezLib.frag), `Examples/Primitives/` (8) and `Examples/Distance
+  Estimator Compendium/` (12, parameterised, attributed), the *Primitives playground* template, *Insert command ▸
+  Primitives / Operators and folds*; inventory snapshot 206 examples.

@@ -85,6 +85,8 @@ class FragRenderSettings:
             — FragM's `ZAtMXY` for the 3D point under the mouse.
         subframe_budget_ms: A subframe slower than this makes the job split the next ones into scissored tiles
             (the GPU watchdog mitigation; 0 = never split).
+        gpu_load: The share of wall time the job may keep the GPU busy (1 = no limit): after every pass it idles
+            for `elapsed · (1 − load) / load`, so a viewport that would pin the GPU at 100 % runs at this duty cycle.
     """
     width: int = 640
     height: int = 360
@@ -97,6 +99,7 @@ class FragRenderSettings:
     surface_key: object = "viewport"
     depth_probe: tuple[int, int] | None = None
     subframe_budget_ms: float = config.FRAG_SUBFRAME_BUDGET_MS
+    gpu_load: float = 1.0
 
     def scaled(self, factor: float) -> "FragRenderSettings":
         return replace(self, width=max(1, int(self.width * factor)), height=max(1, int(self.height * factor)))
@@ -191,10 +194,21 @@ class FragJob:
         self.stats.facts.notes += self.engine.textures.take_problems()     # a texture that failed to load this pass
         if self.settings.depth_probe is not None:
             self.stats.facts.probe_depth = self.surface.depth_at(*self.settings.depth_probe)
-        self._elapsed += time.perf_counter() - started
+        elapsed = time.perf_counter() - started
+        self._elapsed += elapsed
         self.stats.seconds = self._elapsed
         self.stats.samples = self.stats.hits = self.surface.subframe * self.settings.width * self.settings.height
+        self._throttle(elapsed, cancelled)
         return image
+
+    def _throttle(self, elapsed: float, cancelled: Callable[[], bool]) -> None:
+        """Idle after the pass so the GPU's duty cycle stays at `settings.gpu_load` (in short slices, to stay cancellable)."""
+        load = min(1.0, max(0.05, float(self.settings.gpu_load)))
+        if load >= 1.0 or self.stats.finished:
+            return
+        deadline = time.perf_counter() + elapsed * (1.0 - load) / load
+        while time.perf_counter() < deadline and not cancelled():
+            time.sleep(min(0.02, max(0.0, deadline - time.perf_counter())))
 
     def _subframes_this_pass(self) -> int:
         per_pass = max(1, self.settings.subframes_per_pass, self.request.subframes_between_redraws + 1)

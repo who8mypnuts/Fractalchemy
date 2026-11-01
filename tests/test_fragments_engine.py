@@ -38,7 +38,6 @@ void main() {
 """
 # the known failures: broken in FragM as well (checked by reading the sources; see the plan, §5.6)
 KNOWN_FAILURES = {
-    "2D Systems/2016-02-26_lyapunov_atom_domains.frag",   # Math.frag redefines sqrt(): `const float phi = sqrt(5.0)` is no constant
     "eiffieGI2/MontecarloByEffie-KnightyMod.frag", "eiffieGI2/MontecarloByEffie.frag", "eiffieGI2/pseudoknightyan.frag",
     "Experimental/DoubleTest.frag",                         # ComplexBase's double atan returns a float
     "Knighty Collection/PseudoKnightyan.frag",              # uses `time` without declaring it (KN_VOLUMETRIC)
@@ -225,3 +224,19 @@ def test_watchdog_splits_slow_subframes_into_tiles(engine):
     assert job.stats.facts.tiled > 1 and any("tiles" in note for note in job.stats.notes)
     assert whole.stats.facts.tiled == 1
     assert np.array_equal(image, reference)       # tiling changes the draws, not the picture
+
+
+def test_gpu_load_limit_idles_between_passes(engine):
+    import time
+
+    request, _state = build(engine, SLOW)
+    with engine.ctx:
+        job = engine.start(request, FragRenderSettings(16, 16, subframe_max=4, surface_key="throttle", gpu_load=0.5))
+        job.run_pass()                                  # builds and draws the first subframe
+        started = time.perf_counter()
+        job._throttle(0.05, lambda: False)              # half duty cycle: idle as long as the pass took
+        idled = time.perf_counter() - started
+        cancelled_at = time.perf_counter()
+        job._throttle(1.0, lambda: True)                # a cancelled job does not idle
+        job.close()
+    assert 0.04 <= idled < 0.5 and time.perf_counter() - cancelled_at < 0.1

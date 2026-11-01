@@ -55,6 +55,7 @@ class RenderDriver(QObject):
         self.time = 0.0
         self.refresh_ms = DEFAULT_REFRESH_MS
         self.interactive_scale = INTERACTIVE_SCALE
+        self.gpu_load = 1.0                      # the duty cycle the viewport may keep the GPU at (preferences)
         self.interactive = False
         self.depth_probe: tuple[int, int] | None = None
         self.window_size = (640, 360)
@@ -155,7 +156,8 @@ class RenderDriver(QObject):
         settings = FragRenderSettings(width, height, subframe_max=1 if self.interactive else self.subframe_max,
                                       subframes_per_pass=1 if self.interactive else self._per_pass, time=self.time,
                                       clear=clear or self.interactive, redisplay_only=redisplay_only and not self.interactive,
-                                      surface_key=("surface", id(document)), depth_probe=self.depth_probe)
+                                      surface_key=("surface", id(document)), depth_probe=self.depth_probe,
+                                      gpu_load=1.0 if self.interactive else self.gpu_load)
         if self._key is not None:
             self.service.cancel(self._key)
         self._generation += 1

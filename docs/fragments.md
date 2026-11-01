@@ -35,7 +35,8 @@ options (*Edit ▸ Preferences…*) and open tabs are remembered between runs.
 ### Workflow
 
 1. *Library ▸ Examples ▸ …* opens one of the bundled fragments (FragM's example folder: 2D Systems, Benesi, Kaleidoscopic
-   IFS, Kali's Creations, Knighty Collection, Tutorials, …) in a tab. It is built and rendered at once (*Autorun*).
+   IFS, Kali's Creations, Knighty Collection, Tutorials, … plus Fractalchemy's *Primitives* and *Distance Estimator
+   Compendium* folders) in a tab. It is built and rendered at once (*Autorun*).
    Bundled examples never save over themselves: *Save* becomes *Save as*.
 2. The **Parameters** dock shows one tab per `#group`, the **Preset** combo applies a `#preset` block (the `Default`
    preset is applied on load). Sliders re-render as you drag; Ctrl+Z undoes. A parameter the compiler optimised away
@@ -183,13 +184,41 @@ USD (with vertex colours, in world units or scaled to a size in millimetres) plu
 Editor* saves a PLY asset and opens it on the 3D Editor's Instances tab for instancing and lighting there.
 Resolution is capped at 512³ with a memory estimate; the job runs on its own thread and context and can be cancelled.
 
+## Primitives, operators and folds
+
+`#include "Primitives.frag"` (after the raytracer include) brings ~60 signed distance primitives, the operators that
+combine them and the folds fractals are built from, all as plain GLSL functions — a standard library for writing
+distance estimators, collected from Inigo Quilez's distance functions, Mercury's hg_sdf and Jon Baker's Distance
+Estimator Compendium (attributions in `library/ATTRIBUTION.md`; the file includes `QuilezLib.frag`, so do not include
+both).
+
+| Family | Functions (all `float sd…(vec3 p, …)`, negative inside, centred at the origin) |
+|---|---|
+| Boxes / planes | `sdBox`, `sdBoxCheap`, `sdRoundBox`, `sdBoxFrame`, `sdChamferBox`, `sdPlane(p, n, h)`, `sdCross`, `sdCorner`, `sdBox2D` |
+| Round things | `sdSphere`, `sdEllipsoid`, `sdCylinder(p, r, h)`, `sdCylinderInfinite`, `sdRoundedCylinder`, `sdCylinder6 / 8`, `sdCapsule`, `sdCapsuleLine(p, a, b, r)`, `sdTorus(p, R, r)`, `sdTorus82`, `sdTorus88`, `sdCappedTorus`, `sdLink`, `sdDisc`, `sdSolidAngle`, `sdWavySphere`, `sdTwistedTube` |
+| Cones / pyramids | `sdCone(p, r, h)`, `sdCappedCone`, `sdRoundCone`, `sdPyramid` |
+| Prisms | `sdHexPrism`, `sdTriPrism`, `sdOctPrism`, `sdRhombus` |
+| Polyhedra | `sdOctahedron`, `sdIcosahedron`, `sdDodecahedron`, `sdRhombicDodecahedron`, `fGDF(p, r, [e,] begin, end)` with `GDFVectors` (`sdGDFOctahedron / Dodecahedron / Icosahedron / TruncatedOctahedron / TruncatedIcosahedron / Cube`) |
+| Surfaces | `sdGyroid`, `sdSchwarzP`, `sdGyroidTorus`, `udTriangle`, `udQuad`, `sdStar` |
+| Operators | `opUnion / opSubtract / opIntersect`, `opSmoothUnion / opSmoothSubtract / opSmoothIntersect(a, b, k)`, `opRound`, `opOnion`, `opElongate`, `opRepeat`, `opRepeatLimited`, `opRepeatMirror`, `opRepeatPolar(p.xz, n)`, `opTwist`, `opBend`, `opTranslate`, `opMirror`, `opFoldPlane`, `opDisplaceSine` |
+| Folds | `foldBox(p, limit)`, `foldSphere(p, scale, minR2, fixedR2)`, `foldMenger`, `foldSierpinski`, `foldKaleido(p.xz, n)` |
+| Helpers | `rot2(a)`, `rot3(axis, a)`, `lpNorm`, `lengthN`, `length6`, `dot2`, `smin`, `PHI` |
+
+*Edit ▸ Insert command ▸ Primitives* and *Operators and folds* insert calls; *File ▸ New from template ▸ Primitives
+playground* starts a fragment with them; *Library ▸ Examples ▸ Primitives* shows every primitive (*Primitives
+Gallery*, a menu with all 42 shapes), the booleans, the Menger sponge from a box and crosses, kaleidoscopic folds, the
+Mandelbox from `foldBox` + `foldSphere`, domain repetition, a gyroid shell and chain maille. A distance estimator
+built from these is exactly what *Render ▸ Export mesh…* wants.
+
 ## Preferences
 
 *Edit ▸ Preferences…* (stored per user): **GUI** — recent files, loop play by default, draw camera paths, 2D wheel
 mode (zoom towards the pointer or the centre), log rows kept; **Editor** — font size, jump to the first error line,
 reload a tab when its file changes on disk; **GLSL** — build on open (*autorun*), auto-build, move `main` to the end
 (FragM's *moveMain*), locked parameters as `#define` or `const`, the compatibility layer (*modernise* / FragM's patch /
-off), presets carry easing curves, the animation frame rate, the viewport's refresh interval and interactive scale;
+off), presets carry easing curves, the animation frame rate, the viewport's refresh interval and interactive scale,
+the **GPU load limit** (a duty cycle: below 100 % the renderer idles between passes) and *pause rendering while the
+window is hidden or minimised*;
 **Paths** — extra include folders; **Application** — mirror the log to a file (rotated at a size cap), *verbose* (log
 the parameter values after every build).
 
@@ -277,7 +306,7 @@ errors still point into the right file. Doubles (`double`, `dvec`) need an expli
 FragM. The translated text is what *Show preprocessed source* shows; a rejected program's sources and the driver's
 log are written to `<cache>/Fractalchemy/glsl-failures/`.
 
-Of the 186 bundled examples 178 compile; the eight that do not (listed in `tests/test_fragments_engine.py`) fail in
+Of the 206 bundled examples 199 compile; the seven that do not (listed in `tests/test_fragments_engine.py`) fail in
 FragM as well — they use functions before including them, undeclared uniforms, or `double` code that never compiled.
 
 ## Files
@@ -300,8 +329,11 @@ the File menu; the tabs that were open are reopened on the next start.
 ## Performance notes
 
 The viewport reads the accumulated image back from the GPU after each pass and paints it (at 1920 × 1080 that is 8 MB
-and a few milliseconds on a discrete GPU; FragM reads its tiles back as well). Three things keep heavy fragments
-responsive and clear of the driver's watchdog: the render scale while the camera moves (half size by default, a
+and a few milliseconds on a discrete GPU; FragM reads its tiles back as well). The GPU is busy for as long as a fragment accumulates (FragM's
+*continuous* behaviour): *Subframe max* on the toolbar ends it (10 by default; 0 keeps going), the **GPU load limit**
+preference idles between passes (50 % halves the load and doubles the time to the same quality), *pause when hidden*
+stops the work while nothing is visible, and *Progressive* mode with a stopped clock is idle once the maximum is
+reached. Three things keep heavy fragments responsive and clear of the driver's watchdog: the render scale while the camera moves (half size by default, a
 preference), the number of subframes per delivered image adapting to the refresh interval, and **automatic tiling** —
 a subframe that takes longer than the budget (`FRAG_SUBFRAME_BUDGET_MS`, 500 ms) makes the job draw the following
 ones as 2×2, 3×3 … scissored rectangles of the same surface. Hi-res renders are tiled by construction. The GL
@@ -311,7 +343,10 @@ the read-back is not the bottleneck.
 ## What differs from FragM
 
 * Every program is translated to core-profile GLSL (FragM compiles the legacy text as is); *Show preprocessed source*
-  shows the result. A fragment without a `#vertex` block gets a pass-through vertex shader (FragM refuses it).
+  shows the result. A fragment without a `#vertex` block gets a pass-through vertex shader (FragM refuses it). A
+  `const float` initializer that calls a function the includes redefined (`Math.frag` wraps `sqrt`, so `const float
+  phi = (sqrt(5.0) + 1.0) / 2.0` is no constant expression — NVIDIA's C1059) is evaluated at build time and written
+  back as a literal.
 * ggr2glsl's blend shapes follow GIMP's reference maths (see *Gradients*); the gradient bridge takes every gradient
   format the host reads, not only `.ggr`.
 * Not ported: the shader assembler view (*Shader Asm*, NVIDIA-only), the EXR command-line tools menu, the `.fqs`

@@ -291,3 +291,21 @@ def test_mesh_export_dialog_builds_a_mesh(window, tmp_path):
     wait_until(lambda: dialog._export_job is None, 60000)
     assert (tmp_path / "Mandelbulb.ply").exists() and (tmp_path / "Mandelbulb_report.md").exists()
     dialog.close()
+
+
+def test_build_failure_label_and_gpu_preferences(window):
+    from fractalchemy.fragments.preferences import FragPreferences
+
+    window.open_text("uniform float X; slider[0,1,2]\nvoid main() { gl_FragColor = vec4(X) + undefined_thing; }")
+    wait_until(lambda: window.tabs.document.build_failed_last, 30000)
+    assert "Build failed" in window.build_label.text()
+    prefs = FragPreferences(gpu_load=40, pause_when_hidden=True)
+    window.apply_preferences(prefs)
+    assert abs(window.driver.gpu_load - 0.4) < 1e-9 and window.prefs.gpu_load == 40
+    assert FragPreferences.from_dict({"gpu_load": "1"}).gpu_load == 5
+    window.open_path(MANDELBULB)
+    rendered(window)
+    window._set_paused(True)
+    assert window._paused and window.driver._key is None
+    window._set_paused(False)
+    assert not window._paused and window.driver._key is not None

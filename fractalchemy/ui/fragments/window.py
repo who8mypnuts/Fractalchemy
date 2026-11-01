@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QTextCursor
 from PySide6.QtWidgets import (QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox, QSpinBox, QSplitter, QStatusBar,
                                QVBoxLayout, QWidget)
@@ -115,6 +115,7 @@ class FragmentsWindow(QMainWindow):
         self._tasks: dict = {}
         self._task_seq = 0
         self._mesh_dialog = None
+        self._paused = False
         self._capabilities = None
         self._fullscreen_state = None
         self._auto_timer = QTimer(self, singleShot=True, interval=AUTO_BUILD_DELAY_MS)
@@ -351,8 +352,12 @@ class FragmentsWindow(QMainWindow):
     def _refresh_build_label(self) -> None:
         document = self.tabs.document
         stale = document is not None and document.needs_build
-        self.build_label.setText(" Build needed " if stale else "")
-        self.build_label.setStyleSheet("QLabel { color: #c62828; font-weight: bold; }" if stale else "")
+        failed = stale and document.build_failed_last
+        self.build_label.setText(" Build failed — see the log " if failed else " Build needed " if stale else "")
+        self.build_label.setStyleSheet("QLabel { color: #c62828; font-weight: bold; }" if failed
+                                       else "QLabel { color: #e65100; font-weight: bold; }" if stale else "")
+        self.build_label.setToolTip("The last build was rejected; the previous program (if any) keeps rendering" if failed
+                                    else "The source, a lock or a build option changed since the shown program was built (F5)" if stale else "")
         self.actions.build.setEnabled(document is not None)
 
     # --- engine chores (run on the render thread) ------------------------------------------------------------------------------
@@ -736,7 +741,27 @@ class FragmentsWindow(QMainWindow):
 
     def hideEvent(self, event) -> None:
         self.save_state()
+        self._set_paused(True)
         super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._set_paused(False)
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self._set_paused(self.isMinimized())
+
+    def _set_paused(self, paused: bool) -> None:
+        """*Pause when hidden*: stop accumulating while nobody can see the viewport; continue where it was on show."""
+        if not self.prefs.pause_when_hidden or paused == self._paused:
+            return
+        self._paused = paused
+        if paused:
+            self.driver.cancel()
+        elif self.tabs.document is not None and self.tabs.document.request() is not None:
+            self.driver.render(clear=False)
 
     # --- preferences ------------------------------------------------------------------------------------------------------------------
     def show_preferences(self) -> None:
@@ -759,6 +784,7 @@ class FragmentsWindow(QMainWindow):
         self.viewport.traveling_wheel = prefs.traveling_wheel
         self.driver.refresh_ms = prefs.refresh_ms
         self.driver.interactive_scale = prefs.interactive_scale
+        self.driver.gpu_load = prefs.gpu_load / 100.0
         self.files.autoload = prefs.autoload
         self.files.max_recent = prefs.max_recent
         self.log.max_rows = prefs.log_max_rows
