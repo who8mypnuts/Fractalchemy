@@ -88,6 +88,10 @@ class FragmentActions:
         self.batch = act("Batch render presets…", None, w.show_batch_dialog, None, "One image per preset or keyframe of the saved fragment")
         self.export_mesh = act("Export mesh…", None, w.show_mesh_export, None,
                                "Sample the fragment's distance estimator on a voxel grid and export it as a printable mesh")
+        self.show_editor = act("Editor pane", None, w.toggle_editor, "Ctrl+E", "Show / hide the source editor (the viewport takes the width)", checkable=True)
+        self.show_editor.setChecked(True)
+        self.next_preset = act("Next preset", None, lambda: w.step_preset(1), "Ctrl+PgDown", "Apply the next preset")
+        self.previous_preset = act("Previous preset", None, lambda: w.step_preset(-1), "Ctrl+PgUp", "Apply the previous preset")
         self.hud = act("Performance HUD", None, w.viewport.set_hud, "Ctrl+H",
                        "Images per second, ms per subframe against the watchdog budget, tiling, size, GPU load — over the viewport", checkable=True)
         self.fullscreen = act("Fullscreen", None, w.toggle_fullscreen, "Esc", "Show only the viewport (Esc toggles)", checkable=True)
@@ -104,6 +108,8 @@ class FragmentActions:
         self.paste_settings = act("Paste from clipboard", action_icon("paste"), w.params.paste_settings, "F3", "Apply settings text from the clipboard")
         self.paste_selected = act("Paste from selected text", None, w.params.paste_selected, "Shift+F3", "Apply the text selected in the editor as settings")
         self.group_preset = act("Group to preset…", None, lambda: w.params.group_to_preset(None), "F4", "Insert a preset holding the current tab's parameters")
+        self.randomize_group = act("Randomize group", None, lambda: w.parameters.group_action("randomize"), "F6",
+                                   "Random values within the sliders' ranges for the current tab (camera and locked parameters excluded)")
         self.reset_group = act("Reset group", None, lambda: w.parameters.group_action("reset"), None, "The current tab's parameters back to their defaults")
         self.lock_group = act("Lock group", editor_icon("lock"), lambda: w.parameters.group_action("lock"), None, "Lock every parameter of the current tab")
         self.unlock_group = act("Unlock group", editor_icon("unlock"), lambda: w.parameters.group_action("unlock"), None, "Unlock every parameter of the current tab")
@@ -120,6 +126,8 @@ class FragmentActions:
                                  "Write the current settings into the source as a #preset (a KeyFrame for 3D cameras)")
         self.select_preset = act("Select preset in source", None, w.params.select_preset, "F9", "Select the current preset's text in the editor")
         # animation
+        self.copy_image = act("Copy image", action_icon("copy"), w.copy_image, "Ctrl+Shift+C", "The viewport's picture on the clipboard")
+        self.reset_camera = act("Reset camera", None, w.reset_camera, "Ctrl+Shift+0", "Back to the current preset's camera")
         self.add_bookmark = act("Add camera bookmark…", None, w.camera.add_bookmark, "Ctrl+B", "Keep the current camera under a name (saved in the .fafrag)")
         self.record_path = act("Record camera path", None, w.camera.set_recording, "Ctrl+Shift+R",
                                "Sample the camera while you fly; turning it off writes KeyFrame presets", checkable=True)
@@ -151,7 +159,7 @@ class FragmentActions:
         self.file_menu.addMenu(self.templates_menu)
         populate(self.file_menu, None, self.open, self.reload, self.save, self.save_as, None, self.import_shadertoy, None)
         self.file_menu.addMenu(self.recent_menu)
-        populate(self.file_menu, None, self.screenshot, None, self.close_tab, self.close_window)
+        populate(self.file_menu, None, self.screenshot, self.copy_image, None, self.close_tab, self.close_window)
         self.refresh_templates()
         edit = bar.addMenu("&Edit")
         populate(edit, self.undo, self.redo, None, self.find, self.replace, self.goto, self.indent, None)
@@ -166,8 +174,8 @@ class FragmentActions:
         render = bar.addMenu("&Render")
         populate(render, self.render, self.batch, self.export_mesh, None, self.screenshot, None, self.fullscreen)
         params = bar.addMenu("&Parameters")
-        populate(params, self.reset_all, self.reset_group, None, self.copy_settings, self.copy_group, self.paste_settings, self.paste_selected,
-                 None, self.group_preset, self.insert_preset, self.select_preset, None, self.lock_group, self.unlock_group, None, self.hide_unused,
+        populate(params, self.reset_all, self.reset_group, self.randomize_group, None, self.copy_settings, self.copy_group, self.paste_settings, self.paste_selected,
+                 None, self.group_preset, self.insert_preset, self.select_preset, self.next_preset, self.previous_preset, None, self.lock_group, self.unlock_group, None, self.hide_unused,
                  None, self.colors_library, self.colors_library_group, self.colors_file, None, self.save_params, self.load_params)
         animation = bar.addMenu("&Animation")
         populate(animation, *w.anim.actions_list, None, self.easing, self.insert_preset, self.select_preset, None, self.timeline,
@@ -257,6 +265,7 @@ class FragmentActions:
         for toolbar in (self.toolbar, self.mode_toolbar, self.time_toolbar):
             self.windows_menu.addAction(toolbar.toggleViewAction())
         self.windows_menu.addSeparator()
+        self.windows_menu.addAction(self.show_editor)
         self.windows_menu.addAction(self.hud)
 
     def refresh_recent(self, paths: list) -> None:

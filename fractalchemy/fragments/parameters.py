@@ -108,6 +108,26 @@ class GuiParameter:
         """`(value within the parameter's range, whether it had to be clamped)`; scalar kinds accept any value."""
         return value, False
 
+    def random_value(self, rng) -> Any | None:
+        """A value drawn uniformly from the parameter's range (None for kinds that have none, e.g. textures)."""
+        from_, to = getattr(self, "from_", None), getattr(self, "to", None)
+        if self.kind == "bool":
+            return bool(rng.random() < 0.5)
+        if self.kind == "menu":
+            return int(rng.integers(0, max(1, len(getattr(self, "texts", ()) or (0,)))))
+        if self.kind == "color":
+            return tuple(float(v) for v in rng.random(3))
+        if self.kind == "floatcolor":
+            return (*(float(v) for v in rng.random(3)), float(rng.uniform(from_, to)))
+        if from_ is None or to is None:
+            return None
+        if isinstance(from_, (tuple, list)):
+            value = tuple(float(rng.uniform(lo, hi)) if hi > lo else float(lo) for lo, hi in zip(from_, to))
+            return value
+        if self.kind == "int":
+            return int(rng.integers(int(from_), int(to) + 1))
+        return float(rng.uniform(from_, to)) if to > from_ else float(from_)
+
     def parse(self, text: str) -> Any:
         """A value from settings text (the part after `=`, suffixes removed)."""
         raise NotImplementedError

@@ -17,7 +17,7 @@ from typing import Callable
 
 from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QTextCursor
-from PySide6.QtWidgets import (QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox, QSpinBox, QSplitter, QStatusBar,
+from PySide6.QtWidgets import (QDialog, QDockWidget, QInputDialog, QLabel, QMainWindow, QMessageBox, QProgressBar, QSpinBox, QSplitter, QStatusBar,
                                QVBoxLayout, QWidget)
 
 from ... import config
@@ -28,6 +28,7 @@ from ...fragments.preferences import DEFAULT_LOG_NAME, FragPreferences
 from ...fragments.gl.engine import FragEngineFactory
 from ...fragments.gl.tasks import TASK_PRIORITY, FragTask, check_versions, clear_textures
 from ...fragments.source import Message
+from ...fragments.state import CAMERA_2D, CAMERA_3D
 from ...fragments.templates import Template, save_user_template, user_templates_dir
 from ...library.items import LibraryItem
 from ...model import Gradient
@@ -176,6 +177,11 @@ class FragmentsWindow(QMainWindow):
         self.actions.add_dock_toggles([self.library_dock, self.parameters_dock, self.grading_dock, self.log_dock])
         self.library_panel.setMinimumWidth(220)
         bar = QStatusBar(self)
+        self.progress = QProgressBar(self)
+        self.progress.setFixedWidth(160)
+        self.progress.setTextVisible(True)
+        self.progress.setToolTip("Subframes accumulated against Subframe max")
+        bar.addPermanentWidget(self.progress)
         bar.addPermanentWidget(self.fps_label)
         bar.addPermanentWidget(self.size_label)
         bar.addPermanentWidget(self.engine_label)
@@ -203,6 +209,7 @@ class FragmentsWindow(QMainWindow):
         self.viewport.status.connect(self.message)
         self.viewport.fullscreen_requested.connect(self.toggle_fullscreen)
         self.viewport.context_menu_requested.connect(self._fullscreen_menu)
+        self.viewport.viewport_menu_requested.connect(self._viewport_menu)
         self.parameters.status.connect(self.message)
         self.parameters.select_source_requested.connect(self.params.select_source)
         self.parameters.bounds_edit_requested.connect(self.params.edit_bound)
@@ -268,6 +275,7 @@ class FragmentsWindow(QMainWindow):
             tab.editor.goto_requested.connect(self.goto_line)
             tab.editor.save_requested.connect(lambda as_new: self.files.save_as() if as_new else self.files.save())
             tab.editor.status.connect(self.message)
+            tab.editor.zoom_requested.connect(self.zoom_editors)
         if not document.metadata.animation:          # no clock of its own: the preferred frame rate and loop mode
             document.animation = document.animation.with_(fps=self.prefs.default_fps, loop_play=self.prefs.loop_play)
         if self.prefs.autorun and self._capabilities is not None:
@@ -359,6 +367,30 @@ class FragmentsWindow(QMainWindow):
         document = self.tabs.document
         if document is not None and document.needs_build:
             self.build_document(document)
+
+    def zoom_editors(self, direction: int) -> None:
+        """Ctrl + wheel / plus / minus / 0 in an editor: every tab's font size (kept in the preferences)."""
+        editor = self.tabs.editor
+        current = self.prefs.font_size or (editor.font().pointSize() if editor is not None else 10)
+        size = 0 if direction == 0 else max(6, min(48, current + direction))
+        self.prefs.font_size = size
+        self.tabs.font_size = size
+        for tab in self.tabs.tabs:
+            tab.editor.set_font_size(size)
+        self.message(f"Editor font: {'system size' if size == 0 else f'{size} pt'}")
+
+    def toggle_editor(self, shown: bool) -> None:
+        """*Editor pane*: hide the source tabs to give the viewport the whole width (Ctrl+E)."""
+        if hasattr(self, "splitter"):
+            self.splitter.widget(0).setVisible(shown)
+
+    def step_preset(self, delta: int) -> None:
+        """Ctrl+PgDown / Ctrl+PgUp: apply the next / previous preset."""
+        combo = self.parameters.preset_combo
+        if combo.count() == 0:
+            return
+        combo.setCurrentIndex((combo.currentIndex() + delta) % combo.count())
+        self.parameters.apply_current_preset()
 
     def set_manual_render(self, enabled: bool) -> None:
         """*Manual rendering*: the viewport only renders on request (a change made while manual renders when turned off)."""
@@ -484,10 +516,22 @@ class FragmentsWindow(QMainWindow):
     # --- rendering facts ------------------------------------------------------------------------------------------------------
     def _on_stats(self, stats: RenderStats) -> None:
         self.done_label.setText(f" {stats.passes_done} rendered")
+        self._show_progress(stats)
         if self.viewport.hud_enabled:
             self.viewport.update()
         tiled = f"  tiled {stats.facts.tiled}×{stats.facts.tiled}" if stats.facts is not None and stats.facts.tiled > 1 else ""
         self.size_label.setText(f"{stats.width}×{stats.height}  aspect {stats.width / max(1, stats.height):.3f}{tiled}")
+
+    def _show_progress(self, stats: RenderStats) -> None:
+        limit = self.driver.subframe_max
+        if limit > 0:
+            self.progress.setRange(0, limit)
+            self.progress.setValue(min(stats.passes_done, limit))
+            self.progress.setFormat("%v / %m subframes")
+        else:
+            self.progress.setRange(0, 1)
+            self.progress.setValue(1)
+            self.progress.setFormat(f"{stats.passes_done} subframes")
 
     def _on_facts(self, document: FragDocument, facts) -> None:
         """The first pass after a build: FragM's "Compiled script in N ms" (the cached figure for an unchanged program)."""
@@ -742,6 +786,38 @@ class FragmentsWindow(QMainWindow):
         self.actions.fullscreen.blockSignals(True)
         self.actions.fullscreen.setChecked(self._fullscreen_state is not None)
         self.actions.fullscreen.blockSignals(False)
+
+    def _viewport_menu(self, pos) -> None:
+        """Right-click (without a drag) on the viewport: the common image and camera actions."""
+        from PySide6.QtWidgets import QMenu
+        a = self.actions
+        menu = QMenu(self)
+        for action in (a.copy_image, a.screenshot, None, a.add_bookmark, a.reset_camera, None, a.hud, a.fullscreen, None, a.render, a.export_mesh):
+            menu.addSeparator() if action is None else menu.addAction(action)
+        menu.exec(pos)
+
+    def copy_image(self) -> None:
+        """*Copy image*: the viewport's picture on the clipboard."""
+        image = self.viewport.image
+        if image is None:
+            self.message("Nothing rendered yet")
+            return
+        QGuiApplication.clipboard().setImage(image)
+        self.message("Image copied to the clipboard")
+
+    def reset_camera(self) -> None:
+        """*Reset camera*: the camera of the current preset (or the annotation defaults)."""
+        document = self.tabs.document
+        if document is None or document.source is None:
+            return
+        names = list(CAMERA_3D if document.camera_kind == "3D" else CAMERA_2D)
+        body = document.source.presets.get(document.current_preset or "Default", "")
+        lines = [line for line in body.splitlines() if line.split("=")[0].strip() in names]
+        if lines:
+            document.apply_settings("\n".join(lines), label="reset camera")
+        else:
+            document.reset([n for n in names if n in document.state])
+        self.message("Camera reset")
 
     def _fullscreen_menu(self, pos) -> None:
         """Shift + right-click in fullscreen: the menu bar's menus as a popup (FragM's fullscreen context menu)."""

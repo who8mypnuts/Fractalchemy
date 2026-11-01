@@ -11,12 +11,14 @@ signals; it never touches the renderer.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QTabWidget, QVBoxLayout,
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QScrollArea, QTabWidget, QVBoxLayout,
                                QWidget)
 
 from ...fragments.files import IMAGE_SUFFIXES, FileManager
 from ...fragments.parameters import LockType
-from ...fragments.state import ParameterState
+from ...fragments.state import CAMERA_2D, CAMERA_3D, ParameterState
+
+CAMERA_NAMES = set(CAMERA_3D) | set(CAMERA_2D)
 from ...widgets.silent import blocked
 from .document import FragDocument
 from .parameter_widgets import SamplerWidget, VariableWidget, make_widget
@@ -46,6 +48,10 @@ class ParameterPanel(QWidget):
         self.widgets: dict[str, VariableWidget] = {}
         self._tabs: dict[str, QWidget] = {}
         self._layouts: dict[str, QVBoxLayout] = {}
+        self.filter = QLineEdit(self)
+        self.filter.setPlaceholderText("Filter parameters…")
+        self.filter.setClearButtonEnabled(True)
+        self.filter.textChanged.connect(lambda _t: self._apply_unused())
         self.preset_combo = QComboBox(self)
         self.preset_combo.setToolTip("The fragment's presets (#preset blocks); choosing one applies it")
         self.apply_button = QPushButton("Apply", self)
@@ -61,6 +67,7 @@ class ParameterPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addLayout(top)
+        layout.addWidget(self.filter)
         layout.addWidget(self.tabs, 1)
         layout.addWidget(self.empty, 1)
         self.tabs.hide()
@@ -149,6 +156,7 @@ class ParameterPanel(QWidget):
 
     def _connect_widget(self, widget: VariableWidget) -> None:
         widget.value_edited.connect(self._on_value_edited)
+        widget.row_action.connect(self.row_action)
         widget.lock_toggled.connect(self._on_lock_toggled)
         widget.select_source.connect(self.select_source_requested)
         widget.bounds_edited.connect(self.bounds_edit_requested)
@@ -181,17 +189,26 @@ class ParameterPanel(QWidget):
         self._apply_unused()
 
     def _apply_unused(self) -> None:
-        """FragM's `hideUnusedVariableWidgets`: hide what the compiler optimised away, unless locked; hide empty tabs."""
+        """FragM's `hideUnusedVariableWidgets`: hide what the compiler optimised away, unless locked; apply the filter box; hide empty tabs."""
         unused = set(self.document.facts.unused) if self.document is not None and self.document.facts is not None else set()
+        needle = self.filter.text().strip().lower()
+        by_name = any(needle in name.lower() for name in self.widgets) if needle else False      # names first, tooltips only as a fallback
         shown_by_group: dict[str, int] = {}
         for name, widget in self.widgets.items():
             hidden = self.hide_unused and name in unused and not widget.param.lock.locked and not (
                 self.document is not None and self.document.state.is_locked(name))
+            if needle and (needle not in name.lower() if by_name else needle not in (widget.param.tooltip or "").lower()):
+                hidden = True
             widget.setVisible(not hidden)
             group = widget.param.group or DEFAULT_GROUP
             shown_by_group[group] = shown_by_group.get(group, 0) + (0 if hidden else 1)
         for i in range(self.tabs.count()):
             self.tabs.setTabVisible(i, shown_by_group.get(self.tabs.tabText(i), 0) > 0)
+        if needle and shown_by_group.get(self.current_group(), 0) == 0:       # jump to the first tab with a match
+            for i in range(self.tabs.count()):
+                if shown_by_group.get(self.tabs.tabText(i), 0) > 0:
+                    self.tabs.setCurrentIndex(i)
+                    break
 
     def set_hide_unused(self, hide: bool) -> None:
         self.hide_unused = hide
@@ -260,7 +277,8 @@ class ParameterPanel(QWidget):
             return
         group = self.current_group()
         menu = QMenu(self)
-        actions = {menu.addAction(f"Reset group '{group}'"): "reset", menu.addAction("Lock group"): "lock", menu.addAction("Unlock group"): "unlock",
+        actions = {menu.addAction(f"Reset group '{group}'"): "reset", menu.addAction("Randomize group"): "randomize",
+                   menu.addAction("Lock group"): "lock", menu.addAction("Unlock group"): "unlock",
                    menu.addAction("Copy group settings"): "copy", menu.addAction("Group → preset…"): "preset"}
         menu.addSeparator()
         hide = menu.addAction("Hide unused parameters")
@@ -272,6 +290,53 @@ class ParameterPanel(QWidget):
         elif choice in actions:
             self.group_action(actions[choice], group)
 
+    # --- one parameter's row menu -----------------------------------------------------------------------------------------
+    def row_action(self, name: str, action: str) -> None:
+        """`reset`, `randomize`, `copy` or `paste` on one parameter (the row's context menu)."""
+        from PySide6.QtGui import QGuiApplication
+        document = self.document
+        if document is None or name not in document.state:
+            return
+        if action == "reset":
+            document.reset([name])
+        elif action == "randomize":
+            self.randomize([name])
+        elif action == "copy":
+            QGuiApplication.clipboard().setText(document.state.to_text(names=[name]).strip().splitlines()[-1])
+            self.status.emit(f"Copied {name}")
+        elif action == "paste":
+            text = QGuiApplication.clipboard().text().strip()
+            line = text if "=" in text else f"{name} = {text}"
+            if not line.split("=")[0].strip() == name:
+                line = f"{name} = {line.split('=', 1)[1].strip()}"
+            warnings = document.apply_settings(line, label=f"paste {name}")
+            if warnings:
+                self.status.emit(warnings[0])
+
+    def randomize(self, names: list[str] | None = None, group: str | None = None) -> int:
+        """Random values within the sliders' ranges for `names` (or the unlocked parameters of `group`, the camera excluded); one undo step."""
+        import numpy as np
+        document = self.document
+        if document is None:
+            return 0
+        if names is None:
+            group = group or self.current_group()
+            names = [n for n in self.group_names(group) if n not in CAMERA_NAMES]
+        rng = np.random.default_rng()
+        values = {}
+        for name in names:
+            param = document.state.params.get(name)
+            if param is None or document.state.is_locked(name):
+                continue
+            value = param.random_value(rng)
+            if value is not None:
+                values[name] = value
+        if values:
+            document.set_values(values)
+            document.end_merge()
+            self.status.emit(f"Randomized {len(values)} parameters")
+        return len(values)
+
     def group_action(self, kind: str, group: str | None = None) -> None:
         """`reset`, `lock`, `unlock`, `copy` or `preset` on a group (the current tab's by default)."""
         if self.document is None:
@@ -280,6 +345,8 @@ class ParameterPanel(QWidget):
         names = self.group_names(group)
         if kind == "reset":
             self.document.reset(names)
+        elif kind == "randomize":
+            self.randomize(group=group)
         elif kind in ("lock", "unlock"):
             self.document.set_group_lock(group, LockType.LOCKED if kind == "lock" else LockType.NOT_LOCKED)
         elif kind == "copy":

@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QMessageBox, QStackedWidget, QTabBar, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QObject, Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QGuiApplication
+from PySide6.QtWidgets import QMenu, QMessageBox, QStackedWidget, QTabBar, QVBoxLayout, QWidget
 
 from ...fragments.document_format import FragmentFormatError, FragmentMetadata, read_fragment
 from ...fragments.library_format import is_bundled_path
@@ -59,6 +60,56 @@ class TabManager(QObject):
         self.bar.currentChanged.connect(self._on_current)
         self.bar.tabCloseRequested.connect(self.close_tab)
         self.bar.tabMoved.connect(self._on_moved)
+        self.bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.bar.customContextMenuRequested.connect(self._tab_menu)
+        self.bar.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt override
+        """Middle-click closes a tab."""
+        if obj is self.bar and event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton:
+            index = self.bar.tabAt(event.position().toPoint())
+            if index >= 0:
+                self.close_tab(index)
+                return True
+        return super().eventFilter(obj, event)
+
+    def _tab_menu(self, pos) -> None:
+        """Close / close others / close all, copy the path, show the file in its folder."""
+        index = self.bar.tabAt(pos)
+        if index < 0:
+            return
+        tab = self._tabs[index]
+        menu = QMenu(self.widget)
+        close = menu.addAction("Close")
+        others = menu.addAction("Close others")
+        every = menu.addAction("Close all")
+        menu.addSeparator()
+        copy_path = menu.addAction("Copy path")
+        reveal = menu.addAction("Show in folder")
+        for action in (copy_path, reveal):
+            action.setEnabled(tab.document.path is not None)
+        choice = menu.exec(self.bar.mapToGlobal(pos))
+        if choice is close:
+            self.close_tab(index)
+        elif choice is others:
+            self.close_others(index)
+        elif choice is every:
+            self.close_all()
+        elif choice is copy_path:
+            QGuiApplication.clipboard().setText(str(tab.document.path))
+        elif choice is reveal:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(tab.document.path.parent)))
+
+    def close_others(self, keep: int) -> None:
+        """Close every tab but `keep` (stops at the first refused close)."""
+        for index in range(len(self._tabs) - 1, -1, -1):
+            if index != keep and not self.close_tab(index):
+                return
+
+    def close_all(self) -> None:
+        for index in range(len(self._tabs) - 1, -1, -1):
+            if not self.close_tab(index):
+                return
 
     # --- queries --------------------------------------------------------------------------------------------------------
     @property

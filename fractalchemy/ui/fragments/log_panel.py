@@ -49,6 +49,8 @@ class LogPanel(QListWidget):
         """Append one row."""
         prefix = {"warning": "⚠ ", "critical": "✖ ", "error": "✖ ", "script": "▸ "}.get(level, "")
         where = f"{Path(path).name}:{line} — " if path is not None and line else ""
+        if level == "warning" and self._recently_logged(f"{prefix}{where}{text}"):
+            return                                   # the same warning again (a preset re-applied): once is enough
         item = QListWidgetItem(f"{prefix}{where}{text}")
         item.setForeground(LEVEL_COLORS.get(level, LEVEL_COLORS["info"]))
         if path is not None and line:
@@ -84,6 +86,9 @@ class LogPanel(QListWidget):
                 handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} [{level}] {text}\n")
         except OSError:
             self._log_file = None
+
+    def _recently_logged(self, text: str, window: int = 12) -> bool:
+        return any(self.item(i).text() == text for i in range(max(0, self.count() - window), self.count()))
 
     def add_message(self, message: Message) -> None:
         self.add(message.level, message.text, message.file, message.line)

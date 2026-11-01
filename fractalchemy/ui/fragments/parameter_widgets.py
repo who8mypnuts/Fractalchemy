@@ -168,11 +168,13 @@ class VariableWidget(QWidget):
 
     Signals:
         value_edited(str, object, object): (name, value, merge_key or None).
+        row_action(str, str): (name, `reset` / `randomize` / `copy` / `paste`) from the row's context menu.
         lock_toggled(str, object): (name, the new `LockType`).
         select_source(str): *Select source* on one of its sliders.
         bounds_edited(str, int, int, float): (name, component 1-based, 1 = lower / 2 = upper, value).
     """
     value_edited = Signal(str, object, object)
+    row_action = Signal(str, str)
     lock_toggled = Signal(str, object)
     select_source = Signal(str)
     bounds_edited = Signal(str, int, int, float)
@@ -199,6 +201,15 @@ class VariableWidget(QWidget):
         layout.addWidget(self.label, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.editor, 1)
         self.set_lock(param.lock)
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """The row's menu (on the label / lock): reset, randomize, copy / paste the value."""
+        menu = QMenu(self)
+        actions = {menu.addAction("Reset to default"): "reset", menu.addAction("Randomize"): "randomize", menu.addAction("Copy value"): "copy",
+                   menu.addAction("Paste value"): "paste"}
+        choice = actions.get(menu.exec(event.globalPos()))
+        if choice:
+            self.row_action.emit(self.name, choice)
 
     # --- lock -----------------------------------------------------------------------------------------------------------
     def set_lock(self, lock: LockType) -> None:

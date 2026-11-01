@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument
 from PySide6.QtWidgets import QTextEdit, QWidget
 
@@ -163,8 +164,13 @@ def own_functions(text: str) -> dict[str, str]:
 
 
 class GlslCodeEditor(BaseCodeEditor):
-    """Editor for fragment sources (see the module docstring)."""
+    """Editor for fragment sources (see the module docstring).
+
+    Signals:
+        zoom_requested(int): Ctrl + wheel / Ctrl + plus / minus / 0 — +1, −1, or 0 to reset the font size.
+    """
     comment_prefix = "//"
+    zoom_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -183,7 +189,18 @@ class GlslCodeEditor(BaseCodeEditor):
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.text() == "}" and self._close_brace():
             return
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus, Qt.Key.Key_0):
+            self.zoom_requested.emit(0 if event.key() == Qt.Key.Key_0 else -1 if event.key() == Qt.Key.Key_Minus else 1)
+            return
         super().keyPressEvent(event)
+
+    def wheelEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """Ctrl + wheel zooms the font (every tab follows through the window)."""
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.zoom_requested.emit(1 if event.angleDelta().y() > 0 else -1)
+            event.accept()
+            return
+        super().wheelEvent(event)
 
     def _close_brace(self) -> bool:
         cursor = self.textCursor()

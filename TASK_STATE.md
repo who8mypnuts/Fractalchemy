@@ -503,3 +503,9 @@ from FragM*). User guide + language reference: `docs/fragments.md`; README secti
   a redisplay on an empty surface renders normally), bundled files guarded on every write path (`_write` refuses the
   library, `document_folder`, "(example)" tab marker). Not done: the shared-context GL blit (read-back is not the
   bottleneck; a Qt/moderngl share is platform-fragile and cannot be verified offscreen). Inventory: 218 examples.
+* Round 10c: Koch fractals (`2D - Koch Snowflake`, `3D - Koch Snowflake Prism`, `3D - Koch Tetrahedron` — the face-tetrahedra
+  IFS with nearest-branch selection that converges to a cube); UI: parameter filter, row context menu (reset / randomize /
+  copy / paste; `GuiParameter.random_value`), *Randomize group* F6, next / previous preset, viewport context menu
+  (`viewport_menu_requested` on a right-click without drag), *Copy image*, *Reset camera*, tab context menu + middle-click
+  close, `Ctrl+E` editor pane, editor font zoom (`GlslCodeEditor.zoom_requested`), status-bar accumulation progress, log
+  warning de-duplication. Inventory: 221 examples.

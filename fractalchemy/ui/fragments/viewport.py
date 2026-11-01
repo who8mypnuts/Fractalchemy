@@ -38,12 +38,14 @@ class FragViewport(QWidget):
     Signals:
         status(str): A message for the status bar (the step size, the picked point).
         fullscreen_requested(): Esc was pressed.
-        context_menu_requested(QPoint): Shift + right-click (global position).
+        context_menu_requested(QPoint): Shift + right-click (global position): the menu bar as a popup (fullscreen).
+        viewport_menu_requested(QPoint): A right-click without a drag (global position): the viewport's own menu.
         play_toggle_requested(): Space was pressed (FragM toggles play / stop).
     """
     status = Signal(str)
     fullscreen_requested = Signal()
     context_menu_requested = Signal(QPoint)
+    viewport_menu_requested = Signal(QPoint)
     play_toggle_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
@@ -346,10 +348,16 @@ class FragViewport(QWidget):
         drag, self._drag = self._drag, None
         if self.driver is not None:
             self.driver.set_interactive(False)
-        if self.document is None or drag is None:
+        if drag is None:
+            if event.button() == Qt.MouseButton.RightButton and event.modifiers() != Qt.KeyboardModifier.ShiftModifier:
+                self.viewport_menu_requested.emit(event.globalPosition().toPoint())
+            return
+        if self.document is None:
             return
         self.document.end_merge()
-        if not drag.moved and self._kind() == "3D":
+        if not drag.moved and event.button() == Qt.MouseButton.RightButton:
+            self.viewport_menu_requested.emit(event.globalPosition().toPoint())
+        elif not drag.moved and self._kind() == "3D":
             self._report_click(drag, event)
         event.accept()
 

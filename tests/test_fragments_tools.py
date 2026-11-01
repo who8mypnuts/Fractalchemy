@@ -184,3 +184,46 @@ def test_de_slice_heat_map():
     rgba = heat_map(values, 0.1)
     assert rgba.shape == (2, 3, 4) and rgba[0, 0, 2] > rgba[0, 0, 0] and rgba[1, 2, 0] > rgba[1, 2, 2]    # inside blue, far outside red
     spin(1)
+
+
+def test_parameter_panel_filter_randomize_row_actions_and_window_shortcuts(window):
+    from PySide6.QtGui import QGuiApplication
+
+    window.open_path(MANDELBULB)
+    rendered(window)
+    document = window.tabs.document
+    panel = window.parameters
+    panel.filter.setText("col")
+    shown = [n for n, w in panel.widgets.items() if not w.isHidden()]
+    assert "BaseColor" in shown and "Power" not in shown and panel.current_group() == "Coloring"
+    panel.filter.setText("")
+    assert not panel.widgets["Power"].isHidden()
+    power = document.state.get("Power")
+    assert panel.randomize(group="Mandelbulb") >= 3 and "Eye" not in {}      # camera never randomised
+    eye = document.state.get("Eye")
+    panel.randomize(group="Camera")
+    assert document.state.get("Eye") == eye
+    panel.row_action("Power", "reset")
+    assert document.state.get("Power") == 8.0 and document.can_undo
+    panel.row_action("Power", "copy")
+    assert QGuiApplication.clipboard().text() == "Power = 8"
+    QGuiApplication.clipboard().setText("5.5")
+    panel.row_action("Power", "paste")
+    assert document.state.get("Power") == 5.5
+    window.zoom_editors(1)
+    assert window.tabs.editor.font().pointSize() == window.prefs.font_size > 0
+    window.zoom_editors(0)
+    assert window.prefs.font_size == 0
+    window.step_preset(1)
+    assert document.current_preset != "Default"
+    window.copy_image()
+    assert not QGuiApplication.clipboard().image().isNull()
+    window.reset_camera()
+    window.actions.show_editor.setChecked(False)
+    assert not window.splitter.widget(0).isVisible()
+    window.actions.show_editor.setChecked(True)
+    assert window.progress.maximum() == window.driver.subframe_max
+    window.open_text("void main() { gl_FragColor = vec4(1.0); }")
+    window.tabs.close_others(0)
+    assert len(window.tabs.tabs) == 1 and window.tabs.document is document
+    del power

@@ -75,6 +75,7 @@ class CameraActions:
             return
         self.menu.clear()
         self.menu.addAction(self.w.actions.add_bookmark)
+        self.menu.addAction(self.w.actions.reset_camera)
         entries = self.bookmarks()
         if entries:
             self.menu.addSeparator()

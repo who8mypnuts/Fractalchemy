@@ -18,6 +18,15 @@ options (*Edit ▸ Preferences…*) and open tabs are remembered between runs.
   (how many subframes accumulate before the viewport rests; 0 = keep going) and *n rendered* · **Buffer size**: X × Y
   with an aspect lock, *Lock to window size* (the buffer follows the viewport) or *Custom size* (the image is
   letterboxed).
+* **Quality of life**: a *Filter parameters…* box above the tabs (names first, tooltips as a fallback; the first
+  matching tab is selected); a right-click on any parameter row gives *Reset to default*, *Randomize*, *Copy value*,
+  *Paste value*; *Parameters ▸ Randomize group* (`F6`, never the camera or locked values), *Next / Previous preset*
+  (`Ctrl+PgDown` / `Ctrl+PgUp`); a right-click on the viewport (without dragging) gives *Copy image*
+  (`Ctrl+Shift+C`), *Save screenshot*, *Add camera bookmark*, *Reset camera* (`Ctrl+Shift+0`, back to the preset's),
+  the HUD, fullscreen, render and mesh export; tabs close on middle-click and have *Close others* / *Close all* /
+  *Copy path* / *Show in folder*; `Ctrl+E` hides the editor pane so the viewport takes the width; `Ctrl` + wheel /
+  `Ctrl` + `+` `−` `0` zoom the editor font (all tabs, kept in the preferences); the status bar shows the
+  accumulation against *Subframe max* as a progress bar; a warning repeated within a few lines is logged once.
 * **Log**: the preprocessor's remarks (*Parse*, *Including file*, `#info` lines, clamped preset values, locked
   variables), *Compiled script in N ms*, and compile errors with the **file and line** they belong to — clicking a
   row opens the file (bundled includes open read-only) at that line; the line is marked in the editor too.
@@ -352,7 +361,7 @@ errors still point into the right file. Doubles (`double`, `dvec`) need an expli
 FragM. The translated text is what *Show preprocessed source* shows; a rejected program's sources and the driver's
 log are written to `<cache>/Fractalchemy/glsl-failures/`.
 
-Of the 218 bundled examples 211 compile; the seven that do not (listed in `tests/test_fragments_engine.py`) fail in
+Of the 221 bundled examples 214 compile; the seven that do not (listed in `tests/test_fragments_engine.py`) fail in
 FragM as well — they use functions before including them, undeclared uniforms, or `double` code that never compiled.
 
 ## Files
@@ -391,7 +400,8 @@ the read-back is not the bottleneck.
 
 `Examples/Fractalchemy Collection/`: 2D — Nova, Magnet (type I), Phoenix, a gathering Buddhabrot (slow to converge:
 *Subframe max* 0 and patience); 3D — Amazing Surf and ABoxMod1 (Mandelbulb3D's), FoldingIntPow, Juliabulb,
-Lambdabulb, the Jerusalem cube, the Mosely snowflake, a sphere-inversion IFS. `Include/Triplex.frag` has the
+Lambdabulb, the Jerusalem cube, the Mosely snowflake, a sphere-inversion IFS, the Koch snowflake (2D field, an extruded
+prism) and the 3D Koch snowflake (the tetrahedron that converges to a cube). `Include/Triplex.frag` has the
 Mandelbulb arithmetic they share (`tPow`, `tPowDeriv`, `tMul`, `tDistance`).
 
 ## What differs from FragM
