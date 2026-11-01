@@ -2,8 +2,8 @@
 
 Menus (File / Edit / View / Windows / Help), a toolbar, and a status bar showing the
 loaded fractal, render facts, the progressive pass counter and a progress bar. The
-Transform Editor, the Gradient Library, the Animation window, the Script Editor, the Formula Editor and the
-Render Image window are separate tool windows opened from *Windows* or the toolbar.
+Transform Editor, the Gradient Library, the Animation window, the Script Editor, the Formula Editor, the 3D
+Editor, the Fragments window and the Render Image window are separate tool windows opened from *Windows* or the toolbar.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import (action_icon, animation_icon, editor_icon, formula_icon, gradient_icon, render_icon, script_icon,
-                             three_d_icon)
+from ..widgets.icons import (action_icon, animation_icon, editor_icon, formula_icon, fragments_icon, gradient_icon, render_icon,
+                             script_icon, three_d_icon)
 from ..widgets.logo import logo_icon, wordmark_pixmap
 from .animation_window import AnimationWindow
 from .background import run_in_background
@@ -93,6 +93,7 @@ class MainWindow(QMainWindow):
         self._script_editor = None
         self._formula_editor = None
         self._three_d = None
+        self._fragments = None
         self._batch: list[Flame] = []          # generated fractals shown in the library's temporary area
         self._batch_showing: int | None = None
         self.files = FractalFileActions(self.document, self)
@@ -170,6 +171,8 @@ class MainWindow(QMainWindow):
         self.actionFormulaEditor.triggered.connect(lambda: self.show_formula_editor())
         self.actionThreeDEditor.setIcon(three_d_icon())
         self.actionThreeDEditor.triggered.connect(lambda: self.show_three_d_editor())
+        self.actionFragments.setIcon(fragments_icon())
+        self.actionFragments.triggered.connect(lambda: self.show_fragments())
         self.actionAboutQt.triggered.connect(lambda: QMessageBox.aboutQt(self, f"About Qt — {config.APP_NAME}"))
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
@@ -358,6 +361,25 @@ class MainWindow(QMainWindow):
         if use_main or (use_main is None and editor.document.flame is None and self.document.flame is not None):
             editor.use_main_fractal()
         editor.bring_to_front()
+
+    # --- fragments ------------------------------------------------------------
+    @property
+    def fragments_window(self):
+        """The Fragments window (created on first use; hidden rather than destroyed when closed)."""
+        if self._fragments is None:
+            from .fragments import FragmentsWindow
+            self._fragments = FragmentsWindow(self, self._settings, prefer_gpu=self._prefer_gpu,
+                                              gradient_provider=lambda: self.gradient_library.document.gradient,
+                                              three_d=lambda: self.three_d_editor)
+            self._fragments.status.connect(self._message)
+        return self._fragments
+
+    def show_fragments(self, path: Path | str | None = None) -> None:
+        """Open (or raise) the Fragments window, optionally opening a fragment file in it."""
+        window = self.fragments_window
+        window.bring_to_front()
+        if path:
+            window.open_path(Path(path))
 
     def _on_formulas_changed(self) -> None:
         """A formula was saved or deleted in the Formula Editor: every list of formulas is stale."""
@@ -566,6 +588,9 @@ class MainWindow(QMainWindow):
         if self._three_d is not None and not self._three_d.confirm_quit():
             event.ignore()
             return
+        if self._fragments is not None and not self._fragments.confirm_quit():
+            event.ignore()
+            return
         if self._script_editor is not None:
             if self._script_editor.runner.running:
                 self._script_editor.stop()
@@ -577,6 +602,10 @@ class MainWindow(QMainWindow):
         if self._three_d is not None:
             self._three_d.save_state()
             self._three_d.hide()
+        if self._fragments is not None:
+            self._fragments.save_state()
+            self._fragments.hide()
+            self._fragments.shutdown()
         self.gradient_library.close()
         self.render_window.hide()
         self.editor.close()

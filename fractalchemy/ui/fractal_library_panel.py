@@ -1,4 +1,5 @@
-"""The main window's Fractal Library pane: the generic library panel plus list / thumbnail views."""
+"""The main window's Fractal Library pane: the generic library panel plus list / thumbnail views (the Fragments window's
+library pane reuses it with the fragment catalog)."""
 
 from __future__ import annotations
 
@@ -6,7 +7,7 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QButtonGroup, QStyle, QToolButton, QWidget
 
-from ..library.catalog import FRACTAL_CATALOG
+from ..library.catalog import FRACTAL_CATALOG, Catalog
 from ..library.panel import LibraryPanel
 
 LIST_ICON_SIZE = QSize(16, 16)
@@ -20,8 +21,8 @@ class FractalLibraryPanel(LibraryPanel):
     """
     view_mode_changed = Signal(bool)
 
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent, FRACTAL_CATALOG)
+    def __init__(self, parent: QWidget | None = None, catalog: Catalog = FRACTAL_CATALOG):
+        super().__init__(parent, catalog)
         self.list_button = QToolButton(self)
         self.thumb_button = QToolButton(self)
         self._build_view_buttons()

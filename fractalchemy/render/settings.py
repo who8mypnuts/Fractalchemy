@@ -127,6 +127,7 @@ class RenderStats:
         width, height: Size of the delivered image.
         notes: Engine remarks (e.g. unsupported variations that were ignored).
         samples_target: Samples after which the job is done (0 = after `passes_total` passes).
+        facts: Engine-specific facts about the job's set-up (the fragment engine's `BuildFacts`; None for flames).
     """
     engine: str = ""
     passes_done: int = 0
@@ -138,6 +139,7 @@ class RenderStats:
     height: int = 0
     notes: list[str] = field(default_factory=list)
     samples_target: int = 0
+    facts: object | None = None
 
     @property
     def samples_per_second(self) -> float:

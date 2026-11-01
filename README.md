@@ -24,12 +24,12 @@ python -m pytest
   Parameters `Ctrl+Shift+V`, Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
   Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
   *Windows* (Transform Editor `F4`, Gradient Library `F6`, Animation `F9`, Random Batch `F7`, Script Editor `F8`,
-  Formula Editor `F10`, 3D Editor `F11`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
+  Formula Editor `F10`, 3D Editor `F11`, Fragments `F12`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
 * Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
   **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
   (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Transform Editor** (`F4`),
   **Gradient Library**, **Animation** (`F9`), **Random Batch** (`F7`), **Script Editor** (`F8`), **Formula Editor**
-  (`F10`), **3D Editor** (`F11`), **Render Image** (`Ctrl+R`).
+  (`F10`), **3D Editor** (`F11`), **Fragments** (`F12`), **Render Image** (`Ctrl+R`).
   Nothing is ever written unless you save: edits only change the preview, the title shows `*`, and Save / Save As
   let you keep as many versions as you like.
 * **Open Fractal…** shows the file's first flame and lists *all* of the file's flames in a temporary section at the
@@ -452,6 +452,75 @@ environments), is `docs/3d-editor-plan.md`.
   instances with a Geometry Nodes *Instance on Points* modifier from a JSON of positions / rotations / scales
   (formats that cannot carry instances get the baked mesh) — or *baked* into one mesh in any format.
 
+### Fragments window
+*Windows ▸ Fragments* (`F12`, the code sheet with a shard on the toolbar) is **Fragmentarium** inside Fractalchemy:
+fractals written as GLSL fragment shaders — Mandelbulbs, Mandelboxes, kaleidoscopic IFS, escape-time sets, feedback
+systems — edited, tweaked and rendered on the GPU. It reads Fragmentarium / FragM `.frag` files unchanged (their
+directives, `#include`s, annotated uniforms and `#preset`s), ships FragM's example library and include files
+(*Library ▸ Examples*, 186 fragments in 14 categories), and saves `.fafrag` / `.frag`. A tool window like the others:
+closing hides it; layout, options and tabs are remembered. See [docs/fragments.md](docs/fragments.md) for the guide
+and the language reference; the plan is `plans/fragments-plan.md`.
+
+* **Source tabs** (left): a GLSL editor with highlighting (keywords, built-ins, directives, the `slider[…]` /
+  `color[…]` / `checkbox[…]` / `menu[…]` / `file[…]` annotations, dimmed presets), line numbers, bracket matching,
+  completion, find / replace, *Indent script*, and *Edit ▸ Insert command* (every directive, special uniform, texture
+  option and include). **Build** (`F5`) preprocesses, translates and compiles; *Auto-build* rebuilds a second after
+  typing stops; *Show preprocessed source* shows the GLSL the driver saw with every line's original `file:line`.
+* **Viewport** (middle): progressive subframe accumulation (*Subframe max* on the toolbar; 0 = keep going), at half
+  resolution while a button is held. FragM's cameras: for 3D fragments left-drag orients, Shift orbits the origin,
+  Shift+Alt orbits the target, right-drag pans, both buttons or the wheel dolly, `W A S D R F` fly, `T G Y H` turn,
+  `Q E` roll, `1 3 2 5` change the step, middle-click puts the *Target* on the surface under the cursor; for 2D
+  fragments left-drag pans, right-drag and the wheel zoom, `A D W S Q E` pan and zoom. Esc toggles fullscreen.
+  Buffer size: locked to the window, or a custom X × Y with an aspect lock.
+* **Parameters** (dock): one tab per `#group`, a preset combo, sliders + spin boxes (9 significant digits, 18 for
+  doubles, logarithmic when asked), vectors (unit directions renormalise), colours with the live colour picker, menus,
+  check boxes, texture files — each with a **lock** (the value baked into the shader; faster; *Build needed*).
+  Unused parameters (optimised away by the compiler) hide unless locked. `F1` reset, `F2` / `F3` copy / paste the
+  settings text, Shift+`F3` paste the editor's selection, `F4` group → preset, `F8` insert a preset (a `KeyFrame.nnnn`
+  for 3D cameras), `F9` select the current preset in the source; lock / unlock / reset a whole group. Every edit
+  and every camera move is undoable.
+* **Log** (dock): parse / include / compile messages, clamped preset values, `#info` lines, and compile errors with
+  the file and line they belong to — click one to open the file (bundled includes read-only) at that line; the
+  editor marks the line. Rejected shaders are also written to `<cache>/Fractalchemy/glsl-failures/`.
+* **Library** (dock, `Ctrl+L`): the bundled examples and your own folders of `.frag` / `.fafrag` files with search
+  and an optional thumbnail view (each fragment rendered once at a small size, cached on disk); drag a file onto
+  the window to open it. *File ▸ New from template* starts from FragM's New 2D / New 3D or the other built-in
+  starters (kaleidoscopic IFS, Mandelbox, 2D with a map, Shadertoy-style, buffer feedback, fast raytracer), or from
+  your own templates.
+* **Animation**: FragM's model — the 3D camera follows a Catmull-Rom path through `KeyFrame.nnnn` presets (`F8`
+  inserts one; the paths are drawn over the viewport), single slider components follow **easing curves** (`F7`: Qt's
+  curves with period / amplitude / overshoot, loops, ping-pong, kept in `Range…` presets as FragM's twelve-field
+  lines), a **timeline editor** shows both on one ruler, and an *All parameters* interpolation mode blends every
+  numeric parameter between the keyframe presets too. *Progressive* / *Animation* modes, Rewind / Play / Stop
+  (`F10` `F11` `F12`, Space), a time slider with keyframe marks, fps and length on the toolbar.
+* **Render…** (`Ctrl+R`): FragM's hi-res / animation render as a job window on its own thread and OpenGL context —
+  tiles with padding, subframes per tile, a frame range, every host image format (16-bit PNG / TIFF, OpenEXR half /
+  float with the **depth buffer as Z**), parameters embedded under FragM's `frAg` key, `.fragparams` and the fragment
+  with its includes saved beside the image (FragM's autosave), ffmpeg video afterwards, pause / stop / save
+  incomplete. *Batch render presets…* renders every preset or keyframe of a file; `tools/render_frag.py` does the
+  same from the command line (what `.fqs` scripts were for).
+* **Textures**: `file[…]` samplers (LDR through Pillow, `.hdr` / `.exr` float, cube-map strips, integer samplers),
+  `#TexParameter` filters / wrapping / anisotropy with mipmaps, a cache keyed by file and modification time.
+* **Insert gradient…**: any gradient the host reads (the Gradient Library's current one, `.ugr`, `.map`, palettes,
+  images) or a GIMP `.ggr` — with GIMP's exact blend shapes and colour spaces — as a `vec3 gradient(float t)`:
+  exact segments, a sampled table or a PNG strip texture, optionally wrapped as the object colour or the sky.
+  GIMP gradients open in the Gradient Library too.
+* **Export mesh…**: the distance estimator sampled on a voxel grid **on the GPU** (the fragment's own shader with a
+  probe `main`, vertex colours from `baseColor`), the host's surface nets, clean-up levels and print report, a
+  preview, OBJ / STL / PLY / glTF / USD output, and *Send to 3D Editor* (a PLY asset on the Instances tab).
+* **Preferences…**: recent files, loop play, camera paths, 2D wheel mode, editor font, jump to error, reload on
+  change, autorun / auto-build, moveMain, `#define` locks, the compatibility layer, easing in presets, frame rate,
+  refresh interval, interactive scale, include paths, log to file, verbose. *Build ▸ Test GLSL versions* compiles at
+  every version the driver offers; *Clear texture cache*; Help has the guide, the CLI, a welcome note and links.
+* **Under the hood**: a second render service thread with its own OpenGL context runs the fragment engine
+  (ping-pong accumulation surfaces that survive parameter edits for `DontClearOnChange` fragments, a program cache,
+  a buffer-shader display pass, depth reads for the 3D pick, engine chores such as the version test as priority
+  jobs); the legacy GLSL 1.10 / 1.20 the fragment world is written in is translated to 3.30 core so it runs on every
+  modern context (`fragments/glsl_compat.py`); 178 of the 186 bundled examples compile, the rest fail in FragM too.
+  Heavy fragments stay clear of the GPU watchdog: half-size rendering while the camera moves, subframes per image
+  adapting to the refresh interval, and automatic **tiling** of a subframe that exceeds the time budget (the status
+  bar shows *tiled n×n*).
+
 ### Render Image window (the final renderer)
 *Windows ▸ Render Image…* (`Ctrl+R`) or the toolbar button opens a non-modal tool window; a render runs on its
 own thread with a snapshot of the flame, so you can open and edit another fractal while it works. Closing the
@@ -548,6 +617,7 @@ title shows the gradient's name and a `*` while it has unsaved edits.
   | `.ugr` / `.gradient` (Ultra Fractal gradients) | many | ✓ | ✓ | ✓ |
   | `.ufr` (Ultra Fractal fractal) | one per layer | ✓ | – | – |
   | `.map` (Fractint / UF palette) | one | ✓ | – | ✓ |
+  | `.ggr` (GIMP gradient; blend shapes and HSV segments baked into stops) | one | ✓ | – | ✓ |
   | `.chaos` (Chaotica world) | one per IFS | ✓ | – | – |
   | `.fa` (Fractalchemy document) | one per flame | ✓ | ✓ | ✓ |
   | images | one (extracted) | – | – | – |
@@ -573,6 +643,7 @@ ui/gradient_library_window.ui
                         Qt Designer layout of the Gradient Library window (GradientEditor etc. are promoted custom widgets)
 docs/rendering.md       the dual-engine rendering design
 docs/scripting.md       the scripting guide and API reference (generated by tools/scripting_reference.py)
+docs/fragments.md       the Fragments window guide and the .frag language reference
 fractalchemy/
   config.py             tunables: app name/version, node counts, simplify tolerance, sizes, preview quality
   settings.py           QSettings identity
@@ -599,6 +670,17 @@ fractalchemy/
                         attributes), estimate (time estimate), units (shared formatting), final_service (FinalRenderJob)
   scene3d/              the 3D Editor's scene (Scene3D: the flame, materials, distant lights, environment, renderer
                         settings) and the .fa3d file
+  fragments/            the Fragments window's Qt-free core: preprocessor (FragM's directives and annotations, line map),
+                        parameters / state (values, locks, settings text), files (include paths), glsl_compat (legacy GLSL →
+                        3.30 core), camera (FragM's 2D / 3D controls as maths), presets, annotations, templates, examples
+                        (the bundled library/ — FragM's Include/ and Examples/), document_format (.fafrag metadata,
+                        .fragparams, the frAg image key), library_format, spline / easing / animation (the camera path,
+                        the easing curves, frame values), render_settings + batch (the hi-res plan, the CLI's work),
+                        textures (file[…] decoding, #TexParameter), gradient_glsl (gradients → GLSL), mesh (DE → voxel
+                        grid → surface nets → files), preferences; gl/ (moderngl): engine + program cache, surfaces
+                        (ping-pong accumulation), uniforms, passes, job (the render-service job with the watchdog
+                        tiling), tasks (engine chores as jobs), textures (the GL cache), final + final_job (the hi-res
+                        renderer and its thread), mesh (the DE probe), diagnostics
   solid/                the solid renderer on the CPU: View (the 3D camera as a view transform), GBuffer + ShadowMap,
                         shading (normals, ambient occlusion, lights, shadows, fog), SolidCpuJob (the engine job);
                         render/gpu_solid.py is the same pipeline as OpenGL passes. Meshing: capture (orbit points),
@@ -643,12 +725,20 @@ fractalchemy/
                         compiles, formula_editor_actions, formula_list_panel, formula_editor_panels: preview
                         options / variable tools / presets, formula_drawer: reference / compiler output / probe,
                         formula_origins: the origin classification and row colours shared by every formula list),
+                        fragments/ (the Fragments window: FragDocument with its parameter history and builds, TabManager,
+                        FragViewport with the cameras, RenderDriver (what to render when), ParameterPanel + widgets,
+                        GlslCodeEditor, LogPanel (with log-to-file), BufferSizeBar, actions / file_actions, library_panel
+                        (the library dock + thumbnails), animation_controls / easing_dialog / timeline_window,
+                        render_window + render_panels / batch_dialog, gradient_dialog, mesh_export_dialog + mesh_job,
+                        preferences_dialog, help),
                         three_d/ (the 3D Editor: Scene3DDocument with its undo history, Viewport3D with the orbit rig
                         and the mesh display, the Render / Camera / Materials / Lights / Environment panels, mesh_panels:
                         the Mesh and Export tabs with the density histogram, instances_panel: assets, instancers and the
                         own-IFS table, jobs: MeshJob / ExportJob / MeshPreviewJob, SolidRenderWindow: the render to file
                         on its own thread)
-tools/                  import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
+tools/                  fragments_snapshot.py (the example fragments' parameter inventory fixture), render_frag.py (the
+                        fragment batch renderer / checker),
+                        import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
                         import_jwf_variations.py + jwf_translate.py (JWildfire *Func.java → formulas), render_logo.py,
                         scripting_reference.py (docs/scripting.md from the scripting documentation database)
 tests/                  pytest suite

@@ -68,10 +68,7 @@ class BaseCodeEditor(QPlainTextEdit):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-        font.setPointSize(max(10, font.pointSize()))
-        self.setFont(font)
-        self.setTabStopDistance(self.fontMetrics().horizontalAdvance(" ") * 4)
+        self.set_font_size(0)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self._numbers = LineNumberArea(self)
         self._error_line: int | None = None
@@ -87,6 +84,15 @@ class BaseCodeEditor(QPlainTextEdit):
         self._highlight_lines()
 
     # --- language hooks ------------------------------------------------------------------------------------
+    def set_font_size(self, points: int) -> None:
+        """The fixed-width font at `points` (0 = the system's size, at least 10 pt); the tab stop follows."""
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        font.setPointSize(points if points > 0 else max(10, font.pointSize()))
+        self.setFont(font)
+        self.setTabStopDistance(self.fontMetrics().horizontalAdvance(" ") * 4)
+        if hasattr(self, "_numbers"):
+            self._update_margins()
+
     def indent_after(self, line: str) -> bool:
         """Whether Enter at the end of `line` should indent the next line one level deeper."""
         return False

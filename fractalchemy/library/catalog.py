@@ -1,8 +1,9 @@
 """What a library holds: which files count, how their entries are listed and edited.
 
 The library machinery (scanner, model, tree, controller, menus) is generic; a
-`Catalog` plugs in the file-type knowledge. Two exist: gradients (for the
-Gradient Library window) and fractals (for the main window's Fractal Library).
+`Catalog` plugs in the file-type knowledge. Three exist: gradients (for the
+Gradient Library window), fractals (for the main window's Fractal Library) and
+fragments (for the Fragments window's library pane).
 """
 
 from __future__ import annotations
@@ -83,5 +84,19 @@ def _fractal_catalog() -> Catalog:
                    cross_copy, DEFAULT_SAVE_FORMAT.extensions[0])
 
 
+def _fragment_catalog() -> Catalog:
+    from ..fragments.examples import is_fragment_file
+    from ..fragments.library_format import FragmentFormat, fragment_names
+
+    fmt = FragmentFormat()
+
+    def cross_copy(source: Path, index: int, target: Path) -> None:
+        fmt.copy_entry(source, index, target)
+
+    return Catalog("fragment_library", "Fragment Library", "fragment", is_fragment_file, fragment_names, lambda _path: fmt,
+                   cross_copy, ".fafrag")
+
+
 GRADIENT_CATALOG = _gradient_catalog()
 FRACTAL_CATALOG = _fractal_catalog()
+FRAGMENT_CATALOG = _fragment_catalog()

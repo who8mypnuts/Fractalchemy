@@ -132,6 +132,7 @@ class SaveOptions:
         lossless: Prefer lossless encoding where offered.
         parameters: Flame XML to embed ("" = none).
         attributes: Extra metadata (name → text) for formats with free-form headers (OpenEXR).
+        parameters_key: The PNG text keyword / EXR attribute the parameters go under (`flame`; `frAg` for fragments).
     """
     depth: int = 8
     transparent: bool = False
@@ -139,6 +140,7 @@ class SaveOptions:
     lossless: bool = False
     parameters: str = ""
     attributes: dict[str, str] = field(default_factory=dict)
+    parameters_key: str = PARAMETERS_KEY
 
 
 def parameters_text(flame: Flame) -> str:
@@ -164,7 +166,7 @@ def save_image(image: np.ndarray, path: str | Path, fmt: OutputFormat, options: 
     if fmt.key == "exr":
         _write_exr_image(path, image, alpha, options)
     elif fmt.key == "png":
-        write_png(path, image, alpha, depth16, options.parameters)
+        write_png(path, image, alpha, depth16, options.parameters, options.parameters_key)
     elif fmt.key == "tiff" and depth16:
         write_tiff16(path, image, alpha, options.parameters)
     elif fmt.key == "svg":
@@ -232,7 +234,7 @@ def _write_exr_image(path: Path, image: np.ndarray, alpha: bool, options: SaveOp
     }
     attributes.update(options.attributes)
     if options.parameters:
-        attributes[PARAMETERS_KEY] = options.parameters
+        attributes[options.parameters_key] = options.parameters
     write_exr(path, channels, attributes, half=options.depth <= 16)
 
 
@@ -252,19 +254,23 @@ def _xml_comment_safe(text: str) -> str:
     return text.replace("--", "- -")
 
 
-def read_embedded_parameters(path: str | Path) -> str | None:
-    """The flame XML stored in an image by `save_image`, if any (PNG / JPEG / TIFF / SVG)."""
+def read_embedded_parameters(path: str | Path, key: str = PARAMETERS_KEY) -> str | None:
+    """The parameters stored in an image by `save_image`, if any (PNG / JPEG / TIFF / SVG).
+
+    Args:
+        key: The PNG text keyword / EXR attribute (`flame` for flame XML; `frAg` for Fragmentarium settings).
+    """
     p = Path(path)
     if p.suffix.lower() == ".exr":
-        return read_exr_attributes(p).get(PARAMETERS_KEY)
+        return read_exr_attributes(p).get(key)
     if p.suffix.lower() == ".svg":
         text = p.read_text(encoding="utf-8", errors="replace")
         start, end = text.find("<!--\n"), text.find("\n-->")
         return text[start + 5:end] if start >= 0 and end > start else None
     with Image.open(p) as im:
         info = im.info
-        if PARAMETERS_KEY in info:
-            return info[PARAMETERS_KEY]
+        if key in info:
+            return info[key]
         if "comment" in info:
             comment = info["comment"]
             return comment.decode("utf-8", "replace") if isinstance(comment, bytes) else comment

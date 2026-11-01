@@ -156,6 +156,12 @@ the Info tab's *Render* group. The generated vertex/plot shaders and the driver'
   `INTERACTION_SETTLE_MS` after the last change. Each request has a generation number; late passes
   from older generations are discarded.
 * Every pass delivers an image, so the picture sharpens in stages instead of appearing all at once.
+* The service is engine-agnostic: an `EngineFactory` says what to create and the payload is whatever the engine's
+  `start(payload, settings)` accepts. The Fragments window runs a **second** `RenderService` with the fragment engine
+  (`fragments/gl/engine.py`) on its own thread and context — progressive subframe accumulation instead of the chaos
+  game, the same keys / priorities / generations, `job_error` carrying the compiler diagnostics, and engine chores
+  (compile tests, cache clearing) submitted as `FragTask` payloads so they run where the context lives. See
+  [fragments.md](fragments.md).
 
 ## Final renderer
 

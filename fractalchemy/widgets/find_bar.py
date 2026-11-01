@@ -9,9 +9,12 @@ from .base_code_editor import BaseCodeEditor
 
 
 class FindBar(QWidget):
-    """Find / replace strip above the editor (Ctrl+F / Ctrl+H): next / previous, replace one / all, match case."""
+    """Find / replace strip above the editor (Ctrl+F / Ctrl+H): next / previous, replace one / all, match case.
 
-    def __init__(self, editor: BaseCodeEditor, parent: QWidget | None = None):
+    Windows with several editors (the Fragments tabs) point the bar at the current one with `set_editor`.
+    """
+
+    def __init__(self, editor: BaseCodeEditor | None, parent: QWidget | None = None):
         super().__init__(parent)
         self._editor = editor
         self.find_box = QLineEdit(self, placeholderText="Find")
@@ -42,7 +45,17 @@ class FindBar(QWidget):
         self.case_box.toggled.connect(self._changed)
         self.hide()
 
+    def set_editor(self, editor: BaseCodeEditor | None) -> None:
+        """Search in another editor from now on."""
+        self._editor = editor
+        if editor is None:
+            self.hide()
+        elif self.isVisible():
+            self._changed()
+
     def open(self, replace: bool) -> None:
+        if self._editor is None:
+            return
         selected = self._editor.selected_text()
         if selected and "\n" not in selected:
             self.find_box.setText(selected)
@@ -53,25 +66,36 @@ class FindBar(QWidget):
 
     def dismiss(self) -> None:
         self.hide()
-        self._editor.setFocus()
+        if self._editor is not None:
+            self._editor.setFocus()
 
     def _changed(self, *_args) -> None:
+        if self._editor is None:
+            return
         count = self._editor.count_matches(self.find_box.text(), self.case_box.isChecked())
         self.count_label.setText(f"{count} match{'es' if count != 1 else ''}" if self.find_box.text() else "")
         if self.find_box.text() and self.sender() is self.find_box:
             self._editor.find_text(self.find_box.text(), False, self.case_box.isChecked())
 
     def find_next(self) -> None:
+        if self._editor is None:
+            return
         self._editor.find_text(self.find_box.text(), False, self.case_box.isChecked())
 
     def find_previous(self) -> None:
+        if self._editor is None:
+            return
         self._editor.find_text(self.find_box.text(), True, self.case_box.isChecked())
 
     def replace_one(self) -> None:
+        if self._editor is None:
+            return
         self._editor.replace_current(self.find_box.text(), self.replace_box.text(), self.case_box.isChecked())
         self._changed()
 
     def replace_all(self) -> int:
+        if self._editor is None:
+            return 0
         n = self._editor.replace_all(self.find_box.text(), self.replace_box.text(), self.case_box.isChecked())
         self._changed()
         return n

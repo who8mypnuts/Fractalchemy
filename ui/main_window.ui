@@ -107,6 +107,7 @@
     <addaction name="actionScriptEditor"/>
     <addaction name="actionFormulaEditor"/>
     <addaction name="actionThreeDEditor"/>
+    <addaction name="actionFragments"/>
     <addaction name="actionRenderImage"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
@@ -163,6 +164,7 @@
    <addaction name="actionScriptEditor"/>
    <addaction name="actionFormulaEditor"/>
    <addaction name="actionThreeDEditor"/>
+   <addaction name="actionFragments"/>
    <addaction name="actionRenderImage"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -243,6 +245,12 @@
    <property name="toolTip"><string>3D Editor: render the fractal as a lit solid with materials, lights and shadows, orbit it, and render it to an image (F11)</string></property>
    <property name="shortcut"><string>F11</string></property>
    <property name="statusTip"><string>Open the 3D Editor window</string></property>
+  </action>
+  <action name="actionFragments">
+   <property name="text"><string>Fragments</string></property>
+   <property name="toolTip"><string>Fragments: write and render GLSL fragment shaders — Fragmentarium fractals — with sliders, presets, cameras and hi-res output (F12)</string></property>
+   <property name="shortcut"><string>F12</string></property>
+   <property name="statusTip"><string>Open the Fragments window</string></property>
   </action>
   <action name="actionRenderImage">
    <property name="text"><string>Render Image…</string></property>

@@ -55,3 +55,12 @@ THUMBNAIL_SIZE = (120, 75)      # fractal library thumbnails
 THUMBNAIL_QUALITY = 3.0
 THUMBNAIL_PASSES = 1
 CPU_RENDER_THREADS = 0          # 0 = use every core
+
+# --- Fragments window -----------------------------------------------------------
+FRAG_INTERACTIVE_SCALE = INTERACTIVE_SCALE  # viewport scale while the fragment camera moves
+FRAG_DEFAULT_SUBFRAMES = 10     # FragM's "Subframe Max" default: accumulated subframes before the viewport rests (0 = unlimited)
+FRAG_REFRESH_MS = 40            # aim for one delivered image per this interval (subframes per pass adapt to it)
+FRAG_SUBFRAME_BUDGET_MS = 500   # a subframe slower than this makes the viewport tile itself (GPU watchdog protection)
+FRAG_THUMBNAIL = (160, 100, 4)  # library thumbnails: width, height, subframes
+FRAG_MAX_TILE_SIDE = 4096       # hi-res render tile size limit
+FRAG_MAX_IMAGE_SIDE = 32768     # hi-res render image size limit (FragM's; EXR output is exempt)

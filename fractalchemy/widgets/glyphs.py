@@ -440,6 +440,71 @@ def _points(p: QPainter, u: float) -> None:
         p.drawEllipse(QPointF(x * u, y * u), r * u, r * u)
 
 
+# --- the Fragments window --------------------------------------------------------------------------------------------
+def _shard(p: QPainter, u: float, cx: float, cy: float, size: float) -> None:
+    """A crystal shard (a tall kite) in the accent colour — the Fragments mark."""
+    p.setPen(_pen(QColor(60, 60, 60), 0.9 * u))
+    p.setBrush(GLYPH_ACCENT)
+    p.drawPolygon(_pts(u, (cx, cy - size), (cx + 0.55 * size, cy - 0.15 * size), (cx, cy + size), (cx - 0.55 * size, cy - 0.15 * size)))
+    p.setPen(_pen(PAPER, 0.8 * u))
+    p.drawLine(*_pts(u, (cx, cy - size), (cx, cy + size)))
+
+
+def _fragments(p: QPainter, u: float) -> None:
+    """A sheet of code with a shard over it: the Fragments window / toolbar glyph."""
+    p.setPen(_pen(QColor(60, 60, 60), 0.9 * u))
+    p.setBrush(PAPER)
+    p.drawRoundedRect(QRectF(2 * u, 1.5 * u, 12 * u, 13 * u), u, u)
+    p.setPen(_pen(GLYPH_COLOR, 1.1 * u))
+    for y, w in ((4.5, 5.0), (7.0, 3.5), (9.5, 4.5)):
+        p.drawLine(*_pts(u, (3.5, y), (3.5 + w, y)))
+    _shard(p, u, 11.0, 9.5, 4.5)
+
+
+def _build(p: QPainter, u: float) -> None:
+    """A shard with a play arrow: build (compile) the fragment and render it."""
+    _shard(p, u, 6.0, 8.0, 6.0)
+    p.setPen(_pen(GREEN, 1.5 * u))
+    p.setBrush(GREEN)
+    p.drawPolygon(_pts(u, (10.5, 9.0), (10.5, 14.5), (14.5, 11.75)))
+
+
+def _new_fragment(kind: str):
+    def paint(p: QPainter, u: float) -> None:
+        p.setPen(_pen(QColor(60, 60, 60), 0.9 * u))
+        p.setBrush(PAPER)
+        p.drawRoundedRect(QRectF(2 * u, 1.5 * u, 12 * u, 13 * u), u, u)
+        _formula_text(p, u, kind, QRectF(2.5 * u, 3.5 * u, 11 * u, 10 * u), GLYPH_ACCENT, 7.5)
+    paint.__doc__ = f"A sheet marked {kind}: a new {kind} fragment."
+    return paint
+
+
+def _lock(locked: bool):
+    def paint(p: QPainter, u: float) -> None:
+        colour = GLYPH_ACCENT if locked else GLYPH_COLOR
+        p.setPen(_pen(colour, 1.4 * u))
+        p.setBrush(colour if locked else Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(4 * u, 7.5 * u, 8 * u, 6.5 * u), u, u)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        if locked:
+            p.drawArc(QRectF(5.5 * u, 2.5 * u, 5 * u, 7 * u), 0, 180 * 16)
+        else:
+            p.drawArc(QRectF(5.5 * u, 1.5 * u, 5 * u, 7 * u), 0, 150 * 16)
+    paint.__doc__ = "A closed padlock: the parameter is locked (baked into the shader)." if locked else "An open padlock."
+    return paint
+
+
+def _render_fragment(p: QPainter, u: float) -> None:
+    """A framed picture with a shard in it: render the fragment to an image."""
+    p.setPen(_pen(GLYPH_COLOR, 1.2 * u))
+    p.setBrush(PAPER)
+    p.drawRoundedRect(QRectF(1.5 * u, 2.5 * u, 13 * u, 11 * u), u, u)
+    _shard(p, u, 7.0, 8.0, 3.6)
+    p.setPen(_pen(GREEN, 1.8 * u))
+    p.setBrush(GREEN)
+    p.drawPolygon(_pts(u, (11.0, 10.0), (11.0, 14.5), (14.5, 12.25)))
+
+
 GLYPHS: dict[str, Painter] = {
     "editor": _editor, "add-transform": _add_transform, "duplicate-transform": _duplicate_transform,
     "delete-transform": _delete_transform, "linked-transform": _linked_transform, "final-transform": _final_transform,
@@ -457,6 +522,8 @@ GLYPHS: dict[str, Painter] = {
     "use-formula": _use_formula, "new-formula": _new_formula, "add-variable": _add_variable, "compare": _compare,
     "three-d": _three_d, "pull-fractal": _pull_fractal, "push-fractal": _push_fractal, "follow": _follow, "render-3d": _render_3d,
     "reset-view": _reset_view, "points": _points,
+    "fragments": _fragments, "build": _build, "new-2d": _new_fragment("2D"), "new-3d": _new_fragment("3D"),
+    "lock": _lock(True), "unlock": _lock(False), "render-fragment": _render_fragment,
 }
 
 

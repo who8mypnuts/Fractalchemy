@@ -23,15 +23,19 @@ def to_8bit(image: np.ndarray) -> np.ndarray:
     return ((image.astype(np.uint32) + 128) // 257).astype(np.uint8)
 
 
-def png_bytes(image: np.ndarray, alpha: bool, depth16: bool, parameters: str) -> bytes:
-    """Encode a (H, W, 4) uint16 array as PNG (RGB or RGBA, 8 or 16 bit) with an optional parameters text chunk."""
+def png_bytes(image: np.ndarray, alpha: bool, depth16: bool, parameters: str, parameters_key: str = PARAMETERS_KEY) -> bytes:
+    """Encode a (H, W, 4) uint16 array as PNG (RGB or RGBA, 8 or 16 bit) with an optional parameters text chunk.
+
+    Args:
+        parameters_key: The tEXt keyword (`flame` for flames; Fragmentarium's `frAg` for fragment settings).
+    """
     height, width = image.shape[:2]
     pixels = image if alpha else image[..., :3]
     rows = np.ascontiguousarray(pixels).astype(">u2") if depth16 else to_8bit(pixels)
     raw = np.concatenate([np.zeros((height, 1), dtype=np.uint8), rows.reshape(height, -1).view(np.uint8)], axis=1)
     chunks = [_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 16 if depth16 else 8, 6 if alpha else 2, 0, 0, 0))]
     if parameters:
-        chunks.append(_chunk(b"tEXt", PARAMETERS_KEY.encode("latin-1") + b"\0" + parameters.encode("latin-1", "replace")))
+        chunks.append(_chunk(b"tEXt", parameters_key.encode("latin-1") + b"\0" + parameters.encode("latin-1", "replace")))
         chunks.append(_chunk(b"tEXt", b"Software\0" + f"{config.APP_NAME} {config.APP_VERSION}".encode("latin-1")))
     compressor = zlib.compressobj(6)
     data = bytearray()
@@ -48,9 +52,9 @@ def _chunk(kind: bytes, body: bytes) -> bytes:
     return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
 
 
-def write_png(path: Path, image: np.ndarray, alpha: bool, depth16: bool, parameters: str) -> None:
+def write_png(path: Path, image: np.ndarray, alpha: bool, depth16: bool, parameters: str, parameters_key: str = PARAMETERS_KEY) -> None:
     """Write `png_bytes(...)` to `path`."""
-    path.write_bytes(png_bytes(image, alpha, depth16, parameters))
+    path.write_bytes(png_bytes(image, alpha, depth16, parameters, parameters_key))
 
 
 def write_tiff16(path: Path, image: np.ndarray, alpha: bool, parameters: str) -> None:

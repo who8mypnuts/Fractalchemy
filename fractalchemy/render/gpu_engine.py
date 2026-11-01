@@ -79,19 +79,27 @@ def glsl_failure_dir() -> Path:
     return cache_dir() / "glsl-failures"
 
 
-def _dump_failure(generated: GeneratedProgram, exc: Exception, renderer: str) -> Path | None:
-    """Write the shader sources and the compiler output for a failed build; returns the report path."""
+def write_failure_report(sections: dict[str, str], log_text: str, renderer: str) -> Path | None:
+    """Write shader sources (`sections`: title → text) and the compiler output to a time-stamped report; returns its path.
+
+    Shared by the flame engine and the fragment engine so every rejected shader can be reported and reproduced.
+    """
     try:
         folder = glsl_failure_dir()
         folder.mkdir(parents=True, exist_ok=True)
         report = folder / time.strftime("%Y%m%d-%H%M%S.txt")
-        report.write_text(f"renderer: {renderer}\n\n=== compiler output ===\n{exc}\n\n=== iterate shader ===\n{generated.iterate_vertex}\n\n"
-                          f"=== plot shader ===\n{generated.plot_vertex}\n", encoding="utf-8")
+        body = "".join(f"\n=== {title} ===\n{text}\n" for title, text in sections.items())
+        report.write_text(f"renderer: {renderer}\n\n=== compiler output ===\n{log_text}\n{body}", encoding="utf-8")
         log.warning("GPU shader build failed on %s; sources and compiler log written to %s", renderer, report)
         return report
     except OSError:
-        log.warning("GPU shader build failed on %s: %s", renderer, str(exc).splitlines()[0] if str(exc) else exc)
+        log.warning("GPU shader build failed on %s: %s", renderer, log_text.splitlines()[0] if log_text else "")
         return None
+
+
+def _dump_failure(generated: GeneratedProgram, exc: Exception, renderer: str) -> Path | None:
+    """Write the flame shaders and the compiler output for a failed build; returns the report path."""
+    return write_failure_report({"iterate shader": generated.iterate_vertex, "plot shader": generated.plot_vertex}, str(exc), renderer)
 
 
 class GpuEngine:

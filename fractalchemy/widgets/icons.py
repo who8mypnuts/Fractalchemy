@@ -365,3 +365,13 @@ def formula_icon() -> QIcon:
 def three_d_icon() -> QIcon:
     """An isometric cube — the 3D Editor window / toolbar glyph."""
     return editor_icon("three-d")
+
+
+def fragments_icon() -> QIcon:
+    """A code sheet with a crystal shard — the Fragments window / toolbar glyph."""
+    return editor_icon("fragments")
+
+
+def lock_icon(locked: bool) -> QIcon:
+    """A padlock, closed when `locked` (the parameter lock buttons)."""
+    return editor_icon("lock" if locked else "unlock")

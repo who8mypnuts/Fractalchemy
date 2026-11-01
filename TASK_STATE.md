@@ -449,3 +449,39 @@ history (`git show 13a9126:TASK_STATE.md`).
 * `mesh.self_intersections` (grid-bucketed nearby pairs, Möller–Trumbore edge-vs-triangle both ways, sampled) in `MeshReport`
   (`self_intersections`, `pairs_checked`; counts against `printable` and the recommendation).
 * Tests: `tests/test_environment.py` now 12.
+
+### Round 10: the Fragments window (Fragmentarium / FragM inside Fractalchemy)
+Plan: `plans/fragments-plan.md` (six phases; all implemented, with the deviations listed in `docs/fragments.md` *What differs
+from FragM*). User guide + language reference: `docs/fragments.md`; README section *Fragments window*.
+* **Core** (`fractalchemy/fragments/`, Qt-free): `preprocessor` (a literal port of FragM's, line map), `parameters` / `state`
+  (widgets' model, locks, settings text, FDEC 9 / DDEC 18), `files` (include resolution, bundled `Include` last),
+  `glsl_compat` (legacy GLSL → 3.30 core: preludes, texture wrappers, declaration de-duplication, `#extension` hoisting, a
+  pass-through vertex shader when a fragment has no `#vertex`; modes modernise / patch / off; `force_version` for the
+  version test), `camera` (FragM's 2D / 3D maths), `presets`, `annotations`, `templates`, `examples` (the bundled
+  `library/Include` + `library/Examples`), `document_format` (`.fafrag` JSON block, `.fragparams`, the `frAg` image key),
+  `library_format`, `spline` (Catmull-Rom, FragM's fudge), `easing` (twelve-field curves through `QEasingCurve`),
+  `animation` (clock, `frame_values`), `interpolate` (the *All parameters* mode), `render_settings` + `batch` (the CLI's
+  work), `textures` (decoding, `#TexParameter`), `gradient_glsl` (gradients → GLSL), `mesh` (DE → voxels → surface nets →
+  files), `preferences`.
+* **GL** (`fragments/gl/`): `engine` (context, program cache, `FragBuildError` with mapped diagnostics, `TextureCache`),
+  `surfaces` (ping-pong accumulation with depth), `passes`, `uniforms` (typed upload, tile projection), `job` (the
+  render-service job; watchdog tiling: a subframe over `FRAG_SUBFRAME_BUDGET_MS` splits the next ones 2×2 … 4×4 with
+  scissors), `tasks` (engine chores — *Test GLSL versions*, *Clear texture cache* — as priority jobs), `final` + `final_job`
+  (tiles with padding, EXR with depth, every host format, ffmpeg), `mesh` (the DE probe: the fragment's shader with a
+  generated `main`, k slices per draw), `diagnostics` (Mesa / NVIDIA / AMD log parsing).
+* **UI** (`ui/fragments/`): window (coordination, F-keys, fullscreen, session, preferences apply / store), document (undo
+  history, builds, locks, presets, cameras, animation), render_driver (generation-keyed submits, interactive scale,
+  subframes-per-pass adaptation), viewport (cameras, depth probe, path overlay), parameter panel + widgets, code editor
+  (highlighter, completer with GLSL docs and own-function signatures), log panel (clickable locations, log-to-file),
+  tabs, actions, file actions (autoload, recent), library panel (thumbnails), animation controls / easing dialog /
+  timeline window, render window + panels / batch dialog, gradient dialog, mesh export dialog + jobs, preferences
+  dialog, help (the guide rendered from `docs/fragments.md`, the CLI page, the welcome note, links).
+* **Host changes**: `render/service.py` (`EngineFactory` protocol, `payload`, `job_error`), `render/settings.py`
+  (`RenderStats.facts`), `render/output.py` (`parameters_key`, `read_embedded_parameters`), `formats/ggr.py` (GIMP
+  gradients with GIMP's exact blend maths; registered everywhere), `widgets/base_code_editor.set_font_size`, icons /
+  glyphs, `library/catalog.FRAGMENT_CATALOG`, `config.FRAG_*`, main window `actionFragments` (F12) + `show_fragments`,
+  `main.py --fragment`, `tools/render_frag.py`, `tests/conftest.NOT_SAMPLES` (+ `fragmentarium`).
+* **Tests**: `test_fragments_preprocessor / compat / engine (incl. the slow corpus: 178 of 186 compile; the 8 failures are
+  FragM's too) / window / files / animation / render / gradient / mesh / textures`, `tests/fragments_inventory.json`.
+* Not ported (documented): Shader Asm, the EXR tools menu, `.fqs` scripts (→ the Python CLI), editor themes, spline
+  occlusion by depth; the shared-context GL blit stays a possible later addition (read-back is not the bottleneck).

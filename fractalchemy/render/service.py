@@ -13,6 +13,12 @@ its configured passes) yields to any pending work. A pre-empted job is paused, n
 restarted: its histogram is kept and it resumes when its turn comes again. The OpenGL
 context is created on this thread because contexts are thread-bound; if that fails the
 CPU engine is used.
+
+The engine is pluggable: an `EngineFactory` creates it on the worker thread (and names a
+fallback for payloads it rejects). The default factory is the flame renderer (GPU, then the
+CPU); the Fragments window runs a second service with its fragment-shader engine. A payload
+is anything with `.copy()` that the engine's `start(payload, settings)` accepts, and a job
+anything with `stats`, `run_pass(cancelled)` and `close()`.
 """
 
 from __future__ import annotations
@@ -21,11 +27,11 @@ import threading
 import time
 from dataclasses import dataclass, field, replace
 from itertools import count
+from typing import Protocol
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from ..fractal.scene import Flame
-from .settings import RenderSettings, RenderStats
+from .settings import RenderStats
 
 PRIORITY_EDITOR = -1     # the Transform Editor's small preview: it follows the mouse, so it goes first
 PRIORITY_VIEWPORT = 0
@@ -33,13 +39,58 @@ PRIORITY_THUMBNAIL = 1
 PRIORITY_REFINE = 2      # a paused job past its configured passes resumes behind everything else
 
 
+class EngineFactory(Protocol):
+    """Creates the engine a `RenderService` runs (on the worker thread) and its fallback."""
+
+    def create(self) -> tuple[object, str]:
+        """`(engine, name)`; the name is announced through `engine_ready`."""
+
+    def fallback(self, engine: object) -> object | None:
+        """A second engine for payloads `engine` could not start (None: there is none). Created once, kept."""
+
+
+class DefaultEngineFactory:
+    """The flame renderer: the OpenGL engine when it can be created, else the numpy one; the numpy one as fallback."""
+
+    def __init__(self, prefer_gpu: bool = True):
+        self._prefer_gpu = prefer_gpu
+        self._cpu = None
+
+    def create(self) -> tuple[object, str]:
+        if self._prefer_gpu:
+            try:
+                from .gpu_engine import GpuEngine
+                engine = GpuEngine()
+                return engine, f"GPU ({engine.renderer})"
+            except Exception as exc:  # noqa: BLE001 - fall back to the CPU on any GL failure
+                reason = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
+                return self._cpu_engine(), f"CPU fallback — OpenGL unavailable: {reason}"
+        engine = self._cpu_engine()
+        return engine, f"CPU (numpy, {engine.threads} threads)"
+
+    def fallback(self, engine: object) -> object | None:
+        """The CPU engine, for flames the GPU engine cannot compile (None when `engine` already is the CPU)."""
+        return None if engine.name == "CPU" else self._cpu_engine()
+
+    def _cpu_engine(self):
+        if self._cpu is None:
+            from .cpu_engine import CpuEngine
+            self._cpu = CpuEngine()
+        return self._cpu
+
+    def close(self) -> None:
+        if self._cpu is not None:
+            self._cpu.close()
+            self._cpu = None
+
+
 @dataclass(order=True)
 class _Request:
     priority: int
     seq: int
     key: object = field(compare=False)
-    flame: Flame = field(compare=False)
-    settings: RenderSettings = field(compare=False)
+    payload: object = field(compare=False)
+    settings: object = field(compare=False)
 
 
 class RenderService(QThread):
@@ -50,15 +101,23 @@ class RenderService(QThread):
         pass_done(object, object, object): (key, RGBA uint8 array (H, W, 4), RenderStats) after each pass.
         job_finished(object, object): (key, RenderStats) when all passes completed.
         job_failed(object, str): (key, message) when a render could not be set up.
+        job_error(object, object): (key, exception) — the same failure with the exception itself, for engines whose
+            errors carry more than a message (the fragment engine's diagnostics).
     """
     engine_ready = Signal(str)
     pass_done = Signal(object, object, object)
     job_finished = Signal(object, object)
     job_failed = Signal(object, str)
+    job_error = Signal(object, object)
 
-    def __init__(self, parent: QObject | None = None, prefer_gpu: bool = True):
+    def __init__(self, parent: QObject | None = None, prefer_gpu: bool = True, factory: EngineFactory | None = None):
+        """Args:
+            parent: Qt owner.
+            prefer_gpu: For the default factory: try the OpenGL flame engine first.
+            factory: What to render with (the flame engines by default).
+        """
         super().__init__(parent)
-        self._prefer_gpu = prefer_gpu
+        self._factory = factory if factory is not None else DefaultEngineFactory(prefer_gpu)
         self._fallback = None
         self._queue: list[_Request] = []
         self._cond = threading.Condition()
@@ -71,11 +130,12 @@ class RenderService(QThread):
         self.engine = None
 
     # --- API (GUI thread) ---------------------------------------------------
-    def submit(self, key: object, flame: Flame, settings: RenderSettings, priority: int = PRIORITY_VIEWPORT) -> None:
-        """Queue a render for `key`, replacing any queued or running render with the same key."""
+    def submit(self, key: object, payload, settings, priority: int = PRIORITY_VIEWPORT) -> None:
+        """Queue a render of `payload` (copied; a `Flame` for the flame engines) for `key`, replacing any queued or
+        running render with the same key."""
         with self._cond:
             self._queue = [r for r in self._queue if r.key != key]
-            self._queue.append(_Request(priority, next(self._seq), key, flame.copy(), settings))
+            self._queue.append(_Request(priority, next(self._seq), key, payload.copy(), settings))
             if self._running_key == key:
                 self._superseded = True
             self._cond.notify()
@@ -107,7 +167,7 @@ class RenderService(QThread):
 
     # --- worker thread ------------------------------------------------------
     def run(self) -> None:  # noqa: D401 - QThread entry point
-        self.engine = self._create_engine()
+        self.engine, self.engine_name = self._factory.create()
         self.engine_ready.emit(self.engine_name)
         try:
             while True:
@@ -120,32 +180,8 @@ class RenderService(QThread):
                 job.close()
             self._paused.clear()
             self.engine.close()
-            if self._fallback is not None:
+            if self._fallback is not None and self._fallback is not self.engine:
                 self._fallback.close()
-
-    def _create_engine(self):
-        if self._prefer_gpu:
-            try:
-                from .gpu_engine import GpuEngine
-                engine = GpuEngine()
-                self.engine_name = f"GPU ({engine.renderer})"
-                return engine
-            except Exception as exc:  # noqa: BLE001 - fall back to the CPU on any GL failure
-                reason = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
-                self.engine_name = f"CPU fallback — OpenGL unavailable: {reason}"
-        from .cpu_engine import CpuEngine
-        engine = CpuEngine()
-        self.engine_name = self.engine_name or f"CPU (numpy, {engine.threads} threads)"
-        return engine
-
-    def _fallback_engine(self):
-        """The CPU engine, for flames the GPU engine cannot compile (created on first need)."""
-        if self.engine.name == "CPU":
-            raise RuntimeError("the CPU engine failed")
-        if self._fallback is None:
-            from .cpu_engine import CpuEngine
-            self._fallback = CpuEngine()
-        return self._fallback
 
     def _next(self) -> _Request | None:
         with self._cond:
@@ -178,14 +214,18 @@ class RenderService(QThread):
         if paused is not None:
             paused[0].close()
         try:
-            return self.engine.start(request.flame, request.settings)
-        except ValueError:   # the flame itself is unusable
+            return self.engine.start(request.payload, request.settings)
+        except ValueError:   # the payload itself is unusable
             raise
-        except Exception as exc:  # noqa: BLE001 - e.g. a formula's GLSL that this driver rejects: use the CPU for it
+        except Exception as exc:  # noqa: BLE001 - e.g. a formula's GLSL that this driver rejects: use the fallback for it
+            if self._fallback is None:
+                self._fallback = self._factory.fallback(self.engine)
+            if self._fallback is None:
+                raise
             try:
-                job = self._fallback_engine().start(request.flame, request.settings)
+                job = self._fallback.start(request.payload, request.settings)
             except Exception as exc2:  # noqa: BLE001 - report the more telling error
-                raise exc2 if self.engine.name == "CPU" else exc
+                raise exc2 from exc
             job.stats.notes.append(f"rendered on the CPU — the GPU rejected the shader: {str(exc).splitlines()[0][:200]}")
             return job
 
@@ -199,6 +239,7 @@ class RenderService(QThread):
             job = self._start_job(request)
         except Exception as exc:  # noqa: BLE001
             self._finish(request.key)
+            self.job_error.emit(request.key, exc)
             self.job_failed.emit(request.key, str(exc))
             return
         keep = False
@@ -224,6 +265,7 @@ class RenderService(QThread):
             self._finish(request.key)
         except Exception as exc:  # noqa: BLE001
             self._finish(request.key)
+            self.job_error.emit(request.key, exc)
             self.job_failed.emit(request.key, str(exc))
         finally:
             if not keep:
@@ -237,7 +279,7 @@ class RenderService(QThread):
 
 def _snapshot(stats: RenderStats) -> RenderStats:
     return RenderStats(stats.engine, stats.passes_done, stats.passes_total, stats.samples, stats.hits, stats.seconds,
-                       stats.width, stats.height, list(stats.notes), stats.samples_target)
+                       stats.width, stats.height, list(stats.notes), stats.samples_target, stats.facts)
 
 
 def wait_for(predicate, timeout: float = 10.0, interval: float = 0.02) -> bool:
