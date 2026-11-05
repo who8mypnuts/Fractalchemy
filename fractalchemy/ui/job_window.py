@@ -55,7 +55,7 @@ class JobWindowBase(QMainWindow):
         self.close_button.clicked.connect(self.close)
 
     # --- layout ------------------------------------------------------------------------------------------------
-    def _build_layout(self, progress_panel: QWidget, size: tuple[int, int]) -> None:
+    def _build_layout(self, progress_panel: QWidget, size: tuple[int, int], options_width: int = OPTIONS_MIN_WIDTH) -> None:
         """Options (from `_option_widgets`) on the left, `progress_panel` on the right, the buttons below."""
         options = QWidget(self)
         column = QVBoxLayout(options)
@@ -67,12 +67,13 @@ class JobWindowBase(QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setMinimumWidth(OPTIONS_MIN_WIDTH)
+        scroll.setMinimumWidth(options_width)
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.addWidget(scroll)
         splitter.addWidget(progress_panel)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
+        splitter.setSizes([options_width, max(300, size[0] - options_width)])
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         for button in (self.start_button, self.pause_button, self.stop_button, self.close_button):

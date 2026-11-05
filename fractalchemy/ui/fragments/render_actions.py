@@ -57,6 +57,9 @@ class RenderActions:
         window = self.render_window
         window.prepare_for(self.w.tabs.document, self.w.driver.render_size())
         window.bring_to_front()
+        problems = window.problems()
+        if problems:
+            self.w.message("Render: cannot start — " + problems[0])
 
     def show_queue(self) -> None:
         queue = self.queue

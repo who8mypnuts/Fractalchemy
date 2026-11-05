@@ -1532,3 +1532,20 @@ All six phases are implemented; the code map of §4 holds with these additions a
 | Post-delivery round (points 6 and 7) | new fractals (Fractalchemy Collection, Triplex.frag), grading dock, debug views (depth, DE slice), DE composer, Shadertoy importer, camera bookmarks + flight recording, manual render mode, performance HUD, colours from a gradient, sparse-block meshing; shared-context blit still not done (see TASK_STATE) |
 | Round 10d (the 21 suggestions + layout / navigation / reports / fractals) | done: Parameters layout (sections / tabs, the Grading page inside the dock), orbit navigation with numpad views and a turntable, render reports on the host's report model, five new Collection fragments + four tutorial fragments with a Walkthrough dock; editor: inline diagnostics, hover signatures, go to definition (includes too), snippets with tab-stops, multi-cursor, compare with original + revert; favourites, slider nudging, mutate + history strip, preset gallery; mini-map, A/B compare wipe, region of interest, draggable keyframe handles; stereo (anaglyph / side by side) and 360° panoramas, a render queue, tile ranges / resume / assemble on the CLI; the post stack (bloom, chromatic aberration, grain, `.cube` LUTs); the animation graph editor; gradient normals, texture baking and a Blender script for meshes; the DE exporter (GLSL / Shadertoy / Unity / Unreal); library tags, ratings, favourites, parameter search, Show filters, thumbnail sizes and captions; sessions with autosave and crash recovery; MIDI / gamepad control of sliders through Linux device files (learn mode, absolute / relative bindings). Not done: the shared-context blit; controllers on other platforms need a MIDI / HID library backend |
 | Round 10e (user request) | `3D - Indra's Pearls.frag` (sphere-inversion groups with an exact chain-mapped DE, invisible large pearls, cut plane, depth colouring, eight presets) and `3D - Kleinian Limit Set.frag` (the Maskit-slice Kleinian group in 3D, four presets) in the Fractalchemy Collection; inventory 232 |
+
+## Appendix E — what the plan still leaves open (as of round 10e)
+
+Everything in phases 1–6 and the later rounds is implemented except the items below; each is deliberate and noted
+in `docs/fragments.md` / `TASK_STATE.md`:
+
+| Open item | Where in the plan | Why it waits |
+|---|---|---|
+| Shared-context GL blit for the viewport (draw the accumulation texture straight into a Qt GL widget instead of the read-back) | §6.9, phase 6 | the read-back is not the bottleneck on the systems measured (llvmpipe and a mid-range GPU); a Qt ↔ moderngl context share is platform-fragile and cannot be verified offscreen |
+| Spline-path occlusion by the depth buffer (hide the parts of the camera path behind the surface) | §9 overlay, phase 3 | paths are drawn over the image; needs a batch depth read per overlay refresh — cheap to add once the blit lands |
+| Editor colour themes (Solarized, Monokai …) beyond the host's palette | phase 6 | the host's editors have one theme; a Fragments-only theme switch would diverge from them |
+| Preferences FragM has that we do not: tile size from the screen, texture-dialog mime types, GL debug flag, line-number toggle | §12.4 | superseded (buffer size bar, file dialogs with every host format, the glsl-failures folder, always-on line numbers) |
+| Tagging the examples that need double precision in the library | §16 risks | the build message says so when a context lacks `fp64`; a library badge is a small follow-up on `library_meta` |
+| EXR texture channel selection (`file[sky.exr, R;G;B;A]`) | §12.1 | parsed and logged; the loader takes RGB |
+| Performance numbers on a discrete GPU (§14.5) | §14.5 | only llvmpipe and one mid-range GPU were measured; the HUD reports the figures for any machine |
+| MIDI / gamepad on Windows and macOS | round 10d | Linux device files only; `DeviceReader` is the place for a `mido` / `hid` backend |
+| Not ported on purpose: NVIDIA Shader ASM, GUI translations, mencoder, Benesi's zap tools, `.fqs` scripting (→ the Python CLI and the render queue) | §17 | no equivalent or replaced |

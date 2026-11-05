@@ -27,9 +27,11 @@ from ...widgets.icons import link_icon
 from ...widgets.layouts import row
 from ...widgets.silent import blocked
 from ..render_output_panel import fill_depth_combo, fill_format_combo
+from ... import config
 from .buffer_size import MAX_SIDE
 
 MAX_TILES = 32
+MAX_TILE_SIDE = config.FRAG_MAX_TILE_SIDE
 
 
 class TilesPanel(QGroupBox):
@@ -117,6 +119,13 @@ class TilesPanel(QGroupBox):
         width, height = s.image_size
         self.tiles_label.setText(f"{s.tiles} × {s.tiles} = {s.tile_count} tiles")
         self.size_label.setText(f"{width} × {height} pixels")
+
+    def mark_problem(self, bad: bool) -> None:
+        """A red frame around the tile boxes while the tile is larger than the GPU limit."""
+        style = "QSpinBox { border: 2px solid #c0392b; }" if bad else ""
+        for spin in (self.width_spin, self.height_spin):
+            spin.setStyleSheet(style)
+            spin.setToolTip(f"A tile may be at most {MAX_TILE_SIDE} pixels a side — raise Tiles per side instead" if bad else "")
 
     def set_tile_size(self, width: int, height: int) -> None:
         with blocked(self.width_spin, self.height_spin):
@@ -291,8 +300,9 @@ class FragOutputPanel(QGroupBox):
         self.unique_check = QCheckBox("Unique file names (time stamp)", self)
         self.depth_alpha_check = QCheckBox("OpenEXR: depth buffer as the Z channel (DepthToAlpha)", self)
         self.incomplete_check = QCheckBox("Keep the frames written when stopped", self)
-        self.report_check = QCheckBox("Save the fragment and render details (report)", self)
-        self.report_check.setToolTip("A report beside the image: the fragment, includes, preset, every parameter, the tile plan, timings per tile, the machine")
+        self.report_check = QCheckBox("Save fragment and render details beside the image", self)
+        self.report_check.setToolTip("Write a report with every render setting, timing and statistic, and a full breakdown of the fragment "
+                                     "(source, includes, preset, every parameter value, the tile plan and per-tile timings, the machine) next to the image")
         self.report_combo = QComboBox(self)
         for key, label, _ext in REPORT_FORMATS:
             self.report_combo.addItem(label, key)

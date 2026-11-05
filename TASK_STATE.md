@@ -554,3 +554,14 @@ from FragM*). User guide + language reference: `docs/fragments.md`; README secti
   open / Schottky dust) and `3D - Kleinian Limit Set.frag` (the Maskit-slice construction in 3D with depth colouring;
   presets Default / Gasket / Down the tunnel / Open tower; `MaxRaySteps = 300` in the presets — the Jos Leys estimate
   needs many steps). Inventory: 232 examples (225 compile).
+* Round 10f (user requests): the library pane's search box has a row to itself (the Show filter, thumbnail size and view
+  buttons moved to a row below — `FragmentLibraryExtras._arrange_rows`); the host `FindBar` is a two-row grid (find row,
+  replace row shown for Ctrl+H, wide text boxes) — every editor benefits; the Fragments output panel's report option is
+  worded like the main renderer's ("Save fragment and render details beside the image"); render blockers are visible:
+  `ProblemBanner` above the options with a *Fix* button (`FragFinalSettings.suggested_tiles / retiled` re-splits the same
+  image into tiles under the 4096 limit), a status bar in the render window, red frames on the tile boxes
+  (`TilesPanel.mark_problem`), a status-bar message in the Fragments window when the render window opens blocked; the
+  tile-size message now says what to do. `JobWindowBase._build_layout(options_width=…)` and initial splitter sizes (the
+  Fragments render window asks for 660 px so its rows are not clipped). Test hygiene: `tests/conftest.py` clears the
+  phantom keyboard modifiers synthetic `sendEvent` key presses leave behind (the cause of the flaky flame-editor tests
+  after the Fragments suites). Plan: Appendix E lists what is still open.

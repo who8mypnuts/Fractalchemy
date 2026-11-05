@@ -1,7 +1,9 @@
 """The Render Fragment window — FragM's *High Resolution and Animation Render* as a Fractalchemy job window.
 
 Options on the left (tiles, quality, animation, output), the progress panel on the right, Start / Pause / Stop /
-Close below (`JobWindowBase`). *Start* snapshots the current tab — the program, the parameters, presets, curves and
+Close below (`JobWindowBase`). Whatever stops a render from starting is said plainly: a warning banner above the
+options (with a *Fix* button when the tile size is the problem — it re-splits the same image into more tiles), the
+status bar, the Start button's tooltip, and a red frame around the offending tile boxes. *Start* snapshots the current tab — the program, the parameters, presets, curves and
 the clock — and runs a `FragRenderJob` on its own thread with its own OpenGL context, so the editor stays usable;
 closing the window hides it while the render carries on. The plan line says what will be drawn and the estimate
 extrapolates from the viewport's measured subframe speed. A *preview* render shows the frame in a dialog with *Save*.
@@ -12,10 +14,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QStandardPaths
+from PySide6.QtCore import QSettings, QStandardPaths, Qt, Signal
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QMessageBox, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QStatusBar, QVBoxLayout, QWidget
 
+from ... import config
 from ...fragments.animation import AnimationSettings
 from ...fragments.gl.final import to_display_rgba8, write_frame
 from ...fragments.gl.final_job import FragOutcome, FragRenderInput, FragRenderJob
@@ -64,8 +67,11 @@ class FragRenderWindow(JobWindowBase):
         self.estimate_label = QLabel(self)
         for label in (self.plan_label, self.estimate_label):
             label.setWordWrap(True)
+        self.banner = ProblemBanner(self)
+        self.banner.fix_requested.connect(self._fix_tiles)
         self.progress_panel = RenderProgressPanel(self)
-        self._build_layout(self.progress_panel, (1150, 760))
+        self._build_layout(self.progress_panel, (1300, 800), options_width=660)
+        self.setStatusBar(QStatusBar(self))
         self._load()
         for panel in (self.tiles_panel, self.quality_panel, self.view_panel, self.animation_panel, self.output_panel):
             panel.changed.connect(self._on_options_changed)
@@ -73,7 +79,8 @@ class FragRenderWindow(JobWindowBase):
 
     # --- construction ----------------------------------------------------------------------------------------------
     def _option_widgets(self) -> list[QWidget]:
-        return [self.tiles_panel, self.quality_panel, self.view_panel, self.animation_panel, self.output_panel, self.plan_label, self.estimate_label]
+        return [self.banner, self.tiles_panel, self.quality_panel, self.view_panel, self.animation_panel, self.output_panel, self.plan_label,
+                self.estimate_label]
 
     def _option_panels(self) -> list[QWidget]:
         return [self.tiles_panel, self.quality_panel, self.view_panel, self.animation_panel, self.output_panel]
@@ -149,12 +156,16 @@ class FragRenderWindow(JobWindowBase):
         self._persist()
         clock = self._clock_provider()
         self.tiles_panel.refresh(s)
-        problems = s.problems()
-        document = self.document()
-        if document is None or document.request() is None:
-            problems.append("No built fragment to render")
+        problems = self.problems()
         self.start_button.setEnabled(not problems and self.job is None)
-        self.start_button.setToolTip("\n".join(problems))
+        self.start_button.setToolTip("\n".join(problems) if problems else "Start the render")
+        tile_problem = max(s.tile_width, s.tile_height) > config.FRAG_MAX_TILE_SIDE
+        self.tiles_panel.mark_problem(tile_problem)
+        self.banner.show_problems(problems, s.suggested_tiles() if tile_problem else 0)
+        if problems:
+            self.statusBar().showMessage("Cannot start: " + problems[0])
+        else:
+            self.statusBar().clearMessage()
         if problems and self.job is None:
             self.plan_label.setText('<span style="color:#c0392b">' + "; ".join(problems) + "</span>")
             self.estimate_label.setText("")
@@ -165,6 +176,21 @@ class FragRenderWindow(JobWindowBase):
         self.estimate_label.setText(estimate)
         if self.job is None and not self._showing_result:
             self.progress_panel.show_idle(estimate)
+
+    def problems(self) -> list[str]:
+        """What keeps the render from starting right now (empty: nothing)."""
+        problems = self.current_settings().problems()
+        document = self.document()
+        if document is None or document.request() is None:
+            problems.append("No built fragment to render")
+        return problems
+
+    def _fix_tiles(self, tiles: int) -> None:
+        """The banner's *Fix*: the same image split into `tiles` per side so each tile fits the GPU limit."""
+        fixed = self.current_settings().retiled(tiles)
+        self.tiles_panel.apply(fixed)
+        self._on_options_changed()
+        self.statusBar().showMessage(f"Split into {tiles} × {tiles} tiles of {fixed.tile_width} × {fixed.tile_height}", 6000)
 
     def _estimate(self, s: FragFinalSettings, clock: AnimationSettings) -> str:
         hint = self._rate_hint() if self._rate_hint is not None else None
@@ -249,6 +275,44 @@ class FragRenderWindow(JobWindowBase):
         if message:
             self.progress_panel.show_progress(FinalProgress(phase=PHASE_CANCELLED, engine=""))
 
+
+
+class ProblemBanner(QWidget):
+    """What keeps the render from starting, in plain sight (hidden when nothing does).
+
+    Signals:
+        fix_requested(int): *Fix* — split the image into this many tiles per side.
+    """
+    fix_requested = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.label = QLabel(self)
+        self.label.setWordWrap(True)
+        self.fix_button = QPushButton(self)
+        self.fix_button.clicked.connect(lambda: self.fix_requested.emit(self._tiles))
+        self._tiles = 0
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.addWidget(self.label)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(self.fix_button)
+        layout.addLayout(row)
+        self.setStyleSheet("ProblemBanner { background: #fff3cd; border: 1px solid #e0b94a; border-radius: 4px; } QLabel { color: #5c4400; }")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.hide()
+
+    def show_problems(self, problems: list[str], suggested_tiles: int = 0) -> None:
+        """List `problems` (none: hide); with `suggested_tiles` the *Fix* button offers that split."""
+        if not problems:
+            self.hide()
+            return
+        self.label.setText("<b>The render cannot start:</b><br>" + "<br>".join(f"• {p}" for p in problems))
+        self._tiles = suggested_tiles
+        self.fix_button.setVisible(suggested_tiles > 1)
+        self.fix_button.setText(f"Fix: use {suggested_tiles} × {suggested_tiles} tiles")
+        self.show()
 
 
 def output_format_for(path: str, default: str) -> str:

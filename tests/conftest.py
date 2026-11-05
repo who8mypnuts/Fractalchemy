@@ -38,6 +38,21 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def _reset_keyboard_modifiers():
+    """Synthetic key events sent with `QApplication.sendEvent` leave their modifiers in `QApplication.keyboardModifiers()`
+    (the window system never released them); tests that read the modifiers later (Apophysis's Shift / Ctrl step factors)
+    would see a phantom Shift. A simulated release through QTest clears the state after every test."""
+    yield
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app is not None and app.keyboardModifiers() != Qt.KeyboardModifier.NoModifier:
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QWidget
+        QTest.keyRelease(QWidget(), Qt.Key.Key_Shift, Qt.KeyboardModifier.NoModifier)
+
+
 def spin(ms: int = 400) -> None:
     """Run the Qt event loop for a while so queued signals / background results arrive."""
     from PySide6.QtCore import QEventLoop, QTimer

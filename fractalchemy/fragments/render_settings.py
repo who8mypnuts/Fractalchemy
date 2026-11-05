@@ -144,7 +144,11 @@ class FragFinalSettings:
         if self.output_format != "exr" and max(width, height) > MAX_PLAIN_SIDE:
             issues.append(f"{width} × {height} is too large — must be less than {MAX_PLAIN_SIDE + 1} a side (OpenEXR output is exempt)")
         if max(self.tile_width, self.tile_height) > config.FRAG_MAX_TILE_SIDE:
-            issues.append(f"a tile may be at most {config.FRAG_MAX_TILE_SIDE} pixels a side")
+            tiles = self.suggested_tiles()
+            inner_w, inner_h = self.tile_width * self.tiles // tiles, self.tile_height * self.tiles // tiles
+            issues.append(f"a tile may be at most {config.FRAG_MAX_TILE_SIDE} pixels a side (the GPU renders one tile at a time): "
+                          f"{self.tile_width} × {self.tile_height} needs {tiles} tiles per side — tiles of {inner_w} × {inner_h} give the same "
+                          f"{width} × {height} image")
         if not self.preview and not self.output_path.strip():
             issues.append("choose an output file")
         if self.animation and self.end_frame < self.start_frame:
@@ -159,6 +163,18 @@ class FragFinalSettings:
         if self.tile_range is not None and not self.tile_indices() and not self.tile_dir:
             issues.append(f"the tile range {self.tile_range} selects no tile of {self.tile_count}")
         return issues
+
+    def suggested_tiles(self) -> int:
+        """The tiles per side that bring the tile under the limit while keeping the image size (what *Fix* applies)."""
+        side = max(self.tile_width, self.tile_height) * self.tiles
+        return max(1, -(-side // config.FRAG_MAX_TILE_SIDE))
+
+    def retiled(self, tiles: int) -> "FragFinalSettings":
+        """The same image split into `tiles` per side."""
+        width, height = self.image_size
+        tiles = max(1, int(tiles))
+        return self.with_(tiles=tiles, tile_width=max(16, int(round(width / tiles * (1.0 + self.padding)))),
+                          tile_height=max(16, int(round(height / tiles * (1.0 + self.padding)))))
 
     # --- names -----------------------------------------------------------------------------------------------------------
     def frame_path(self, frame: int, total_frames: int) -> Path:

@@ -57,6 +57,9 @@ def test_settings_geometry_names_and_problems(tmp_path):
     assert s.with_(animation=True).frame_pattern(250).endswith("a.%05d.png") and s.files_folder().name == "a Files"
     assert s.unique(Path("x.png")).name.startswith("x-") and s.problems() == []
     assert "too large" in s.with_(tile_width=4096, tiles=32).problems()[0]
+    big = s.with_(tile_width=6000, tile_height=6000, tiles=1, padding=0.0)
+    assert "needs 2 tiles per side" in big.problems()[0] and big.suggested_tiles() == 2
+    assert big.retiled(2).problems() == [] and big.retiled(2).image_size == (6000, 6000) and big.retiled(2).tile_width == 3000
     assert s.with_(tile_width=4096, tiles=32, output_format="exr").problems() == []              # EXR is exempt from the size limit
     assert "choose an output file" in s.with_(output_path="").problems()[0]
     assert FragFinalSettings.from_dict(s.to_dict()) == s and "2 × 2 tiles" in s.describe_plan(250)
@@ -152,6 +155,11 @@ def test_render_window_renders_a_tiled_image_with_extras(window, tmp_path):
     window.show_render_window()
     rw = window.render_window
     assert rw.isVisible() and rw.windowTitle().endswith("Mandelbulb")
+    rw.tiles_panel.set_tile_size(6000, 6000)
+    assert not rw.start_button.isEnabled() and rw.banner.isVisible() and rw.banner.fix_button.isVisible()
+    assert "Cannot start" in rw.statusBar().currentMessage() and rw.tiles_panel.width_spin.styleSheet()
+    rw.banner.fix_button.click()
+    assert rw.current_settings().tiles == 2 and rw.banner.isHidden() and not rw.tiles_panel.width_spin.styleSheet()
     rw.tiles_panel.set_tile_size(48, 32)
     rw.tiles_panel.tiles_slider.setValue(2)
     rw.quality_panel.subframes_spin.setValue(2)

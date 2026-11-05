@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QObject, QSize
-from PySide6.QtWidgets import QComboBox, QInputDialog, QMenu, QWidget
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QInputDialog, QMenu, QWidget
 
 from ...formulas.loader import cache_dir
 from ...fragments.examples import is_include
@@ -76,10 +76,22 @@ class FragmentLibraryExtras(QObject):
         for label, size in THUMB_SIZES:
             self.size_combo.addItem(label, size)
         self.size_combo.setToolTip("Thumbnail size")
-        top = panel.layout().itemAt(0).layout()
-        top.insertWidget(1, self.show_combo)
-        top.insertWidget(2, self.size_combo)
+        self._arrange_rows()
         self._connect()
+
+    def _arrange_rows(self) -> None:
+        """The search box keeps its row to itself; the filter, the thumbnail size and the view buttons go on a row below."""
+        panel = self.panel
+        top = panel.layout().itemAt(0).layout()
+        for button in (panel.list_button, panel.thumb_button):
+            top.removeWidget(button)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.show_combo, 1)
+        row.addWidget(self.size_combo)
+        row.addWidget(panel.list_button)
+        row.addWidget(panel.thumb_button)
+        panel.layout().insertLayout(1, row)
 
     def _connect(self) -> None:
         panel = self.panel

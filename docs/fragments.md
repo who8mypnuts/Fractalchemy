@@ -31,7 +31,8 @@ options (*Edit ▸ Preferences…*) and open tabs are remembered between runs.
   variables), *Compiled script in N ms*, and compile errors with the **file and line** they belong to — clicking a
   row opens the file (bundled includes open read-only) at that line; the line is marked in the editor too.
 * **Library** (dock, `Ctrl+L`): the bundled examples (read-only — *Save* becomes *Save as*) and your own folders
-  (*Library ▸ Add folder to library…*) of `.frag` / `.fafrag` files, with a search box and an optional thumbnail
+  (*Library ▸ Add folder to library…*) of `.frag` / `.fafrag` files, with a search box on a row of its own, the
+  *Show* filter, the thumbnail size and the list / thumbnail buttons on the row below, and an optional thumbnail
   view (*Library ▸ Thumbnails*: each fragment rendered once at a small size and cached; small / medium / large). Double-click opens a
   tab; drag a file onto the window to open it; the host's library features (copy / move / rename, per-folder
   views) apply to your folders. A row's menu adds **Favourite**, a **Rating** (one to five stars) and **Tags…** —
@@ -232,6 +233,12 @@ so the editor stays usable; closing the window hides it while the render carries
   viewers and 3D displays) — and the **360° panorama** (the fragment's `EquiRectangular` mode: the whole sphere around
   the eye as a 2:1 image, for VR viewers and sky maps). **Region**: the crop chosen with Ctrl+drag on the viewport.
 * The plan line says what will be drawn; the estimate extrapolates from the viewport's measured subframe speed.
+* **When a render cannot start** the window says why, in plain sight: a warning banner above the options lists
+  every blocker, the status bar repeats the first, the *Start* button's tooltip has them all, and the offending
+  controls are framed in red. A tile larger than the GPU limit (4096 pixels a side — the GPU renders one tile at a
+  time) is the usual one: the banner's **Fix** button splits the same image into enough tiles (6000 × 6000 becomes
+  2 × 2 tiles of 3000 × 3000); other blockers are an image over 32768 a side in a non-EXR format, no output file,
+  an empty frame range, a region outside the frame, a tile range that selects nothing.
 
 *Render ▸ Add to render queue* (`Ctrl+Shift+Q`) snapshots the current tab with the render window's settings into the
 **Render Queue** window (*Render ▸ Render queue…*), which runs its entries one after another on their own thread —
