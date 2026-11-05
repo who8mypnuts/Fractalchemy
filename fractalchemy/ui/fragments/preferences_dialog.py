@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QLineEdit, QListWidget, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from ...fragments.glsl_compat import MODES
+from ...fragments.editor_themes import theme_names
 from ...fragments.preferences import FragPreferences
 
 MODE_LABELS = {"modernise": "Modernise (translate legacy GLSL to 330+ core)", "patch": "FragM compatibility patch",
@@ -51,7 +52,9 @@ class PreferencesDialog(QDialog):
         self.loop_play = QCheckBox("Loop play by default")
         form.addRow(self.loop_play)
         self.draw_paths = QCheckBox("Draw the camera paths over the viewport")
+        self.occlude_paths = QCheckBox("Hide the parts of the paths behind the surface (reads the depth buffer after every pass)")
         form.addRow(self.draw_paths)
+        form.addRow(self.occlude_paths)
         self.traveling_wheel = QCheckBox("2D wheel zooms towards the pointer (traveling) instead of the centre")
         form.addRow(self.traveling_wheel)
         self.log_max_rows = _spin(50, 100000, 100)
@@ -72,6 +75,11 @@ class PreferencesDialog(QDialog):
         self.font_size = _spin(0, 48)
         self.font_size.setSpecialValueText("system")
         form.addRow("Font size (pt)", self.font_size)
+        self.editor_theme = QComboBox()
+        for name in theme_names():
+            self.editor_theme.addItem(name, name)
+        self.editor_theme.setToolTip("Syntax colours and background of the fragment editors (the host's other editors keep the default)")
+        form.addRow("Colour theme", self.editor_theme)
         self.jump_to_error = QCheckBox("Jump to the first error line after a failed build")
         form.addRow(self.jump_to_error)
         self.autoload = QCheckBox("Reload a tab when its file changes on disk (unsaved edits are kept)")
@@ -163,11 +171,13 @@ class PreferencesDialog(QDialog):
         self.max_recent.setValue(p.max_recent)
         self.loop_play.setChecked(p.loop_play)
         self.draw_paths.setChecked(p.draw_paths)
+        self.occlude_paths.setChecked(p.occlude_paths)
         self.traveling_wheel.setChecked(p.traveling_wheel)
         self.log_max_rows.setValue(p.log_max_rows)
         self.parameter_layout.setCurrentIndex(max(0, self.parameter_layout.findData(p.parameter_layout)))
         self.navigation.setCurrentIndex(max(0, self.navigation.findData(p.navigation)))
         self.font_size.setValue(p.font_size)
+        self.editor_theme.setCurrentIndex(max(0, self.editor_theme.findData(p.editor_theme)))
         self.jump_to_error.setChecked(p.jump_to_error)
         self.autoload.setChecked(p.autoload)
         self.autosave_minutes.setValue(p.autosave_minutes)
@@ -192,8 +202,9 @@ class PreferencesDialog(QDialog):
     def preferences(self) -> FragPreferences:
         """The preferences as edited."""
         return FragPreferences(
-            max_recent=self.max_recent.value(), loop_play=self.loop_play.isChecked(), draw_paths=self.draw_paths.isChecked(),
+            max_recent=self.max_recent.value(), loop_play=self.loop_play.isChecked(), draw_paths=self.draw_paths.isChecked(), occlude_paths=self.occlude_paths.isChecked(),
             traveling_wheel=self.traveling_wheel.isChecked(), log_max_rows=self.log_max_rows.value(), font_size=self.font_size.value(),
+            editor_theme=str(self.editor_theme.currentData() or "Default"),
             parameter_layout=self.parameter_layout.currentData(), navigation=self.navigation.currentData(),
             jump_to_error=self.jump_to_error.isChecked(), autoload=self.autoload.isChecked(), autorun=self.autorun.isChecked(),
             auto_build=self.auto_build.isChecked(), move_main=self.move_main.isChecked(), use_defines=self.use_defines.isChecked(),

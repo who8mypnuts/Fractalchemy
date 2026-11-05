@@ -104,6 +104,60 @@ def read_exr(path: Path | str) -> np.ndarray:
     Raises:
         HdriError: When the file is not an EXR this reader understands.
     """
+    planes = read_exr_planes(path)
+    if all(c in planes for c in "RGB"):
+        rgb = np.stack([planes["R"], planes["G"], planes["B"]], axis=-1)
+    elif "Y" in planes:
+        rgb = np.repeat(planes["Y"][..., None], 3, axis=-1)
+    else:
+        first = next(iter(planes.values()))
+        rgb = np.repeat(first[..., None], 3, axis=-1)
+    return np.ascontiguousarray(rgb, dtype=np.float32)
+
+
+def exr_channel_names(path: Path | str) -> list[str]:
+    """The channel names an EXR file declares, in header order (`HdriError` for a file that is not an EXR)."""
+    channels, _compression, _window, _pos, _data = _exr_header(path)
+    return [name for name, _type in channels]
+
+
+def read_exr_planes(path: Path | str) -> dict[str, np.ndarray]:
+    """Every channel of a scanline OpenEXR as its own `(H, W)` float32 plane, keyed by channel name (`R`, `Z`, `diffuse.R` …).
+
+    Raises:
+        HdriError: When the file is not an EXR this reader understands.
+    """
+    name = Path(path).name
+    channels, compression, window, pos, data = _exr_header(path)
+    if compression not in (COMPRESSION_NONE, COMPRESSION_ZIPS, COMPRESSION_ZIP):
+        raise HdriError(f"{name}: compression {compression} is not supported (only none, ZIP and ZIPS)")
+    x0, y0, x1, y1 = window
+    width, height = x1 - x0 + 1, y1 - y0 + 1
+    lines_per_chunk = 16 if compression == COMPRESSION_ZIP else 1
+    chunk_count = -(-height // lines_per_chunk)
+    offsets = struct.unpack(f"<{chunk_count}Q", data[pos:pos + 8 * chunk_count])
+    sizes = {PIXEL_UINT: 4, PIXEL_HALF: 2, PIXEL_FLOAT: 4}
+    dtypes = {PIXEL_UINT: "<u4", PIXEL_HALF: "<f2", PIXEL_FLOAT: "<f4"}
+    row_bytes = sum(width * sizes[t] for _n, t in channels)
+    planes = {ch: np.zeros((height, width), dtype=np.float32) for ch, _t in channels}
+    for offset in offsets:
+        y, size = struct.unpack("<ii", data[offset:offset + 8])
+        chunk = data[offset + 8:offset + 8 + size]
+        lines = min(lines_per_chunk, y1 - y + 1)
+        expected = row_bytes * lines
+        if compression != COMPRESSION_NONE and size < expected:
+            chunk = _unzip(chunk, expected)
+        cursor = 0
+        for line in range(lines):
+            for ch, pixel_type in channels:
+                n = width * sizes[pixel_type]
+                planes[ch][y - y0 + line] = np.frombuffer(chunk, dtype=dtypes[pixel_type], count=width, offset=cursor).astype(np.float32)
+                cursor += n
+    return planes
+
+
+def _exr_header(path: Path | str):
+    """`(channels, compression, data window, offset of the line table, the file bytes)` of a scanline EXR."""
     name = Path(path).name
     data = Path(path).read_bytes()
     if len(data) < 8 or struct.unpack("<i", data[:4])[0] != EXR_MAGIC:
@@ -143,38 +197,7 @@ def read_exr(path: Path | str) -> np.ndarray:
             window = struct.unpack("<iiii", value)
     if window is None or not channels:
         raise HdriError(f"{name}: header without channels / data window")
-    if compression not in (COMPRESSION_NONE, COMPRESSION_ZIPS, COMPRESSION_ZIP):
-        raise HdriError(f"{name}: compression {compression} is not supported (only none, ZIP and ZIPS)")
-    x0, y0, x1, y1 = window
-    width, height = x1 - x0 + 1, y1 - y0 + 1
-    lines_per_chunk = 16 if compression == COMPRESSION_ZIP else 1
-    chunk_count = -(-height // lines_per_chunk)
-    offsets = struct.unpack(f"<{chunk_count}Q", data[pos:pos + 8 * chunk_count])
-    sizes = {PIXEL_UINT: 4, PIXEL_HALF: 2, PIXEL_FLOAT: 4}
-    dtypes = {PIXEL_UINT: "<u4", PIXEL_HALF: "<f2", PIXEL_FLOAT: "<f4"}
-    row_bytes = sum(width * sizes[t] for _n, t in channels)
-    planes = {ch: np.zeros((height, width), dtype=np.float32) for ch, _t in channels}
-    for offset in offsets:
-        y, size = struct.unpack("<ii", data[offset:offset + 8])
-        chunk = data[offset + 8:offset + 8 + size]
-        lines = min(lines_per_chunk, y1 - y + 1)
-        expected = row_bytes * lines
-        if compression != COMPRESSION_NONE and size < expected:
-            chunk = _unzip(chunk, expected)
-        cursor = 0
-        for line in range(lines):
-            for ch, pixel_type in channels:
-                n = width * sizes[pixel_type]
-                planes[ch][y - y0 + line] = np.frombuffer(chunk, dtype=dtypes[pixel_type], count=width, offset=cursor).astype(np.float32)
-                cursor += n
-    if all(c in planes for c in "RGB"):
-        rgb = np.stack([planes["R"], planes["G"], planes["B"]], axis=-1)
-    elif "Y" in planes:
-        rgb = np.repeat(planes["Y"][..., None], 3, axis=-1)
-    else:
-        first = next(iter(planes.values()))
-        rgb = np.repeat(first[..., None], 3, axis=-1)
-    return np.ascontiguousarray(rgb, dtype=np.float32)
+    return channels, compression, window, pos, data
 
 
 def _unzip(chunk: bytes, expected: int) -> bytes:

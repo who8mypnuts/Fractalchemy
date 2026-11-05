@@ -569,8 +569,10 @@ class SamplerWidget(VariableWidget):
 
     Signals:
         browse_requested(str): The `…` button (the panel opens the file dialog and calls `set_value`).
+        channels_edited(): One of the EXR channel boxes changed.
     """
     browse_requested = Signal(str)
+    channels_edited = Signal()
 
     def __init__(self, param: SamplerParameter, files: list[str], parent: QWidget | None = None):
         super().__init__(param, parent)
@@ -578,6 +580,9 @@ class SamplerWidget(VariableWidget):
         self.combo.setEditable(True)
         self.combo.addItems(files)
         self.channels = [QComboBox(self.editor) for _ in range(4)]
+        for box, letter in zip(self.channels, "rgba"):
+            box.setToolTip(f"The file channel that feeds the texture's {letter} (EXR files)")
+            box.activated.connect(lambda _i: self.channels_edited.emit())
         self.browse = QPushButton("…", self.editor)
         self.browse.setFixedWidth(28)
         layout = QHBoxLayout(self.editor)
@@ -594,12 +599,16 @@ class SamplerWidget(VariableWidget):
         self.browse.clicked.connect(lambda: self.browse_requested.emit(self.name))
 
     def set_channels(self, available: list[str]) -> None:
-        """Offer EXR channel names (hidden when the file is not an EXR)."""
-        for box in self.channels:
+        """Offer EXR channel names (hidden when the file is not an EXR); the boxes keep their choices when the names still exist."""
+        current = [box.currentText() for box in self.channels]
+        for box, chosen, default in zip(self.channels, current, ("R", "G", "B", "A")):
             box.setVisible(bool(available))
             with blocked(box):
                 box.clear()
                 box.addItems(available)
+                index = box.findText(chosen if chosen in available else default)
+                if index >= 0:
+                    box.setCurrentIndex(index)
 
     def set_value(self, value):
         file, channels = SamplerParameter.split_value(str(value))
@@ -614,7 +623,7 @@ class SamplerWidget(VariableWidget):
 
     def value(self):
         file = self.combo.currentText().strip()
-        if self.channels[0].isVisible():
+        if self.channels[0].count():
             return file + " " + ";".join(box.currentText() for box in self.channels)
         return file
 

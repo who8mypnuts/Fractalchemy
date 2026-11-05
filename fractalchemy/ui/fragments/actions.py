@@ -13,6 +13,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QActionGroup, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import QMenu, QToolBar
 
+from ...fragments.editor_themes import theme_names
 from ...fragments.examples import example_tree, examples_dir
 from ...fragments.templates import BUILTIN_TEMPLATES, CODE_SNIPPETS, SNIPPETS, user_templates
 from ...widgets.actions import make_action, populate
@@ -60,7 +61,7 @@ class FragmentActions:
         self.undo = act("Undo", action_icon("undo"), w.undo, QKeySequence.StandardKey.Undo, "Undo (parameters, or the editor when it has focus)")
         self.redo = act("Redo", action_icon("redo"), w.redo, QKeySequence.StandardKey.Redo, "Redo")
         self.find = act("Find…", action_icon("find"), lambda: w.show_find(False), QKeySequence.StandardKey.Find, "Find in the source")
-        self.replace = act("Replace…", None, lambda: w.show_find(True), QKeySequence.StandardKey.Replace, "Find and replace")
+        self.replace = act("Replace…", None, lambda: w.show_find(True), "Ctrl+Shift+F", "Find and replace (Ctrl+H in the editor works too)")
         self.goto = act("Go to line…", None, w.goto_line, "Ctrl+G", "Go to a line of the source")
         self.indent = act("Indent script", action_icon("indent"), w.indent_script, None, "Re-indent the whole source by brace depth (FragM's Indent Script)")
         self.compare = act("Compare with original…", None, w.compare_with_original, None,
@@ -160,7 +161,7 @@ class FragmentActions:
         nav.addAction(self.nav_orbit)
         nav.addAction(self.nav_fragm)
         self.nav_orbit.setChecked(True)
-        self.views = {side: act(side.capitalize(), None, lambda s=side: vp.view_from(s), shortcut,
+        self.views = {side: act(side.capitalize(), None, lambda _checked=False, s=side: vp.view_from(s), shortcut,     # triggered(bool) comes first
                                 f"Look at the target from the {side} (numpad {key})")
                       for side, shortcut, key in (("front", "Alt+1", "1"), ("back", "Ctrl+Alt+1", "Ctrl+1"), ("right", "Alt+3", "3"),
                                                   ("left", "Ctrl+Alt+3", "Ctrl+3"), ("top", "Alt+7", "7"), ("bottom", "Ctrl+Alt+7", "Ctrl+7"))}
@@ -176,6 +177,8 @@ class FragmentActions:
         self.loop_play = act("Loop play", None, w.animation.set_loop_play, None, "Start again at the end", checkable=True)
         self.loop_path = act("Loop camera path", None, w.animation.set_loop_path, None, "The camera path wraps back to the first keyframe", checkable=True)
         self.draw_paths = act("Draw camera paths", None, w.animation.set_draw_paths, None, "Show the keyframe paths over the viewport", checkable=True)
+        self.occlude_paths = act("Hide paths behind the surface", None, w.animation.set_occlude_paths, None,
+                                 "Dash the parts of the camera paths the rendered surface is in front of (FragM's spline occlusion)", checkable=True)
         self.interpolate_camera = act("Camera path only", None, lambda: w.animation.set_interpolation("camera"), None,
                                       "FragM's animation: the camera follows the keyframes, sliders follow their easing curves", checkable=True)
         self.interpolate_all = act("All parameters", None, lambda: w.animation.set_interpolation("all"), None,
@@ -205,7 +208,14 @@ class FragmentActions:
         populate(edit, self.undo, self.redo, None, self.find, self.replace, self.goto, self.indent, self.compare, None)
         insert = edit.addMenu("Insert command")
         self._build_snippets(insert)
-        populate(edit, self.insert_gradient, None, self.preferences)
+        populate(edit, self.insert_gradient, None)
+        self.theme_menu = edit.addMenu("Editor theme")
+        self.theme_group = QActionGroup(w)
+        for name in theme_names():
+            action = self.theme_menu.addAction(name, lambda n=name: w.set_editor_theme(n))
+            action.setCheckable(True)
+            self.theme_group.addAction(action)
+        populate(edit, self.preferences)
         build = bar.addMenu("&Build")
         populate(build, self.build, self.auto_build, None, self.manual_render, self.render_now, None, self.composer, None, self.preprocessed, self.test_versions, self.clear_textures)
         debug = build.addMenu("Debug view")
@@ -219,7 +229,7 @@ class FragmentActions:
                  None, self.colors_library, self.colors_library_group, self.colors_file, None, self.save_params, self.load_params)
         animation = bar.addMenu("&Animation")
         populate(animation, *w.anim.actions_list, None, self.easing, self.insert_preset, self.select_preset, None, self.timeline,
-                 self.clear_animation, None, self.loop_play, self.loop_path, self.draw_paths, self.save_easing)
+                 self.clear_animation, None, self.loop_play, self.loop_path, self.draw_paths, self.occlude_paths, self.save_easing)
         interpolation = animation.addMenu("Interpolation")
         populate(interpolation, self.interpolate_camera, self.interpolate_all)
         w.camera.menu = bar.addMenu("&Camera")
@@ -317,6 +327,10 @@ class FragmentActions:
         self.windows_menu.addAction(self.hud)
         self.windows_menu.addSeparator()
         self.windows_menu.addAction(self.controllers)
+
+    def check_theme(self, name: str) -> None:
+        for action in self.theme_group.actions():
+            action.setChecked(action.text() == name)
 
     def refresh_recent(self, paths: list) -> None:
         self.recent_menu.clear()

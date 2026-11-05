@@ -13,8 +13,8 @@ indentation rules) goes into a subclass; the hooks are:
 
 Keys: Tab / Shift+Tab indent or outdent a selection, Backspace eats a level of indentation, Ctrl+/ toggles
 comments, Ctrl+D duplicates the line, Ctrl+Shift+K deletes it, Alt+Up / Alt+Down move it, Ctrl+] / Ctrl+[
-indent / outdent, Home goes to the first non-blank character first, Ctrl+F / Ctrl+H / Ctrl+G / Ctrl+S are
-announced as signals for the window to handle.
+indent / outdent, Home goes to the first non-blank character first, Ctrl+F / Ctrl+H (or Ctrl+Shift+F) / Ctrl+G / Ctrl+S
+are announced as signals for the window to handle.
 """
 
 from __future__ import annotations
@@ -73,6 +73,8 @@ class BaseCodeEditor(QPlainTextEdit):
         self._numbers = LineNumberArea(self)
         self._error_line: int | None = None
         self.completer: Completer | None = None
+        self.gutter_colors: tuple[QColor | None, QColor] = (None, NUMBER_COLOR)     # (background or None = the window colour, numbers)
+        self.current_line_color: QColor | None = None                              # None = a faint tint of the base colour
         self.popup = CompletionPopup(self)
         self._completion: Completion | None = None
         self._typing = False
@@ -130,7 +132,7 @@ class BaseCodeEditor(QPlainTextEdit):
     def paint_line_numbers(self, event: QPaintEvent) -> None:
         """Paint the gutter: the current line in the text colour, the error line in red, the rest grey."""
         painter = QPainter(self._numbers)
-        painter.fillRect(event.rect(), self.palette().window().color())
+        painter.fillRect(event.rect(), self.gutter_colors[0] or self.palette().window().color())
         block = self.firstVisibleBlock()
         number = block.blockNumber()
         top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
@@ -145,7 +147,7 @@ class BaseCodeEditor(QPlainTextEdit):
                 elif number == current:
                     painter.setPen(self.palette().text().color())
                 else:
-                    painter.setPen(NUMBER_COLOR)
+                    painter.setPen(self.gutter_colors[1])
                 painter.drawText(0, top, width, height, Qt.AlignmentFlag.AlignRight, str(number + 1))
             block = block.next()
             top = bottom
@@ -197,7 +199,8 @@ class BaseCodeEditor(QPlainTextEdit):
     def _highlight_lines(self) -> None:
         selections = []
         current = QTextEdit.ExtraSelection()
-        current.format.setBackground(QColor(0, 0, 0, 12) if self.palette().base().color().lightness() > 128 else QColor(255, 255, 255, 14))
+        current.format.setBackground(self.current_line_color if self.current_line_color is not None
+                                     else QColor(0, 0, 0, 12) if self.palette().base().color().lightness() > 128 else QColor(255, 255, 255, 14))
         current.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
         current.cursor = self.textCursor()
         current.cursor.clearSelection()
@@ -524,9 +527,9 @@ class BaseCodeEditor(QPlainTextEdit):
             self.outdent()
         elif alt and key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
             self.move_line(-1 if key == Qt.Key.Key_Up else 1)
-        elif ctrl and key == Qt.Key.Key_F:
+        elif ctrl and key == Qt.Key.Key_F and not shift:
             self.find_requested.emit(False)
-        elif ctrl and key == Qt.Key.Key_H:
+        elif ctrl and key == Qt.Key.Key_H or ctrl and shift and key == Qt.Key.Key_F:
             self.find_requested.emit(True)
         elif ctrl and key == Qt.Key.Key_G:
             self.goto_requested.emit()

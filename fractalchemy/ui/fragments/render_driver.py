@@ -62,6 +62,8 @@ class RenderDriver(QObject):
         self.pending = False                     # a change arrived while manual
         self.interactive = False
         self.depth_probe: tuple[int, int] | None = None
+        self.want_depth = False                  # read the whole depth buffer after each pass (spline occlusion)
+        self.depth_buffer = None                 # the last pass's depth `(H, W)` float32 (row 0 at the top) when wanted
         self.window_size = (640, 360)
         self.stats: RenderStats | None = None
         self.probe_depth: float | None = None
@@ -87,6 +89,7 @@ class RenderDriver(QObject):
             self.document.parameters_changed.disconnect(self._on_parameters)
             self.cancel()
         self.document = document
+        self.depth_buffer = None
         self._facts_seen = False
         if document is not None:
             document.built.connect(self._on_built)
@@ -170,7 +173,7 @@ class RenderDriver(QObject):
                                       subframes_per_pass=1 if self.interactive else self._per_pass, time=self.time,
                                       clear=clear or self.interactive, redisplay_only=redisplay_only and not self.interactive,
                                       surface_key=("surface", id(document)), depth_probe=self.depth_probe,
-                                      gpu_load=1.0 if self.interactive else self.gpu_load)
+                                      gpu_load=1.0 if self.interactive else self.gpu_load, read_depth=self.want_depth)
         if self._key is not None:
             self.service.cancel(self._key)
         self._generation += 1
@@ -186,6 +189,8 @@ class RenderDriver(QObject):
         self.building.emit(False)
         if stats.facts is not None:
             self.probe_depth = stats.facts.probe_depth
+            if stats.facts.depth is not None:
+                self.depth_buffer = stats.facts.depth
             if not self._facts_seen and self.document is not None:
                 self._facts_seen = True
                 self.document.set_build_facts(stats.facts)

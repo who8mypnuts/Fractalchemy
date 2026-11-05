@@ -439,6 +439,15 @@ class FragmentsWindow(QMainWindow):
         self.message("Orbit navigation: left-drag orbits the target, middle pans, right / wheel dolly (numpad 1 3 7 for the views)"
                      if style == "orbit" else "Fly navigation: left-drag turns, right-drag pans, W A S D fly")
 
+    def set_editor_theme(self, name: str) -> None:
+        """*Edit ▸ Editor theme*: the colour theme of every fragment editor (kept in the preferences)."""
+        self.prefs.editor_theme = name
+        self.tabs.theme = name
+        for tab in self.tabs.tabs:
+            tab.editor.set_theme(name)
+        if isinstance(self.actions, FragmentActions):
+            self.actions.check_theme(name)
+
     def zoom_editors(self, direction: int) -> None:
         """Ctrl + wheel / plus / minus / 0 in an editor: every tab's font size (kept in the preferences)."""
         editor = self.tabs.editor
@@ -589,6 +598,7 @@ class FragmentsWindow(QMainWindow):
         dialog.setWindowTitle(f"Preprocessed source — {document.name}")
         editor = GlslCodeEditor(dialog)
         editor.setReadOnly(True)
+        editor.set_theme(self.prefs.editor_theme)
         parts = []
         for title, text, line_map in (("vertex shader", document.modern.vertex, document.modern.vertex_map),
                                       ("fragment shader", document.modern.fragment, document.modern.fragment_map)):
@@ -1029,7 +1039,9 @@ class FragmentsWindow(QMainWindow):
         self.actions.auto_build.setChecked(prefs.auto_build)
         self.actions.save_easing.setChecked(prefs.save_easing)
         self.actions.draw_paths.setChecked(prefs.draw_paths)
+        self.actions.occlude_paths.setChecked(prefs.occlude_paths)
         self.viewport.draw_paths = prefs.draw_paths
+        self.viewport.set_occlusion(prefs.occlude_paths)
         self.viewport.traveling_wheel = prefs.traveling_wheel
         self.set_navigation(prefs.navigation)
         self.driver.refresh_ms = prefs.refresh_ms
@@ -1042,6 +1054,7 @@ class FragmentsWindow(QMainWindow):
         for tab in self.tabs.tabs:
             tab.editor.set_font_size(prefs.font_size)
         self.tabs.font_size = prefs.font_size
+        self.set_editor_theme(prefs.editor_theme)
         self.parameters.set_mode(prefs.parameter_layout)
         self.sessions.set_interval(prefs.autosave_minutes)
         self.viewport.update()

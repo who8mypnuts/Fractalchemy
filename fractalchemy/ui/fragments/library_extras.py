@@ -23,7 +23,7 @@ from ...library.items import LibraryItem
 from ..background import run_in_background
 
 SHOW_FILTERS = (("All fragments", ""), ("Favourites", "fav"), ("Recently opened", "recent"), ("Rated ★★★★ and up", "★★★★"),
-                ("2D fragments", "2d"), ("3D fragments", "3d"))
+                ("2D fragments", "2d"), ("3D fragments", "3d"), ("Needs double precision", "needs:fp64"))
 THUMB_SIZES = (("Small", QSize(160, 100)), ("Medium", QSize(240, 150)), ("Large", QSize(320, 200)))
 META_FILE = "library_meta.json"
 
@@ -122,24 +122,38 @@ class FragmentLibraryExtras(QObject):
         recent = {p.resolve() for p in self.recent_provider()}
         run_in_background(self._index, items, recent, on_done=self._apply_index, on_error=lambda _exc: None)
 
-    def _index(self, items: list[LibraryItem], recent: set[Path]) -> list[tuple[LibraryItem, str, str, str]]:
+    def _index(self, items: list[LibraryItem], recent: set[Path]) -> list[tuple[LibraryItem, str, str, str, str]]:
         out = []
+        has_fp64 = self._has_fp64()
         for item in items:
             try:
                 resolved = item.path.resolve()
             except OSError:
                 continue
+            info = self.meta.info(item.path)
             text = self.meta.search_text(item.path, resolved in recent)
             caption = self.meta.caption(item.path)
-            tooltip = str(item.path) + ("\n(include file)" if is_include(item.path) else "") + "\n" + "\n".join(self.meta.info(item.path).info[:3])
-            out.append((item, text, caption, tooltip))
+            tooltip = str(item.path) + ("\n(include file)" if is_include(item.path) else "") + "\n" + "\n".join(info.info[:3])
+            badge = ""
+            if info.needs_fp64:
+                badge = "fp64" if has_fp64 else "fp64 ✗"
+                note = "Uses double precision (OpenGL 4.0)" + ("" if has_fp64 else " — this OpenGL context has no fp64: the build will fail")
+                tooltip += "\n" + note
+                if not has_fp64:
+                    caption += "\n⚠ " + note
+            out.append((item, text, caption, tooltip, badge))
         return out
 
-    def _apply_index(self, rows: list[tuple[LibraryItem, str, str, str]]) -> None:
+    def _has_fp64(self) -> bool:
+        """Whether the engine's context offers double precision (True until the engine has reported)."""
+        capabilities = getattr(self.window, "_capabilities", None)
+        return bool(getattr(capabilities, "has_fp64", True)) if capabilities is not None else True
+
+    def _apply_index(self, rows: list[tuple[LibraryItem, str, str, str, str]]) -> None:
         model = self.panel.model
-        for item, text, caption, tooltip in rows:
+        for item, text, caption, tooltip, badge in rows:
             model.set_search_text(item, text)
-            model.set_caption(item, caption, tooltip)
+            model.set_caption(item, caption, tooltip, badge)
         if self.panel.search.text().strip() or self.show_combo.currentData():
             self.apply_query()
 

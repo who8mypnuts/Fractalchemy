@@ -93,6 +93,7 @@ class FragRenderSettings:
             for `elapsed · (1 − load) / load`, so a viewport that would pin the GPU at 100 % runs at this duty cycle.
         drop_surface: Release the surface when the job closes (one-off renders such as thumbnails, so they never
             evict a viewport's accumulation from the cache).
+        read_depth: Read the whole depth buffer after each pass (`BuildFacts.depth`) — the viewport's spline occlusion.
     """
     width: int = 640
     height: int = 360
@@ -107,6 +108,7 @@ class FragRenderSettings:
     subframe_budget_ms: float = config.FRAG_SUBFRAME_BUDGET_MS
     gpu_load: float = 1.0
     drop_surface: bool = False
+    read_depth: bool = False
 
     def scaled(self, factor: float) -> "FragRenderSettings":
         return replace(self, width=max(1, int(self.width * factor)), height=max(1, int(self.height * factor)))
@@ -127,6 +129,7 @@ class BuildFacts:
         probe_depth: The depth buffer value at the settings' `depth_probe` after the last pass (None: no probe).
         tiled: Subframes are drawn as `tiled × tiled` scissored rectangles (1 = whole draws) — the watchdog mitigation.
         subframe_ms: How long the last subframe took on the GPU (measured when a watchdog budget is set).
+        depth: The depth buffer `(H, W)` float32, row 0 at the top, when the settings asked for it (else None).
     """
     compile_ms: float = 0.0
     active: list[str] = field(default_factory=list)
@@ -138,6 +141,7 @@ class BuildFacts:
     probe_depth: float | None = None
     tiled: int = 1
     subframe_ms: float = 0.0
+    depth: object = None
 
 
 class FragJob:
@@ -207,6 +211,7 @@ class FragJob:
         self.stats.facts.notes += self.engine.grading.take_notes()         # a LUT that could not be read
         if self.settings.depth_probe is not None:
             self.stats.facts.probe_depth = self.surface.depth_at(*self.settings.depth_probe)
+        self.stats.facts.depth = self.surface.read_depth() if self.settings.read_depth else None
         elapsed = time.perf_counter() - started
         self._elapsed += elapsed
         self.stats.seconds = self._elapsed

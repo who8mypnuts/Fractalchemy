@@ -377,3 +377,83 @@ def test_controller_coordinator_learns_and_drives_sliders(window):
     assert dialog.table.rowCount() == 1
     dialog.close()
     c.shutdown()
+
+
+def test_editor_themes_occlusion_and_exr_channel_boxes(window, tmp_path):
+    import numpy as np
+    from PySide6.QtGui import QPalette
+
+    from fractalchemy.render.exr import write_exr
+    window.library_dock.hide()
+    window.splitter.setSizes([250, 700])
+    window.open_path(MANDELBULB)
+    rendered(window)
+    document, editor = window.tabs.document, window.tabs.editor
+    # themes: every tab and new tabs follow, the preference remembers
+    window.set_editor_theme("Monokai")
+    assert editor.theme_name == "Monokai" and editor.palette().color(QPalette.ColorRole.Base).name() == "#272822"
+    assert window.prefs.editor_theme == "Monokai" and window.actions.theme_group.checkedAction().text() == "Monokai"
+    other = window.open_text("float x;")
+    assert window.tabs.editor.theme_name == "Monokai"
+    window.tabs.set_current(document)
+    window.set_editor_theme("Default")
+    assert editor.palette().color(QPalette.ColorRole.Base) == editor.style().standardPalette().color(QPalette.ColorRole.Base)
+    other._modified = False
+    # spline occlusion: a path through the bulb is dashed where the surface is in front of it
+    text = presets.replace_preset(document.text, "KeyFrame.0001", "Eye = -3,0.2,-3\nTarget = 0,0,0\nUp = 0,1,0")
+    text = presets.replace_preset(text, "KeyFrame.0002", "Eye = 3,0.2,3\nTarget = 0,0,0\nUp = 0,1,0")
+    window.replace_text(text)
+    window.build_document(document)
+    document.set_values({"Eye": (0.0, 2.5, -5.0), "Target": (0.0, 0.0, 0.0), "Up": (0.0, 1.0, 0.0)})
+    viewport = window.viewport
+    wait_until(lambda: viewport.path is not None, 10000)
+    assert window.driver.want_depth
+    wait_until(lambda: window.driver.depth_buffer is not None, 30000)
+    rect = viewport.image_rect()
+    camera = document.camera3d()
+    matrix = camera.projection_view(rect.width() / max(1, rect.height()))
+    behind = viewport._project([(0.0, 0.0, 0.0)], matrix, rect)[0]          # the target sits inside the bulb
+    assert viewport._hidden((0.0, 0.0, 0.0), behind, rect, camera.eye)
+    far_out = viewport._project([(-3.0, 0.2, -3.0)], matrix, rect)[0]
+    assert far_out is None or not viewport._hidden((-3.0, 0.2, -3.0), far_out, rect, camera.eye)
+    assert not viewport.grab().isNull()
+    viewport.set_occlusion(False)
+    assert not window.driver.want_depth and not viewport._hidden((0.0, 0.0, 0.0), behind, rect, camera.eye)
+    window.animation.set_occlude_paths(True)
+    assert window.driver.want_depth and window.prefs.occlude_paths
+    # the 3D pick converts FragM's occlusion depth encoding to a distance
+    from fractalchemy.fragments.camera import depth_to_distance
+    assert window.driver.depth_buffer is not None
+    centre = window.driver.depth_buffer[window.driver.depth_buffer.shape[0] // 2, window.driver.depth_buffer.shape[1] // 2]
+    distance = depth_to_distance(centre, bool(document.state.get("DepthToAlpha")))
+    assert distance is not None and 1.0 < distance < 6.0
+    # EXR channel boxes on a sampler widget
+    write_exr(tmp_path / "depth.exr", {"R": np.zeros((2, 2), np.float32), "Z": np.ones((2, 2), np.float32)})
+    fragment = tmp_path / "tex.frag"
+    fragment.write_text('#include "Progressive2D.frag"\nuniform sampler2D tex; file[depth.exr]\nvec3 color(vec2 p) { return texture2D(tex, p).rgb; }\n')
+    window.open_path(fragment)
+    wait_until(lambda: window.tabs.document.source is not None, 30000)
+    widget = window.parameters.widgets["tex"]
+    assert [widget.channels[0].itemText(i) for i in range(widget.channels[0].count())] == ["R", "Z"]
+    widget.channels[0].setCurrentText("Z")
+    widget.channels[0].activated.emit(widget.channels[0].currentIndex())
+    assert "depth.exr Z;" in window.tabs.document.state.get("tex")
+    for tab in window.tabs.tabs:
+        tab.document._modified = False
+
+
+def test_view_actions_trigger_from_the_toolbar(window):
+    """The view actions are QActions: `triggered(bool)` must not swallow the side name (a toolbar click once raised KeyError: False)."""
+    window.open_path(MANDELBULB)
+    rendered(window)
+    document = window.tabs.document
+    for side, action in window.actions.views.items():
+        action.trigger()
+        eye, target = document.camera3d().eye, document.camera3d().target
+        assert document.camera3d().view_from(side).eye == pytest.approx(eye), side
+        assert target == pytest.approx(document.camera3d().target)
+    before = document.camera3d().eye
+    window.actions.flip_view.trigger()
+    assert document.camera3d().eye != pytest.approx(before)
+    window.actions.frame_origin.trigger()
+    assert document.camera3d().target == pytest.approx((0.0, 0.0, 0.0))

@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, fields, replace
 
 from .. import config
+from .editor_themes import THEMES
 from .glsl_compat import MODES
 
 DEFAULT_LOG_NAME = "fragments.log"
@@ -25,11 +26,13 @@ class FragPreferences:
         max_recent: Entries in *Recent files*.
         loop_play: New fragments start with *Loop play* on.
         draw_paths: Draw the keyframe camera paths over the viewport.
+        occlude_paths: Dash the parts of the paths that lie behind the rendered surface (the depth buffer is read after every pass).
         traveling_wheel: The 2D wheel zooms towards the pointer (*traveling*) rather than the centre.
         log_max_rows: Rows kept in the Log dock.
         parameter_layout: The Parameters dock's arrangement: `sections` (one page, collapsible groups) or `tabs`.
         navigation: 3D mouse navigation: `orbit` (DCC conventions around the target) or `fragm` (FragM's fly controls).
         font_size: The editors' font size in points (0 = the system's fixed font size).
+        editor_theme: The editors' colour theme (`editor_themes.THEMES`).
         jump_to_error: Move the cursor to the first error line after a failed build.
         autoload: Reload a tab when its file changes on disk and the tab has no unsaved edits.
         autorun: Build a fragment as soon as it is opened.
@@ -54,11 +57,13 @@ class FragPreferences:
     max_recent: int = 10
     loop_play: bool = False
     draw_paths: bool = True
+    occlude_paths: bool = True
     traveling_wheel: bool = False
     log_max_rows: int = 2000
     parameter_layout: str = "sections"
     navigation: str = "orbit"
     font_size: int = 0
+    editor_theme: str = "Default"
     jump_to_error: bool = True
     autoload: bool = True
     autorun: bool = True
@@ -105,6 +110,7 @@ class FragPreferences:
                        gpu_load=max(5, min(100, int(self.gpu_load))), autosave_minutes=max(0, min(120, int(self.autosave_minutes))),
                        parameter_layout=self.parameter_layout if self.parameter_layout in ("sections", "tabs") else "sections",
                        navigation=self.navigation if self.navigation in ("orbit", "fragm") else "orbit",
+                       editor_theme=self.editor_theme if self.editor_theme in THEMES else "Default",
                        include_paths=[str(p) for p in self.include_paths if str(p).strip()])
 
 

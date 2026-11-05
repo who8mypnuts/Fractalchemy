@@ -163,7 +163,13 @@ class AnimationCoordinator:
     def set_draw_paths(self, on: bool) -> None:
         self.w.prefs.draw_paths = on
         self.w.viewport.draw_paths = on
+        self.w.viewport.update_depth_wish()
         self.w.viewport.update()
+
+    def set_occlude_paths(self, on: bool) -> None:
+        """*Hide paths behind the surface*: FragM's spline occlusion by the depth buffer."""
+        self.w.prefs.occlude_paths = on
+        self.w.viewport.set_occlusion(on)
 
     def set_save_easing(self, on: bool) -> None:
         self.w.prefs.save_easing = on

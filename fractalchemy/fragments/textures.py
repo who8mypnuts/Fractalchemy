@@ -1,7 +1,8 @@
 """Texture files for `uniform sampler2D tex; file[…]` — decoded to numpy, ready for the GL side.
 
 LDR images through Pillow as RGBA8 (FragM uploads Qt images unconverted, so no colour-space change), `.hdr` and
-`.exr` as float RGBA (through the host's readers), cube maps from a strip of six faces in a row (`+x −x +y −y +z −z`,
+`.exr` as float RGBA (through the host's readers; `file[sky.exr, R;G;B;A]` picks which of the file's channels feed
+r, g, b, a — `Z;Z;Z;A` puts a depth pass in every colour channel), cube maps from a strip of six faces in a row (`+x −x +y −y +z −z`,
 FragM 2.5's layout), integer textures for `isampler2D` / `usampler2D`. `#TexParameter name GL_… GL_…` lines are kept
 as names and translated to moderngl filters / wrapping on upload. A `TextureSpec` is what a request carries; the
 `TextureImage` is what the GL cache uploads.
@@ -14,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..solid.hdri import HdriError, read_exr, read_hdr
+from ..solid.hdri import HdriError, exr_channel_names, read_exr_planes, read_hdr
 
 GL_NEAREST, GL_LINEAR = 0x2600, 0x2601
 GL_NEAREST_MIPMAP_NEAREST, GL_LINEAR_MIPMAP_NEAREST, GL_NEAREST_MIPMAP_LINEAR, GL_LINEAR_MIPMAP_LINEAR = 0x2700, 0x2701, 0x2702, 0x2703
@@ -85,8 +86,7 @@ def load_texture(spec: TextureSpec) -> TextureImage:
             rgb = read_hdr(path)
             data = np.dstack([rgb, np.ones(rgb.shape[:2], dtype=np.float32)])
         elif suffix == ".exr":
-            rgb = read_exr(path)
-            data = np.dstack([rgb, np.ones(rgb.shape[:2], dtype=np.float32)])
+            data = exr_rgba(read_exr_planes(path), spec.channels)
         else:
             from PIL import Image
             with Image.open(path) as image:
@@ -100,6 +100,35 @@ def load_texture(spec: TextureSpec) -> TextureImage:
     if spec.cube:
         image.faces = split_cube_strip(data)
     return image
+
+
+DEFAULT_EXR_CHANNELS = ("R", "G", "B", "A")
+
+
+def exr_rgba(planes: dict[str, np.ndarray], channels: str = "") -> np.ndarray:
+    """`(H, W, 4)` float32 from an EXR's planes: `channels` names the file channels for r, g, b, a (`"R;G;B;A"`,
+    `"Z;Z;Z;A"` …, FragM's syntax); a missing or unknown name fills with 0 (1 for alpha), as FragM does; without a
+    selection R G B A are taken (Y alone gives grey)."""
+    names = [n.strip() for n in channels.split(";")] if channels.strip() else list(DEFAULT_EXR_CHANNELS)
+    names = (names + [""] * 4)[:4]
+    if not channels.strip() and "R" not in planes and "Y" in planes:
+        names = ["Y", "Y", "Y", "A"]
+    first = next(iter(planes.values()))
+    out = np.empty((*first.shape, 4), dtype=np.float32)
+    for index, name in enumerate(names):
+        plane = planes.get(name)
+        out[..., index] = plane if plane is not None else (1.0 if index == 3 else 0.0)
+    return out
+
+
+def exr_channels_of(path: Path | None) -> list[str]:
+    """The channel names of an EXR file (empty for other files or unreadable ones) — the sampler widget's channel boxes."""
+    if path is None or Path(path).suffix.lower() != ".exr":
+        return []
+    try:
+        return exr_channel_names(path)
+    except (OSError, HdriError):
+        return []
 
 
 def texture_specs(source, state, files) -> dict[str, TextureSpec]:
@@ -164,5 +193,5 @@ def anisotropy(params: dict[str, str]) -> float:
         return 1.0
 
 
-__all__ = ["TextureSpec", "TextureImage", "TextureError", "load_texture", "texture_specs", "split_cube_strip", "filter_pair", "wrap_pair",
+__all__ = ["TextureSpec", "TextureImage", "TextureError", "load_texture", "exr_rgba", "exr_channels_of", "texture_specs", "split_cube_strip", "filter_pair", "wrap_pair",
            "anisotropy"]

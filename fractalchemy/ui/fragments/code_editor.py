@@ -22,13 +22,13 @@ from PySide6.QtWidgets import QTextEdit, QToolTip, QWidget
 
 from ...fragments import glsl_keywords as K
 from ...fragments.definitions import find_definition
+from ...fragments.editor_themes import DEFAULT_THEME, theme as editor_theme
 from ...scripting.completion import Completion, Item
 from ...widgets.base_code_editor import INDENT, BaseCodeEditor
 from .editor_tools import DiagnosticMarks, MultiSelection, SnippetSession, word_at
 
-COLORS = {"keyword": "#7b2fa0", "type": "#1565c0", "function": "#3b5f9e", "builtin": "#8d5a00", "string": "#2e7d32",
-          "comment": "#8a8a8a", "number": "#c45200", "preprocessor": "#4a7a48", "annotation": "#b5541c", "preset": "#9a9a9a",
-          "special": "#0d47a1"}
+COLORS = {key: value for key, value in editor_theme(DEFAULT_THEME).items() if key in
+          ("keyword", "type", "function", "builtin", "string", "comment", "number", "preprocessor", "annotation", "preset", "special")}
 BLOCK_COMMENT, IN_PRESET = 1, 2
 BRACKETS = {"(": ")", "[": "]", "{": "}"}
 CLOSERS = {v: k for k, v in BRACKETS.items()}
@@ -44,9 +44,16 @@ class GlslHighlighter(QSyntaxHighlighter):
 
     def __init__(self, document: QTextDocument):
         super().__init__(document)
-        self._formats = {name: self._format(colour, bold=name in ("keyword", "preprocessor")) for name, colour in COLORS.items()}
+        self._formats: dict[str, QTextCharFormat] = {}
+        self.set_colors(COLORS)
+
+    def set_colors(self, colours: dict[str, str]) -> None:
+        """Use another set of syntax colours (a theme) and recolour the document."""
+        self._formats = {name: self._format(colours.get(name, COLORS[name]), bold=name in ("keyword", "preprocessor")) for name in COLORS}
         self._formats["comment"].setFontItalic(True)
         self._formats["preset"].setFontItalic(True)
+        if self.document() is not None:
+            self.rehighlight()
 
     @staticmethod
     def _format(colour: str, bold: bool = False) -> QTextCharFormat:
@@ -190,7 +197,28 @@ class GlslCodeEditor(BaseCodeEditor):
         self.diagnostics = DiagnosticMarks(self)
         self.multi = MultiSelection(self)
         self._snippet: SnippetSession | None = None
+        self.theme_name = DEFAULT_THEME
         self.setMouseTracking(True)
+
+    # --- themes -------------------------------------------------------------------------------------------------------------
+    def set_theme(self, name: str) -> None:
+        """Apply an `editor_themes` theme: syntax colours, background, text, gutter, current line and selection."""
+        from PySide6.QtGui import QPalette
+        colours = editor_theme(name)
+        self.theme_name = name
+        self.highlighter.set_colors(colours)
+        palette = self.style().standardPalette() if not colours["background"] else QPalette(self.palette())
+        if colours["background"]:
+            palette.setColor(QPalette.ColorRole.Base, QColor(colours["background"]))
+            palette.setColor(QPalette.ColorRole.Text, QColor(colours["text"]))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(colours["selection"]))
+            palette.setColor(QPalette.ColorRole.HighlightedText, QColor(colours["text"]))
+        self.setPalette(palette)
+        self.viewport().setPalette(palette)
+        self.gutter_colors = (QColor(colours["gutter"]) if colours["gutter"] else None, QColor(colours["gutter_text"]))
+        self.current_line_color = QColor(colours["current_line"]) if colours["current_line"] else None
+        self._numbers.update()
+        self._highlight_lines()
 
     # --- diagnostics, hover, go to definition ----------------------------------------------------------------------------
     def set_diagnostics(self, items: list[tuple[int, str, str]]) -> None:

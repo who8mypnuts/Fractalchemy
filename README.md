@@ -498,7 +498,7 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   starters (kaleidoscopic IFS, Mandelbox, 2D with a map, Shadertoy-style, buffer feedback, fast raytracer), or from
   your own templates.
 * **Animation**: FragM's model — the 3D camera follows a Catmull-Rom path through `KeyFrame.nnnn` presets (`F8`
-  inserts one; the paths are drawn over the viewport), single slider components follow **easing curves** (`F7`: Qt's
+  inserts one; the paths are drawn over the viewport, dashed where the surface hides them), single slider components follow **easing curves** (`F7`: Qt's
   curves with period / amplitude / overshoot, loops, ping-pong, kept in `Range…` presets as FragM's twelve-field
   lines), a **timeline editor** shows both on one ruler, and an *All parameters* interpolation mode blends every
   numeric parameter between the keyframe presets too; a **graph editor** (values against frames, draggable curve
@@ -518,7 +518,7 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   `Ctrl+E` editor pane toggle, editor font zoom, an accumulation progress bar in the status bar. **Editor**: inline
   diagnostics (wavy underlines, hover messages), hover signatures, Ctrl+click **go to definition** (into the includes
   too), **snippets with tab-stops**, **multi-cursor** editing (`Ctrl+Shift+D` / `L`), *Compare with original…* (a diff
-  against the bundled example with *Revert*). **Sessions**: save / open the open tabs with their settings; an autosave
+  against the bundled example with *Revert*), six **colour themes**. **Sessions**: save / open the open tabs with their settings; an autosave
   every few minutes and *Recover last session* after a crash.
 * **Tools**: a **Grading** page (exposure, Reinhard / filmic / ACES tone mapping, gamma, contrast, saturation, hue,
   vignette, invert, plus a post stack — bloom, chromatic aberration, grain, `.cube` LUTs — a display-pass stage,
@@ -539,7 +539,7 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   Lambdabulb, Jerusalem cube, Mosely snowflake, sphere-inversion IFS, Koch snowflake 2D / prism / 3D tetrahedron,
   Apollonian gasket, Indra's Pearls in 2D and 3D, Kleinian limit sets in 2D and 3D, Dragon curves and a Dragon ribbon) on a `Triplex.frag`
   include, and four *Fractalchemy Tutorials* that explain themselves in `// STEP n:` comments.
-* **Textures**: `file[…]` samplers (LDR through Pillow, `.hdr` / `.exr` float, cube-map strips, integer samplers),
+* **Textures**: `file[…]` samplers (LDR through Pillow, `.hdr` / `.exr` float with per-channel selection, cube-map strips, integer samplers),
   `#TexParameter` filters / wrapping / anisotropy with mipmaps, a cache keyed by file and modification time.
 * **Insert gradient…**: any gradient the host reads (the Gradient Library's current one, `.ugr`, `.map`, palettes,
   images) or a GIMP `.ggr` — with GIMP's exact blend shapes and colour spaces — as a `vec3 gradient(float t)`:

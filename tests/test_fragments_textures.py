@@ -148,3 +148,36 @@ def test_version_check_task(tmp_path: Path, engine: FragEngine):
     results = dict(task.stats.facts)
     assert all(results[v] == [] for v in versions[:-1])
     assert results[top + 10] and "GLSL" in results[top + 10][0]
+
+
+EXR_TEXTURED = """#vertex
+varying vec2 coord;
+void main() { gl_Position = gl_Vertex; coord = gl_Vertex.xy * 0.5 + 0.5; }
+#endvertex
+varying vec2 coord;
+uniform sampler2D tex; file[depth.exr, Z;Z;Z;A]
+#TexParameter tex GL_TEXTURE_MIN_FILTER GL_NEAREST
+#TexParameter tex GL_TEXTURE_MAG_FILTER GL_NEAREST
+void main() { gl_FragColor = vec4(texture2D(tex, coord).rgb * 0.1, 1.0); }
+"""
+
+
+def test_exr_channel_selection(tmp_path: Path, engine: FragEngine):
+    """`file[name.exr, Z;Z;Z;A]` feeds the file's `Z` plane into r, g and b (FragM's channel boxes); missing names fill like FragM."""
+    from fractalchemy.fragments.textures import exr_channels_of, exr_rgba
+    from fractalchemy.render.exr import write_exr
+    from fractalchemy.solid.hdri import read_exr_planes
+    z = np.full((2, 8), 5.0, dtype=np.float32)
+    write_exr(tmp_path / "depth.exr", {"R": np.zeros((2, 8), np.float32), "G": np.zeros((2, 8), np.float32), "B": np.zeros((2, 8), np.float32), "Z": z})
+    assert exr_channels_of(tmp_path / "depth.exr") == ["B", "G", "R", "Z"] and exr_channels_of(tmp_path / "nope.png") == []
+    planes = read_exr_planes(tmp_path / "depth.exr")
+    picked = exr_rgba(planes, "Z;Z;Z;A")
+    assert picked.shape == (2, 8, 4) and picked[0, 0, 0] == 5.0 and picked[0, 0, 3] == 1.0            # A missing → 1
+    assert exr_rgba(planes, "")[0, 0, 0] == 0.0 and exr_rgba(planes, "nothing;Z")[0, 0, 1] == 5.0 and exr_rgba(planes, "nothing;Z")[0, 0, 0] == 0.0
+    request = _request(engine, EXR_TEXTURED, tmp_path / "t.frag")
+    assert request.textures["tex"].channels == "Z;Z;Z;A"
+    with engine.ctx:
+        job = engine.start(request, FragRenderSettings(8, 2, subframe_max=1, surface_key="exr"))
+        image = job.run_pass()
+        job.close()
+    assert tuple(image[0, 0, :3]) == (128, 128, 128) or abs(int(image[0, 0, 0]) - 128) <= 1        # 5.0 × 0.1 = 0.5 in every channel

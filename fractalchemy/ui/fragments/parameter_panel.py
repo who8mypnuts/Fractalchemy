@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from ...fragments.files import IMAGE_SUFFIXES, FileManager
-from ...fragments.parameters import LockType
+from ...fragments.parameters import LockType, SamplerParameter
 from ...fragments.state import CAMERA_2D, CAMERA_3D, ParameterState
 from ...widgets.silent import blocked
 from .document import FragDocument
@@ -176,6 +176,7 @@ class ParameterPanel(QWidget):
         widget.bounds_edited.connect(self.bounds_edit_requested)
         if isinstance(widget, SamplerWidget):
             widget.browse_requested.connect(self._browse_texture)
+            widget.channels_edited.connect(lambda name=widget.name: self._on_value_edited(name, self.widgets[name].value(), None))
 
     # --- showing values ----------------------------------------------------------------------------------------------------
     def refresh_values(self) -> None:
@@ -185,10 +186,24 @@ class ParameterPanel(QWidget):
         state: ParameterState = self.document.state
         for name, widget in self.widgets.items():
             if name in state:
+                if isinstance(widget, SamplerWidget):
+                    self._refresh_channels(widget, state.values[name])
                 widget.set_value(state.values[name])
                 widget.set_lock(state.locks[name])
                 widget.set_slider_type(state.sliders[name])
         self._apply_unused()
+
+    def _refresh_channels(self, widget: SamplerWidget, value) -> None:
+        """An EXR sampler gets its file's channel names in the r / g / b / a boxes (hidden for other files)."""
+        from ...fragments.textures import exr_channels_of
+        file_name, _channels = SamplerParameter.split_value(str(value))
+        path = None
+        if file_name and self.document is not None:
+            try:
+                path = FileManager(original=self.document.path).resolve_name(file_name, self.document.path)
+            except Exception:  # noqa: BLE001 - an unresolvable file simply has no channels to offer
+                path = None
+        widget.set_channels(exr_channels_of(path))
 
     def _on_parameters_changed(self, names: list, _recompile: bool, _buffer_only: bool) -> None:
         if self.document is None:
@@ -196,6 +211,8 @@ class ParameterPanel(QWidget):
         for name in names:
             widget = self.widgets.get(name)
             if widget is not None and name in self.document.state:
+                if isinstance(widget, SamplerWidget):
+                    self._refresh_channels(widget, self.document.state.values[name])
                 widget.set_value(self.document.state.values[name])
                 widget.set_lock(self.document.state.locks[name])
 

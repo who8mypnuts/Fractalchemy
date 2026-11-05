@@ -565,3 +565,17 @@ from FragM*). User guide + language reference: `docs/fragments.md`; README secti
   Fragments render window asks for 660 px so its rows are not clipped). Test hygiene: `tests/conftest.py` clears the
   phantom keyboard modifiers synthetic `sendEvent` key presses leave behind (the cause of the flaky flame-editor tests
   after the Fragments suites). Plan: Appendix E lists what is still open.
+* Round 10g (plan leftovers): *Replace* is `Ctrl+Shift+F` (the standard key is `Ctrl+R` on some desktops — taken by
+  *Render*; `Ctrl+H` in the editor still works, `BaseCodeEditor` accepts both); editor themes (`fragments/editor_themes.py`,
+  `GlslHighlighter.set_colors`, `GlslCodeEditor.set_theme`, `BaseCodeEditor.gutter_colors / current_line_color`,
+  `TabManager.theme`, *Edit ▸ Editor theme*, preference `editor_theme`); spline occlusion (`FragRenderSettings.read_depth`,
+  `BuildFacts.depth`, `RenderDriver.want_depth / depth_buffer`, `camera.depth_to_distance` — also fixes the 3D pick for
+  fragments without *DepthToAlpha*, whose depth is FragM's `1 − 1e-5/dist` encoding —, `FragViewport.set_occlusion /
+  _hidden`, preference `occlude_paths`, *Animation ▸ Hide paths behind the surface*); EXR channel selection
+  (`solid/hdri.read_exr_planes / exr_channel_names`, `textures.exr_rgba / exr_channels_of`, the sampler widget's channel
+  boxes filled from the file and emitting `channels_edited`); the fp64 badge (`FragmentInfo.needs_fp64` with include
+  recursion, version-guard and comment stripping; `LibraryModel.BADGE_ROLE` / `set_caption(badge=…)`; *Show ▸ Needs
+  double precision*). The shared-context blit stays out on purpose (plan Appendix E says why).
+* Fix: the Navigation toolbar's view actions (Front / Back / … ) raised `KeyError: False` — `QAction.triggered(bool)` was
+  landing in the lambda's defaulted `side` parameter (`act()` connects `triggered`, unlike `QMenu.addAction(text, fn)`,
+  which calls with no arguments); the lambda now takes `_checked` first. Covered by `test_view_actions_trigger_from_the_toolbar`.

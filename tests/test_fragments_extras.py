@@ -308,3 +308,29 @@ def test_controller_protocols_and_mapping():
     assert restored.for_control(Control("cc", 74, 0.0)) is absolute or restored.for_control(Control("cc", 74, 0.0)).slider == "Power1"
     mapping.unbind("cc 74")
     assert mapping.bindings == {}
+
+
+# --- themes, depth, fp64 badges ----------------------------------------------------------------------------------------------
+def test_editor_themes_depth_conversion_and_fp64_detection(tmp_path):
+    from fractalchemy.fragments.camera import depth_to_distance
+    from fractalchemy.fragments.editor_themes import DEFAULT_THEME, SYNTAX_KEYS, theme, theme_names
+    from fractalchemy.fragments.examples import INCLUDE_DIR
+    from fractalchemy.fragments.library_meta import scan_fragment
+    assert DEFAULT_THEME in theme_names() and len(theme_names()) >= 5
+    for name in theme_names():
+        assert all(key in theme(name) for key in SYNTAX_KEYS) and "background" in theme(name)
+    assert theme("no such theme") == theme(DEFAULT_THEME)
+    assert depth_to_distance(0.25, True) == 4.0 and depth_to_distance(0.0, True) is None
+    assert depth_to_distance(1.0 - 1e-5 / 3.0, False) == pytest.approx(3.0, rel=1e-3) and depth_to_distance(1.0, False) is None
+    assert scan_fragment("uniform double X; slider[0,1,2]\n").needs_fp64
+    assert not scan_fragment("// double trouble\n/* dvec3 too */\n#if __VERSION__ >= 400\ndouble d;\n#endif\nfloat x;\n").needs_fp64
+    assert scan_fragment("#version 400\nfloat x;\n").needs_fp64 and scan_fragment("#version 330\n").needs_fp64 is False
+    assert "fp64" in scan_fragment("dvec2 c;\n").caption_line
+    meta = LibraryMeta(None)
+    assert not meta.info(INCLUDE_DIR / "Math.frag").needs_fp64                       # doubles only behind a version guard
+    assert meta.info(INCLUDE_DIR / "Progressive2D-4.frag").needs_fp64
+    a = tmp_path / "a.frag"
+    b = tmp_path / "b.frag"
+    a.write_text('#include "b.frag"\n#include "a.frag"\nfloat x;\n')
+    b.write_text('#include "a.frag"\nuniform dvec2 Center; slider[(0,0),(0,0),(1,1)]\n')
+    assert meta.info(a).needs_fp64 and "fp64" in meta.search_text(a).split()          # through the include, cycles tolerated

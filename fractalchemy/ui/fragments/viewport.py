@@ -17,7 +17,7 @@ from PySide6.QtCore import QPoint, QPointF, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPainter, QPaintEvent, QResizeEvent, QWheelEvent
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from ...fragments.camera import STEP_2D_DEFAULT, STEP_3D_DEFAULT, Camera2D, Camera3D, clamp_step, step_after_key
+from ...fragments.camera import STEP_2D_DEFAULT, STEP_3D_DEFAULT, Camera2D, Camera3D, clamp_step, depth_to_distance, step_after_key
 from ...widgets.fractal_preview import fitted_rect
 from ...widgets.images import rgba_to_qimage
 from .document import FragDocument
@@ -69,6 +69,7 @@ class FragViewport(QWidget):
         self._turntable.timeout.connect(self._turntable_tick)
         self.path = None                        # the keyframe camera path to draw over the image (None: nothing)
         self.draw_paths = True
+        self.occlude_paths = True               # hide (dash) the parts of the path behind the rendered surface
         self.hud_enabled = False
         self.minimap = MiniMap()
         self.compare = CompareWipe()
@@ -189,7 +190,45 @@ class FragViewport(QWidget):
         """The camera path (`CameraPath`) to draw, or None."""
         self.path = path if path is not None and path.valid else None
         self.handles = KeyframeHandles()          # the handle positions belong to this path; the next paint places them
+        self._update_depth_wish()
         self.update()
+
+    def set_occlusion(self, on: bool) -> None:
+        """Whether the path is hidden where the surface is in front of it (needs the depth buffer after every pass)."""
+        self.occlude_paths = on
+        self._update_depth_wish()
+        self.update()
+
+    def update_depth_wish(self) -> None:
+        """Tell the driver whether the depth buffer is needed after each pass (paths drawn, occlusion on, a 3D camera)."""
+        self._update_depth_wish()
+
+    def _update_depth_wish(self) -> None:
+        if self.driver is not None:
+            self.driver.want_depth = bool(self.path is not None and self.draw_paths and self.occlude_paths and self._kind() == "3D")
+
+    def _surface_distance(self, screen: QPointF, rect: QRect):
+        """The distance to the rendered surface under a widget position (None: background, no depth buffer, or outside)."""
+        depth = self.driver.depth_buffer if self.driver is not None else None
+        if depth is None or self.document is None:
+            return None
+        h, w = depth.shape
+        x = int((screen.x() - rect.x()) / max(1, rect.width()) * w)
+        y = int((screen.y() - rect.y()) / max(1, rect.height()) * h)
+        if not (0 <= x < w and 0 <= y < h):
+            return None
+        return depth_to_distance(depth[y, x], bool(self.document.state.get("DepthToAlpha")))
+
+    def _hidden(self, point, screen: QPointF, rect: QRect, eye) -> bool:
+        """True when the surface lies between the eye and `point` (FragM's spline occlusion by the depth buffer)."""
+        if not self.occlude_paths or screen is None:
+            return False
+        surface = self._surface_distance(screen, rect)
+        if surface is None:
+            return False
+        import numpy as np
+        distance = float(np.linalg.norm(np.asarray(point, dtype=float) - np.asarray(eye, dtype=float)))
+        return surface < distance * 0.995
 
     def _project(self, points, matrix, rect: QRect) -> list[QPointF | None]:
         """World points → widget positions through the camera's projection · view matrix (None behind the camera)."""
@@ -210,21 +249,24 @@ class FragViewport(QWidget):
         if self.document is None or self._kind() != "3D":
             return
         rect = self.image_rect()
-        matrix = self.document.camera3d().projection_view(rect.width() / max(1, rect.height()))
+        camera = self.document.camera3d()
+        matrix = camera.projection_view(rect.width() / max(1, rect.height()))
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         for points, colour in ((self.path.sample(min(self.path.frames, 400)), QColor(220, 60, 60)),
                                (self.path.target_sample(min(self.path.frames, 400)), QColor(60, 120, 230))):
-            painter.setPen(QPen(colour, 1.5))
             projected = self._project(points, matrix, rect)
-            for a, b in zip(projected, projected[1:]):
+            hidden = [self._hidden(point, screen, rect, camera.eye) for point, screen in zip(points, projected)]
+            for (a, b), behind in zip(zip(projected, projected[1:]), zip(hidden, hidden[1:])):
                 if a is not None and b is not None:
+                    painter.setPen(QPen(QColor(colour.red(), colour.green(), colour.blue(), 70), 1.0, Qt.PenStyle.DashLine) if any(behind)
+                                   else QPen(colour, 1.5))
                     painter.drawLine(a, b)
         painter.setPen(QPen(QColor(60, 200, 60), 1))
-        painter.setBrush(QColor(60, 200, 60))
         for keyframe in self.path.keyframes:
-            for point in self._project([keyframe.eye, keyframe.target], matrix, rect):
-                if point is not None:
-                    painter.drawEllipse(point, 3.5, 3.5)
+            for point, screen in zip((keyframe.eye, keyframe.target), self._project([keyframe.eye, keyframe.target], matrix, rect)):
+                if screen is not None:
+                    painter.setBrush(QColor(60, 200, 60, 60) if self._hidden(point, screen, rect, camera.eye) else QColor(60, 200, 60))
+                    painter.drawEllipse(screen, 3.5, 3.5)
         self.handles.update(self.path, matrix, rect, self._project)
         self.handles.paint(painter, self._project)
 
@@ -558,10 +600,11 @@ class FragViewport(QWidget):
     def _report_click(self, drag: "_Drag", event: QMouseEvent) -> None:
         """A click without a drag: the 3D point under the cursor (FragM's `screenTo3D`), `Target` / `LightPos` on middle-click."""
         depth = self.driver.probe_depth if self.driver is not None else None
-        if not depth:
+        distance = depth_to_distance(depth, bool(self.document.state.get("DepthToAlpha"))) if depth else None
+        if not distance:
             return
         x, y, w, h = drag.buffer_pos
-        point = self.document.camera3d().screen_to_3d(x, y, w, h, depth)
+        point = self.document.camera3d().screen_to_3d(x, y, w, h, 1.0 / distance)
         self.status.emit(f"X:{point[0]:.6g} Y:{point[1]:.6g} Z:{point[2]:.6g}")
         if event.button() == Qt.MouseButton.MiddleButton:
             name = "LightPos" if event.modifiers() & Qt.KeyboardModifier.ControlModifier else "Target"

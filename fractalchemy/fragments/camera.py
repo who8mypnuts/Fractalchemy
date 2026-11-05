@@ -48,6 +48,17 @@ def step_after_key(step: float, key: str, default: float) -> float:
     return clamp_step(step * factors.get(key, 1.0))
 
 
+def depth_to_distance(z: float, depth_to_alpha: bool) -> float | None:
+    """The distance along the ray a raytracer's depth value stands for: `1 / z` with *DepthToAlpha* on, else FragM's
+    occlusion encoding `1 − 1e-5 / dist`; None for the background (`z ≥ 1`) or an unwritten depth."""
+    z = float(z)
+    if depth_to_alpha:
+        return 1.0 / z if z > 0.0 else None
+    if z >= 1.0 or z <= 0.0:
+        return None
+    return 1e-5 / (1.0 - z)
+
+
 def clamp_step(step: float) -> float:
     return min(max(step, STEP_MIN), STEP_MAX)
 
@@ -292,5 +303,5 @@ class Camera2D:
         return replace(self, center=tuple(center), zoom=self.zoom * g)
 
 
-__all__ = ["Camera2D", "Camera3D", "rotate", "normalize", "vec", "step_after_key", "clamp_step", "STEP_2D_DEFAULT",
+__all__ = ["depth_to_distance", "Camera2D", "Camera3D", "rotate", "normalize", "vec", "step_after_key", "clamp_step", "STEP_2D_DEFAULT",
            "STEP_3D_DEFAULT", "STEP_MIN", "STEP_MAX"]

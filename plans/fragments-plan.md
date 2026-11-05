@@ -1540,12 +1540,12 @@ in `docs/fragments.md` / `TASK_STATE.md`:
 
 | Open item | Where in the plan | Why it waits |
 |---|---|---|
-| Shared-context GL blit for the viewport (draw the accumulation texture straight into a Qt GL widget instead of the read-back) | §6.9, phase 6 | the read-back is not the bottleneck on the systems measured (llvmpipe and a mid-range GPU); a Qt ↔ moderngl context share is platform-fragile and cannot be verified offscreen |
-| Spline-path occlusion by the depth buffer (hide the parts of the camera path behind the surface) | §9 overlay, phase 3 | paths are drawn over the image; needs a batch depth read per overlay refresh — cheap to add once the blit lands |
-| Editor colour themes (Solarized, Monokai …) beyond the host's palette | phase 6 | the host's editors have one theme; a Fragments-only theme switch would diverge from them |
+| Shared-context GL blit for the viewport (draw the accumulation texture straight into a Qt GL widget instead of the read-back) | §6.9, phase 6 | left out deliberately (round 10g): the read-back is not the bottleneck on the systems measured (llvmpipe and a mid-range GPU — a 1280×720 RGBA8 read is ~1–2 ms against tens of ms per subframe); a Qt ↔ moderngl context share needs `AA_ShareOpenGLContexts`, a `QOpenGLWidget` and a worker context created from Qt's share context, which differs per platform / driver and cannot be verified in this offscreen environment — shipping it untested would risk the viewport on every machine for no measured gain |
+| ~~Spline-path occlusion by the depth buffer~~ | §9 overlay, phase 3 | done in round 10g: `FragRenderSettings.read_depth` → `BuildFacts.depth`, `camera.depth_to_distance`, dashed hidden segments, *Hide paths behind the surface* |
+| ~~Editor colour themes~~ | phase 6 | done in round 10g: `fragments/editor_themes.py` (Default, Dark, Solarized light / dark, Monokai, Paper), `GlslCodeEditor.set_theme`, *Edit ▸ Editor theme*, preference `editor_theme` |
 | Preferences FragM has that we do not: tile size from the screen, texture-dialog mime types, GL debug flag, line-number toggle | §12.4 | superseded (buffer size bar, file dialogs with every host format, the glsl-failures folder, always-on line numbers) |
-| Tagging the examples that need double precision in the library | §16 risks | the build message says so when a context lacks `fp64`; a library badge is a small follow-up on `library_meta` |
-| EXR texture channel selection (`file[sky.exr, R;G;B;A]`) | §12.1 | parsed and logged; the loader takes RGB |
+| ~~Tagging the examples that need double precision in the library~~ | §16 risks | done in round 10g: `FragmentInfo.needs_fp64` (own text and includes, version guards and comments excluded), the `[fp64]` badge, caption, tooltip and *Show* filter |
+| ~~EXR texture channel selection~~ | §12.1 | done in round 10g: `hdri.read_exr_planes` / `exr_channel_names`, `textures.exr_rgba`, the sampler widget's channel boxes wired |
 | Performance numbers on a discrete GPU (§14.5) | §14.5 | only llvmpipe and one mid-range GPU were measured; the HUD reports the figures for any machine |
 | MIDI / gamepad on Windows and macOS | round 10d | Linux device files only; `DeviceReader` is the place for a `mido` / `hid` backend |
 | Not ported on purpose: NVIDIA Shader ASM, GUI translations, mencoder, Benesi's zap tools, `.fqs` scripting (→ the Python CLI and the render queue) | §17 | no equivalent or replaced |

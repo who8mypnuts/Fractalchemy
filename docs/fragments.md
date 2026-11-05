@@ -39,8 +39,11 @@ options (*Edit ▸ Preferences…*) and open tabs are remembered between runs.
   kept in a small JSON beside the cache, never in the files, so the examples stay pristine — and the **Show** combo
   narrows the tree to favourites, recently opened files, ★★★★ and up, 2D or 3D fragments. The search box matches more
   than names: `tag:ifs`, `param:Power` (or just `Power` — every annotated uniform is indexed), `include:DE-Raytracer`,
-  preset and group names, `#info` lines, `★★★`, `fav`, `recent`. In the thumbnail view each row's caption says the
-  camera kind, the number of presets and parameters, the stars and the tags.
+  preset and group names, `#info` lines, `★★★`, `fav`, `recent`, `fp64`. In the thumbnail view each row's caption says the
+  camera kind, the number of presets and parameters, the stars and the tags. Fragments that use **double precision**
+  outright (`double` / `dvec` / `#version 4xx`, in the file or in what it includes — not behind `#if __VERSION__ >= 400`
+  guards) carry an `[fp64]` badge in the list, a line in the caption and a tooltip; on a context without fp64 the badge
+  reads `fp64 ✗` and the caption warns that the build will fail. *Show ▸ Needs double precision* lists them.
 * **Grading** (a page of the Parameters dock): exposure, tone mapping (Reinhard / filmic / ACES), gamma, contrast,
   saturation, hue shift, vignette, invert, and the **post stack** — bloom (a bright pass blurred at half resolution and
   added back: threshold, radius, strength), chromatic aberration (the red and blue channels drift outwards), film grain,
@@ -188,8 +191,11 @@ A fragment is animated two ways, both FragM's:
 * **The camera path.** For a 3D fragment `F8` inserts a `KeyFrame.nnnn` preset holding the camera (`Eye`, `Target`,
   `Up`, `FOV`, and `FocalPlane` when *AutoFocus* is on). The keyframes are spaced evenly over the animation's length
   and the camera follows a Catmull-Rom spline through them (*Animation ▸ Loop camera path* closes it). The paths are
-  drawn over the viewport (*Draw camera paths*); *Clear animation actions* removes the curves, the keyframe presets
-  stay in the source.
+  drawn over the viewport (*Draw camera paths*); with *Hide paths behind the surface* (FragM's spline occlusion) the
+  depth buffer is read after every pass and the parts of the path the rendered surface is in front of are dashed and
+  faint (the keyframe dots too) — the depth the raytracers write (`1 − 1e-5 / distance`, or `1 / distance` with
+  *DepthToAlpha*) is turned back into a distance and compared with the path point's distance from the eye. *Clear
+  animation actions* removes the curves, the keyframe presets stay in the source.
 * **Easing curves.** `F7` (*Animation ▸ Add easing curve…*) animates the last edited slider component between two
   values over a frame range with one of Qt's easing curves (linear, quad, cubic, sine, elastic, bounce, back … with
   period / amplitude / overshoot, loops and ping-pong). The curves live in `Range…` presets (`F8` with *Presets contain
@@ -288,8 +294,10 @@ from `main`. With a Buffer A the import writes two files next to each other: Buf
 
 `uniform sampler2D tex; file[name.png]` binds a texture: the file is looked up beside the fragment, then on the
 include paths, then in the bundled `Include` folder (a file dialog in the Parameters dock changes it; the parameter is
-always locked). LDR images load through Pillow unconverted, `.hdr` and `.exr` as float (`file[sky.exr, R;G;B;A]`
-channel selection is parsed; the loader currently takes RGB), `samplerCube` from a strip of six square faces
+always locked). LDR images load through Pillow unconverted, `.hdr` and `.exr` as float; for an EXR the four boxes
+beside the file name pick which of the file's channels feed r, g, b and a (`file[sky.exr, R;G;B;A]`; `Z;Z;Z;A` puts a
+depth pass in every colour channel; a name the file lacks fills with 0, or 1 for alpha — FragM's rules; every
+channel the file declares is offered, `diffuse.R` and the like included), `samplerCube` from a strip of six square faces
 (`+x −x +y −y +z −z`), `isampler2D` / `usampler2D` as integer textures. `#TexParameter tex GL_TEXTURE_MIN_FILTER
 GL_LINEAR_MIPMAP_LINEAR` (and `MAG_FILTER`, `WRAP_S` / `WRAP_T`, `MAX_ANISOTROPY`) sets filtering and wrapping;
 mipmaps are built when a mipmap filter is asked for; the defaults are linear and repeat. Textures are cached by
@@ -380,10 +388,10 @@ built from these is exactly what *Render ▸ Export mesh…* wants.
 
 ## Preferences
 
-*Edit ▸ Preferences…* (stored per user): **GUI** — recent files, loop play by default, draw camera paths, 2D wheel
-mode (zoom towards the pointer or the centre), log rows kept, the Parameters dock's arrangement, the 3D navigation
-style; **Editor** — font size, jump to the first error line, reload a tab when its file changes on disk, the
-**session autosave** interval; **GLSL** — build on open (*autorun*), auto-build, move `main` to the end
+*Edit ▸ Preferences…* (stored per user): **GUI** — recent files, loop play by default, draw camera paths and hide
+them behind the surface, 2D wheel mode (zoom towards the pointer or the centre), log rows kept, the Parameters dock's
+arrangement, the 3D navigation style; **Editor** — font size, the colour theme, jump to the first error line, reload a
+tab when its file changes on disk, the **session autosave** interval; **GLSL** — build on open (*autorun*), auto-build, move `main` to the end
 (FragM's *moveMain*), locked parameters as `#define` or `const`, the compatibility layer (*modernise* / FragM's patch /
 off), presets carry easing curves, the animation frame rate, the viewport's refresh interval and interactive scale,
 the **GPU load limit** (a duty cycle: below 100 % the renderer idles between passes) and *pause rendering while the
