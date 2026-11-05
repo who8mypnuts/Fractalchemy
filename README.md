@@ -457,7 +457,7 @@ environments), is `docs/3d-editor-plan.md`.
 fractals written as GLSL fragment shaders — Mandelbulbs, Mandelboxes, kaleidoscopic IFS, escape-time sets, feedback
 systems — edited, tweaked and rendered on the GPU. It reads Fragmentarium / FragM `.frag` files unchanged (their
 directives, `#include`s, annotated uniforms and `#preset`s), ships FragM's example library and include files
-(*Library ▸ Examples*, 230 fragments in 18 categories), and saves `.fafrag` / `.frag`. A tool window like the others:
+(*Library ▸ Examples*, 232 fragments in 18 categories), and saves `.fafrag` / `.frag`. A tool window like the others:
 closing hides it; layout, options and tabs are remembered. See [docs/fragments.md](docs/fragments.md) for the guide
 and the language reference; the plan is `plans/fragments-plan.md`.
 
@@ -537,7 +537,7 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   Kali, Nameless, Kleinian, Lewpen, butadiene, Marble Marcher levels, mrange, iq's Apollonian), plus a *Fractalchemy
   Collection* (Nova, Magnet, Phoenix, a gathering Buddhabrot; Amazing Surf, ABoxMod1, FoldingIntPow, Juliabulb,
   Lambdabulb, Jerusalem cube, Mosely snowflake, sphere-inversion IFS, Koch snowflake 2D / prism / 3D tetrahedron,
-  Apollonian gasket, Indra's Pearls, a Kleinian limit set, Dragon curves and a Dragon ribbon) on a `Triplex.frag`
+  Apollonian gasket, Indra's Pearls in 2D and 3D, Kleinian limit sets in 2D and 3D, Dragon curves and a Dragon ribbon) on a `Triplex.frag`
   include, and four *Fractalchemy Tutorials* that explain themselves in `// STEP n:` comments.
 * **Textures**: `file[…]` samplers (LDR through Pillow, `.hdr` / `.exr` float, cube-map strips, integer samplers),
   `#TexParameter` filters / wrapping / anisotropy with mipmaps, a cache keyed by file and modification time.
@@ -559,7 +559,7 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   (ping-pong accumulation surfaces that survive parameter edits for `DontClearOnChange` fragments, a program cache,
   a buffer-shader display pass, depth reads for the 3D pick, engine chores such as the version test as priority
   jobs); the legacy GLSL 1.10 / 1.20 the fragment world is written in is translated to 3.30 core so it runs on every
-  modern context (`fragments/glsl_compat.py`); 223 of the 230 bundled examples compile, the rest fail in FragM too.
+  modern context (`fragments/glsl_compat.py`); 225 of the 232 bundled examples compile, the rest fail in FragM too.
   Heavy fragments stay clear of the GPU watchdog: half-size rendering while the camera moves, subframes per image
   adapting to the refresh interval, and automatic **tiling** of a subframe that exceeds the time budget (the status
   bar shows *tiled n×n*).

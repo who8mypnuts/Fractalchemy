@@ -547,3 +547,10 @@ from FragM*). User guide + language reference: `docs/fragments.md`; README secti
   with learn mode and a 30 Hz apply tick, `ControllerDialog`; metadata `tabs.controllers`). Inventory: 230 examples (223
   compile). Not done: the shared-context GL blit (as before); controllers are Linux device files only (no MIDI / HID
   library in the environment — `DeviceReader` is the place to add a `mido` / `hid` backend).
+* Round 10e: `Examples/Fractalchemy Collection/3D - Indra's Pearls.frag` (inversion group of a chain of kissing spheres —
+  necklace ± poles, tetrahedron, octahedron, cube; exact DE: every pearl is a sphere mapped back through the recorded
+  chain of inversions (`invertSphere`), pearls above `PearlSize` are invisible walls crossed in one small step, a cut
+  plane, depth colouring; presets Default / Big pearls / Towards the limit set / Tetrahedron / Octahedron / Cube / Cut
+  open / Schottky dust) and `3D - Kleinian Limit Set.frag` (the Maskit-slice construction in 3D with depth colouring;
+  presets Default / Gasket / Down the tunnel / Open tower; `MaxRaySteps = 300` in the presets — the Jos Leys estimate
+  needs many steps). Inventory: 232 examples (225 compile).
