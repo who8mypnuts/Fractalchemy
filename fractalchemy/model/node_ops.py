@@ -1,11 +1,11 @@
-"""Edits that touch a single node: insert after, recolour, delete."""
+"""Edits that touch a single node: insert (after a node, or anywhere on the colour curve), nudge, recolour, delete."""
 
 from __future__ import annotations
 
 import random
 
 from .adjust import shift_hsl
-from .color import RGB
+from .color import RGB, clamp_unit
 from .gradient import Gradient
 from .operations import MIN_NODES, _pick, _random_palette
 from .stop import ColorStop
@@ -25,7 +25,31 @@ def position_after(gradient: Gradient, index: int) -> float:
 
 def inserted_after(gradient: Gradient, index: int, color: RGB) -> tuple[list[ColorStop], int]:
     """New stop list with `color` added after node `index`, and the new node's index."""
-    stop = ColorStop(position_after(gradient, index), color)
+    return _with_stop(gradient, ColorStop(position_after(gradient, index), color))
+
+
+def inserted_at(gradient: Gradient, position: float) -> tuple[list[ColorStop], int]:
+    """New stop list with a node at `position` in the colour the gradient already has there, and its index.
+
+    The node lies on the existing colour curve (the wrap-around between the last and first node included), so the
+    gradient looks the same: only a handle is added (within ±1 per channel, from 8-bit rounding). This is the
+    double-click gesture of Ultra Fractal's and Apophysis's gradient editors.
+    """
+    position = clamp_unit(position)
+    return _with_stop(gradient, ColorStop(position, gradient.color_at(position)))
+
+
+def nudged_position(position: float, units: int, scale: int) -> float:
+    """`position` moved by `units` index steps of a gradient `scale` steps long (Ultra Fractal: 399), clamped.
+
+    Rounds to the index grid first, exactly as the Position box shows it, so the two always agree.
+    """
+    index = max(0, min(scale, round(position * scale) + units))
+    return index / scale
+
+
+def _with_stop(gradient: Gradient, stop: ColorStop) -> tuple[list[ColorStop], int]:
+    """Copies of the stops plus `stop`, sorted, and the index `stop` landed at."""
     stops = [s.copy() for s in gradient.stops]
     stops.append(stop)
     stops.sort(key=lambda s: s.position)

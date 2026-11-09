@@ -134,7 +134,6 @@ each other and a high-quality reference). Three faithful things make the preview
   (where most iterations land outside the frame) is not starved; `RenderSettings.for_zoom` does the
   same (never fewer than nominal, capped at 64× = zoom 3).
 * **Oversample / filter** as above (defaults 2 / 0.5, `MAX_BUCKETS` lowers the oversample for huge viewports).
-* **Detail** (viewer bar): `FractalViewport.render_scale` renders at ½ or ¼ of the screen resolution.
 
 ## When the GPU rejects a shader
 

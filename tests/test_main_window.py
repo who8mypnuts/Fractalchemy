@@ -39,10 +39,11 @@ def test_application_is_named_fractalchemy(window):
 def test_menu_bar_has_windows_and_help_menus(window):
     assert menu_titles(window) == ["File", "Edit", "View", "Windows", "Help"]
     assert [a.text() for a in window.menuWindows.actions()] == [
-        "Transform Editor", "Gradient Library", "Animation", "Random Batch…", "Script Editor", "Formula Editor", "3D Editor", "Fragments",
-        "Render Image…"]
+        "Transform Editor", "Gradient Library", "Animation", "Random Batch…", "Mutate && Breed…", "Script Editor", "Formula Editor",
+        "3D Editor", "Fragments", "Render Image…"]
     assert [a.text() for a in window.menuHelp.actions()] == ["Formulas…", "", "About Fractalchemy…", "About Qt…"]
     assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
+    assert window.theme_menu.menuAction() in window.menuView.actions() and window.theme_menu.title() == "Theme"
     assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save Fractal", "Save Fractal As", "Exit"]
     assert not window.actionSaveFractal.isEnabled() and not window.actionSaveAs.isEnabled()   # nothing loaded
 

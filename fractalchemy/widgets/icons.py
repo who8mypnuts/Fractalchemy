@@ -2,28 +2,77 @@
 
     action.setIcon(gradient_icon())
 
-Each icon is rendered at several sizes so toolbars and title bars stay crisp on
-high-DPI screens.
+Every icon is a `painted_icon`: a `QIcon` whose engine paints the glyph at exactly the size asked for, so it is crisp at
+any size and DPI. It paints **on demand with the current theme's ink**: the glyph colours are two shared `QColor`
+objects, `GLYPH_COLOR` and `GLYPH_ACCENT`, that the theme manager updates in place (`set_glyph_inks`). Painters that
+captured them when the module was imported therefore follow too, and a theme change needs nothing more than a repaint.
+Colours that carry meaning rather than ink (the green *run*, the red *stop*, the gradient swatch) are fixed; they read on
+light and dark toolbars alike.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPen, QPixmap
+from typing import Callable
+
+from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QIcon, QIconEngine, QLinearGradient, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QApplication, QStyleOption
 
 from .. import config
 
-ICON_SIZES = (16, 24, 32, 48, 64)
+ENGINE_CACHE_LIMIT = 16          # pixmaps kept per icon (sizes × modes × theme changes)
 RAINBOW = ((0.0, "#e53935"), (0.2, "#ffb300"), (0.4, "#43a047"), (0.6, "#1e88e5"), (0.8, "#8e24aa"), (1.0, "#e53935"))
 NODE_POSITIONS = (0.15, 0.5, 0.85)
+GLYPH_COLOR = QColor("#3b3b3b")                 # the ink of every painted glyph; updated in place by the theme
+GLYPH_ACCENT = QColor(config.HIGHLIGHT_COLOR)   # the glyphs' accent (active states, the diskette …); likewise
+_ink_generation = 0                             # bumped when the inks change, so cached pixmaps are repainted
+
+
+def set_glyph_inks(ink: str, accent: str) -> None:
+    """Recolour every painted glyph (the theme manager calls this); takes effect at the next repaint."""
+    global _ink_generation
+    if QColor(ink) != GLYPH_COLOR or QColor(accent) != GLYPH_ACCENT:
+        GLYPH_COLOR.setRgb(QColor(ink).rgb())
+        GLYPH_ACCENT.setRgb(QColor(accent).rgb())
+        _ink_generation += 1
+
+
+class PaintedIconEngine(QIconEngine):
+    """Paints an icon on demand at the requested size with the current glyph inks (see the module docstring)."""
+
+    def __init__(self, paint: Callable[[int], QPixmap]):
+        super().__init__()
+        self._paint = paint
+        self._cache: dict[tuple, QPixmap] = {}
+
+    def pixmap(self, size: QSize, mode: QIcon.Mode, state: QIcon.State) -> QPixmap:
+        side = max(1, min(size.width(), size.height()))
+        key = (side, mode, _ink_generation)
+        pixmap = self._cache.get(key)
+        if pixmap is None:
+            pixmap = self._paint(side)
+            if mode == QIcon.Mode.Disabled and QApplication.instance() is not None:   # Qt leaves the disabled look to the engine
+                pixmap = QApplication.style().generatedIconPixmap(mode, pixmap, QStyleOption())
+            if len(self._cache) >= ENGINE_CACHE_LIMIT:
+                self._cache.clear()
+            self._cache[key] = pixmap
+        return pixmap
+
+    def paint(self, painter: QPainter, rect: QRect, mode: QIcon.Mode, state: QIcon.State) -> None:
+        painter.drawPixmap(rect, self.pixmap(rect.size(), mode, state))
+
+    def clone(self) -> "PaintedIconEngine":
+        return PaintedIconEngine(self._paint)
+
+
+def painted_icon(paint: Callable[[int], QPixmap]) -> QIcon:
+    """A theme-following icon painted by `paint(size) -> QPixmap` (square, transparent background)."""
+    return QIcon(PaintedIconEngine(paint))
 
 
 def gradient_icon() -> QIcon:
     """A colour bar with three nodes beneath it — the Gradient Library glyph."""
-    icon = QIcon()
-    for size in ICON_SIZES:
-        icon.addPixmap(_gradient_pixmap(size))
-    return icon
+    return painted_icon(_gradient_pixmap)
 
 
 def _gradient_pixmap(size: int) -> QPixmap:
@@ -53,16 +102,10 @@ THEME_NAMES = {"undo": "edit-undo", "redo": "edit-redo", "copy": "edit-copy", "p
                "save-as": "document-save-as", "random": "roll", "new": "document-new", "open": "document-open",
                "run": "media-playback-start", "stop": "media-playback-stop", "find": "edit-find", "indent": "format-indent-more",
                "outdent": "format-indent-less", "clear": "edit-clear", "revert": "document-revert"}
-GLYPH_COLOR = QColor("#3b3b3b")
-GLYPH_ACCENT = QColor(config.HIGHLIGHT_COLOR)
-
 
 def render_icon() -> QIcon:
     """A framed picture (sun over hills) with a green 'go' badge — the Render Image glyph."""
-    icon = QIcon()
-    for size in ICON_SIZES:
-        icon.addPixmap(_render_pixmap(size))
-    return icon
+    return painted_icon(_render_pixmap)
 
 
 def _render_pixmap(size: int) -> QPixmap:
@@ -102,10 +145,7 @@ def _render_pixmap(size: int) -> QPixmap:
 
 def script_icon() -> QIcon:
     """A sheet of code lines with a green 'run' badge — the Script Editor glyph."""
-    icon = QIcon()
-    for size in ICON_SIZES:
-        icon.addPixmap(_script_pixmap(size))
-    return icon
+    return painted_icon(_script_pixmap)
 
 
 def _script_pixmap(size: int) -> QPixmap:
@@ -140,10 +180,7 @@ def link_icon(linked: bool) -> QIcon:
     The colours carry the state on their own, because a checked tool button's highlight differs
     between platform styles (and can swallow a plain dark glyph).
     """
-    icon = QIcon()
-    for size in ICON_SIZES:
-        icon.addPixmap(_link_pixmap(size, linked))
-    return icon
+    return painted_icon(lambda size: _link_pixmap(size, linked))
 
 
 def _link_pixmap(size: int, linked: bool) -> QPixmap:
@@ -173,10 +210,7 @@ def action_icon(name: str) -> QIcon:
     themed = QIcon.fromTheme(THEME_NAMES.get(name, name))
     if not themed.isNull():
         return themed
-    icon = QIcon()
-    for size in ICON_SIZES:
-        icon.addPixmap(_glyph_pixmap(name, size))
-    return icon
+    return painted_icon(lambda size: _glyph_pixmap(name, size))
 
 
 def _glyph_pixmap(name: str, size: int) -> QPixmap:
@@ -341,15 +375,14 @@ def editor_icon(name: str, use_theme: bool = False) -> QIcon:
     Raises:
         KeyError: For a name no glyph is registered under (see `glyphs.GLYPHS`).
     """
-    from .glyphs import glyph_pixmap
+    from .glyphs import GLYPHS, glyph_pixmap
     if use_theme:
         themed = QIcon.fromTheme(EDITOR_THEME_NAMES.get(name, ""))
         if not themed.isNull():
             return themed
-    icon = QIcon()
-    for size in ICON_SIZES:
-        icon.addPixmap(glyph_pixmap(name, size))
-    return icon
+    if name not in GLYPHS:                     # fail now, not at the first paint
+        raise KeyError(f"no glyph called {name!r}")
+    return painted_icon(lambda size: glyph_pixmap(name, size))
 
 
 def animation_icon() -> QIcon:
@@ -370,6 +403,11 @@ def three_d_icon() -> QIcon:
 def fragments_icon() -> QIcon:
     """A code sheet with a crystal shard — the Fragments window / toolbar glyph."""
     return editor_icon("fragments")
+
+
+def mutation_icon() -> QIcon:
+    """A double helix with a sparkle — the Mutate & Breed window / toolbar glyph."""
+    return editor_icon("mutate")
 
 
 def lock_icon(locked: bool) -> QIcon:

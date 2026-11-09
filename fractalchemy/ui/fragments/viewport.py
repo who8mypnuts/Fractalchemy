@@ -23,9 +23,8 @@ from ...widgets.images import rgba_to_qimage
 from .document import FragDocument
 from .render_driver import RenderDriver
 from .viewport_overlays import CompareWipe, KeyframeHandles, MiniMap, RegionSelect
+from ...widgets.theming import theme_color
 
-BACKGROUND = QColor(30, 30, 30)
-TEXT = QColor(150, 150, 150)
 MIN_SIZE = 32
 RESIZE_MS = 200
 CAMERA_KEYS_3D = {Qt.Key.Key_W: "w", Qt.Key.Key_A: "a", Qt.Key.Key_S: "s", Qt.Key.Key_D: "d", Qt.Key.Key_R: "r", Qt.Key.Key_F: "f",
@@ -125,7 +124,7 @@ class FragViewport(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), BACKGROUND)
+        painter.fillRect(self.rect(), theme_color("canvas_bg"))
         if self._image is not None and not self._image.isNull():
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self._image.size() != self.size())
             painter.drawImage(self.image_rect(), self._image)
@@ -137,7 +136,7 @@ class FragViewport(QWidget):
         self.region.paint(painter, self.image_rect())
         if self.hud_enabled and self._image is not None:
             self._paint_hud(painter)
-        painter.setPen(TEXT)
+        painter.setPen(theme_color("canvas_text"))
         if self._message:
             painter.drawText(self.rect().adjusted(8, 8, -8, -8), Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
                              self._message)

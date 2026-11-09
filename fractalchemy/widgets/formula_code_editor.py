@@ -13,17 +13,14 @@ from __future__ import annotations
 
 import re
 
-from PySide6.QtGui import QColor, QFont, QKeyEvent, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument
+from PySide6.QtGui import QKeyEvent, QTextCursor, QTextDocument
 from PySide6.QtWidgets import QWidget
 
 from ..formulas import completion as FC
 from ..formulas.lang import builtins as B
 from .base_code_editor import INDENT, BaseCodeEditor
+from .syntax import ThemedHighlighter
 
-COLORS = {
-    "keyword": "#7b2fa0", "type": "#1565c0", "api": "#0d47a1", "state": "#8d5a00", "function": "#3b5f9e", "constant": "#7a3a3a",
-    "string": "#2e7d32", "comment": "#8a8a8a", "number": "#c45200", "preprocessor": "#4a7a48",
-}
 KEYWORDS = {"if", "else", "for", "while", "do", "switch", "case", "default", "break", "continue", "return", "goto", "typedef",
             "struct", "static", "const", "inline", "sizeof", "extern", "volatile", "register", "enum", "union"}
 TYPES = {"double", "float", "int", "bool", "void", "char", "long", "short", "unsigned", "signed", "Variables", "Variation", "Complex"}
@@ -36,23 +33,16 @@ CONSTANTS = set(B.CONSTANTS)
 BLOCK_COMMENT = 1
 
 
-class CHighlighter(QSyntaxHighlighter):
-    """Colouring for the plugin dialect (see the module docstring)."""
+class CHighlighter(ThemedHighlighter):
+    """Colouring for the plugin dialect (see the module docstring; colours: the theme's syntax roles)."""
+    STYLES = {"keyword": (True, False), "type": (False, False), "api": (True, False), "state": (False, False),
+              "function": (False, False), "constant": (False, False), "string": (False, False), "comment": (False, True),
+              "number": (False, False), "preprocessor": (False, False)}
 
     def __init__(self, document: QTextDocument):
         super().__init__(document)
-        self._formats = {name: self._format(color, bold=name in ("keyword", "api")) for name, color in COLORS.items()}
-        self._formats["comment"].setFontItalic(True)
         self._word = re.compile(r"[A-Za-z_]\w*")
         self._number = re.compile(r"\b(?:0[xX][0-9A-Fa-f]+|\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)[fFlLuUi]*\b")
-
-    @staticmethod
-    def _format(color: str, bold: bool = False) -> QTextCharFormat:
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(color))
-        if bold:
-            fmt.setFontWeight(QFont.Weight.Bold)
-        return fmt
 
     def highlightBlock(self, text: str) -> None:
         n = len(text)

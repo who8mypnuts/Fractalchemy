@@ -27,6 +27,7 @@ from ...fragments.parameters import (BoolParameter, ColorParameter, FDEC, FloatC
 from ...widgets.color_dialog import ColorPickerDialog
 from ...widgets.icons import lock_icon
 from ...widgets.silent import blocked
+from ...widgets.theming import set_themed_style
 
 SLIDER_STEPS = 100_000_000      # FragM's 1e8 slider resolution
 LABEL_WIDTH = 110
@@ -628,8 +629,8 @@ class SamplerWidget(VariableWidget):
         return file
 
     def set_missing(self, missing: bool) -> None:
-        """Red background when the file cannot be found (FragM's hint)."""
-        self.combo.setStyleSheet("QComboBox { background: #ffb3b3; }" if missing else "")
+        """An error-tinted background when the file cannot be found (FragM's hint)."""
+        set_themed_style(self.combo, "QComboBox {{ background: {error_soft}; color: {text}; }}" if missing else "")
 
 
 def make_widget(param: GuiParameter, files: list[str] = (), parent: QWidget | None = None) -> VariableWidget:

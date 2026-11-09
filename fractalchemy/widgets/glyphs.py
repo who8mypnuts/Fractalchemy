@@ -505,6 +505,27 @@ def _render_fragment(p: QPainter, u: float) -> None:
     p.drawPolygon(_pts(u, (11.0, 10.0), (11.0, 14.5), (14.5, 12.25)))
 
 
+def _mutate(p: QPainter, u: float) -> None:
+    """A double helix with a sparkle: the Mutate & Breed window."""
+    steps = 24
+    strands = ([], [])
+    for k in range(steps + 1):
+        t = k / steps
+        y, swing = 1.5 + 13.0 * t, 3.6 * math.sin(t * 2.5 * math.pi)
+        strands[0].append(QPointF((7.0 + swing) * u, y * u))
+        strands[1].append(QPointF((7.0 - swing) * u, y * u))
+    p.setPen(_pen(GLYPH_COLOR, 0.8 * u))
+    for k in range(2, steps, 4):                                        # the rungs
+        p.drawLine(strands[0][k], strands[1][k])
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    for points, colour in zip(strands, (GLYPH_ACCENT, GLYPH_COLOR)):
+        p.setPen(_pen(colour, 1.5 * u))
+        p.drawPolyline(points)
+    p.setPen(_pen(GREEN, 1.2 * u))                                      # the sparkle of something new
+    for dx, dy in ((0, -1.6), (0, 1.6), (-1.6, 0), (1.6, 0)):
+        p.drawLine(QPointF(13.2 * u, 3.2 * u), QPointF((13.2 + dx) * u, (3.2 + dy) * u))
+
+
 GLYPHS: dict[str, Painter] = {
     "editor": _editor, "add-transform": _add_transform, "duplicate-transform": _duplicate_transform,
     "delete-transform": _delete_transform, "linked-transform": _linked_transform, "final-transform": _final_transform,
@@ -524,6 +545,7 @@ GLYPHS: dict[str, Painter] = {
     "reset-view": _reset_view, "points": _points,
     "fragments": _fragments, "build": _build, "new-2d": _new_fragment("2D"), "new-3d": _new_fragment("3D"),
     "lock": _lock(True), "unlock": _lock(False), "render-fragment": _render_fragment,
+    "mutate": _mutate,
 }
 
 

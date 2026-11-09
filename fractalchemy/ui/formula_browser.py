@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from .. import config
 from ..formulas import last_report, user_formula_dir
 from ..fractal import variations as V
+from ..widgets.theming import on_theme_changed
 from .formula_origins import ORIGINS, origin_of
 
 KIND_LABELS = {V.PRE: "pre", V.NORMAL: "normal", V.POST: "post"}
@@ -100,6 +101,7 @@ class FormulaBrowser(QWidget):
         self.search.textChanged.connect(self.filter)
         self.tree.currentItemChanged.connect(self._show_details)
         self.populate()
+        on_theme_changed(self, lambda _theme: self.populate())     # rows are tinted with the theme's origin colours
 
     def populate(self) -> None:
         """(Re)build the tree from the registry."""

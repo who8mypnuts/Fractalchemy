@@ -22,14 +22,16 @@ python -m pytest
 * Menu bar: *File* (Open Fractal…, Save Fractal `Ctrl+S`, Save Fractal As ▸ New Entry / New File `Ctrl+Shift+S` /
   Into Existing File, Exit), *Edit* (Undo `Ctrl+Z`, Redo `Ctrl+Shift+Z`, Copy Parameters `Ctrl+Shift+C`, Paste
   Parameters `Ctrl+Shift+V`, Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
-  Refresh `F5`, Thumbnails, Show/Hide Settings Panel, Zoom to Fit / 100%, Toolbar, Status Bar),
-  *Windows* (Transform Editor `F4`, Gradient Library `F6`, Animation `F9`, Random Batch `F7`, Script Editor `F8`,
+  Refresh `F5`, Thumbnails, Show/Hide Inspector, Zoom to Fit / 100%, Guides, **Theme ▸**, Toolbar, Status Bar),
+  *Windows* (Transform Editor `F4`, Gradient Library `F6`, Animation `F9`, Random Batch `F7`, Mutate & Breed `Ctrl+M`,
+  Script Editor `F8`,
   Formula Editor `F10`, 3D Editor `F11`, Fragments `F12`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
 * Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
   **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
   (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Transform Editor** (`F4`),
-  **Gradient Library**, **Animation** (`F9`), **Random Batch** (`F7`), **Script Editor** (`F8`), **Formula Editor**
-  (`F10`), **3D Editor** (`F11`), **Fragments** (`F12`), **Render Image** (`Ctrl+R`).
+  **Gradient Library**, **Animation** (`F9`), **Random Batch** (`F7`), **Mutate & Breed** (`Ctrl+M`),
+  **Script Editor** (`F8`), **Formula Editor** (`F10`), **3D Editor** (`F11`), **Fragments** (`F12`),
+  **Render Image** (`Ctrl+R`).
   Nothing is ever written unless you save: edits only change the preview, the title shows `*`, and Save / Save As
   let you keep as many versions as you like.
 * **Open Fractal…** shows the file's first flame and lists *all* of the file's flames in a temporary section at the
@@ -69,7 +71,7 @@ python -m pytest
   * While you interact the render runs at half resolution; a quarter second after you stop it re-renders at
     full resolution. Meanwhile the previous picture is simply repositioned under the new view (never stretched),
     and a newer view always cancels the older render, so a stale image never overwrites the current one.
-* **Settings panel** (right, collapsible via its divider arrow or *View ▸ Show/Hide Settings Panel* `Ctrl+Shift+L`):
+* **Inspector** (right, collapsible via its divider arrow or *View ▸ Show/Hide Inspector* `Ctrl+Shift+L`):
   * *Info* — what the loaded fractal is made of: file / entry / format, size and camera (incl. the 3D camera),
     every transform with its weight share, colour, variations and their parameters, affine / post / xaos, the
     distinct **formulas** it uses (use count, pre/normal/post, 3D, direct colour, random, origin — double-click
@@ -101,7 +103,33 @@ python -m pytest
   of the same file, so *Save* writes the colours back into that flame. Every gradient edit (nodes, sliders,
   node operations, or picking another gradient in the library) recolours the fractal and re-renders the
   viewport. A small preview beside the gradient strip mirrors the viewport, so the effect is visible even
-  with the Gradient Library maximised. Switching fractals with unsaved gradient edits asks first.
+  with the Gradient Library maximised. The library also **follows the fractal**: after undo / redo, Paste
+  Parameters, a script, or adopting a mutant or child, it shows the fractal's new gradient at once. Neither
+  switching fractals nor following asks about unsaved gradient edits: they were already applied to the fractal
+  and live in its undo history.
+
+### Themes
+*View ▸ Theme* recolours the whole application at once, every window included, and remembers the choice:
+
+* **System** (the default) keeps the platform's own look. Its editor colours still adapt: on a dark desktop the code
+  editors, the formula lists and the painted icons take readable dark-theme colours.
+* **Nord** and six variations: *Nord*, *Nord Deep* (darker Polar Night), *Nord Frost* (deep-blue accent),
+  *Nord Aurora* (warm accents), *Nord High Contrast*, and two light ones, *Nord Snow Storm* and *Nord Light Frost*.
+* **Dark**: Fractalchemy Dark, Dracula, Monokai, One Dark, Tokyo Night (+ Storm), Catppuccin Mocha / Macchiato / Frappé,
+  Gruvbox Dark, Solarized Dark, Ayu Mirage, Everforest Dark, Kanagawa, Rosé Pine, Material Palenight, Night Owl,
+  Oceanic Next, Tomorrow Night, GitHub Dark, Darcula, Iceberg, High Contrast Dark.
+* **Light**: Fractalchemy Light, Solarized Light, Gruvbox Light, Catppuccin Latte, One Light, Rosé Pine Dawn,
+  GitHub Light, Paper (high contrast).
+
+Each theme is built from its published palette, and **readability is a rule, checked for every theme by the
+test-suite**: text, syntax colours, hints, formula-origin tints, selections and glyphs all meet WCAG AA contrast
+(4.5:1 for text, 3:1 for comments and hints). Where a published colour falls short (many themes' own comment greys do)
+it is nudged just far enough. The code editors (Script, Formula, Fragments), the completion popups, the help drawers,
+the Transform Editor's lists, the log and the toolbar icons all follow the theme live. The drawing areas (the
+Transform Editor's canvas, the previews, the timeline, the Mutate & Breed grid) stay dark on every theme, tinted by
+it, because the classic transform colours need a dark ground. Rendered fractals, gradients and swatches are never
+themed. The Fragments window can pin a theme to its editors (*Edit ▸ Editor theme*); it follows the application by
+default.
 
 ### Rendering
 Two engines share one scene model (`fractalchemy/fractal`), so what you see in the viewport is a faithful
@@ -126,7 +154,7 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
   shows it, together with everything loaded and why anything failed to load) — the **Formula Editor** (`F10`)
   writes them there and shows them working while you type. Formulas a flame uses that are not available are
   listed in the status bar and ignored.
-* Tunables in `config.py`: `PREVIEW_PASSES` / `PREVIEW_QUALITY` (defaults for the settings panel),
+* Tunables in `config.py`: `PREVIEW_PASSES` / `PREVIEW_QUALITY` (defaults for the Inspector's Image tab),
   `INTERACTIVE_SCALE`, thumbnail size / quality.
 
 | Fractal format | Read | Entries | Rename | Add / remove / replace |
@@ -235,6 +263,31 @@ saved**: it appears in the library's temporary area under the heading **Randomly
 opened file there), browsable with thumbnails like any file. Open one, adjust it, and *Save* / *Save As* put it
 in a file of your choosing — the batch stays on show so you can keep the others too. Your checks, count and
 range persist; a formula you add later starts out checked.
+
+### Mutate & Breed window
+*Windows ▸ Mutate & Breed…* (`Ctrl+M`, the double helix on the toolbar) explores relatives of the fractal shown in the
+main window, as Apophysis's *Mutate* does. It is a 3 × 3 grid: the current fractal in the centre, eight offspring around
+it, each rendered small (at thumbnail priority, so the viewport always comes first) with a caption saying what changed
+and a tooltip listing every change.
+
+* **Mutate**: eight mutants. **Strength** (a little … wildly); **what may change**: triangles, variations (swap, add,
+  drop), variation weights, parameters (declared ranges respected, integer parameters stay integers), transform weights,
+  colours, the **gradient** (hue, rotation, saturation / luminance, a new harmony), xaos, adding / removing transforms,
+  the final transform, and Apophysis's classic **drift** towards a random flame. A **trend** variation is preferred by
+  swaps and additions; *Same number of transforms* and *Keep symmetry* (transforms with colour speed 0 are left alone)
+  are Apophysis's switches. Mutants keep the parent's camera.
+* **Breed**: eight children of the current fractal (parent **A**) and a second parent **B**. B can be the fractal
+  shown now (*Use current fractal*, then show another one as A), a file (*Open…*), a Fractal Library row dropped on
+  its slot, or any cell (*Use as parent B*). **Combine**: *alternate* (each transform from one parent or the other),
+  *interpolate* (every number blended, 25–75 %), *union* (all the transforms of both, weighted 30–70 %) or *mixed*.
+  The **gradient** comes from A, B, a blend or either; the **camera** and colouring from A, B, or re-framed on the child.
+* Offspring that blow up or collapse are rolled again. **Click a cell** (or press its number, 1–9) to make it the
+  fractal: **one undoable edit** that keeps the file link and the name (Ctrl+Z in either window goes back, Save
+  overwrites the entry), and the grid regenerates around it. The Gradient Library shows the new gradient straight away,
+  without asking about unsaved gradient edits. A cell's right-click menu can also *Open as new unsaved fractal*, *Use as
+  parent B* or *Copy parameters*. **New offspring** (`F5`) rolls again.
+* The window follows the main window: choosing another fractal regenerates at once, edits regenerate once they pause,
+  and a hidden window only catches up when it is shown again. The options, the tab and the layout persist.
 
 ### Script Editor window
 *Windows ▸ Script Editor* (`F8`, the script-sheet button on the toolbar) opens a tool window for **scripting the
@@ -518,7 +571,7 @@ and the language reference; the plan is `plans/fragments-plan.md`.
   `Ctrl+E` editor pane toggle, editor font zoom, an accumulation progress bar in the status bar. **Editor**: inline
   diagnostics (wavy underlines, hover messages), hover signatures, Ctrl+click **go to definition** (into the includes
   too), **snippets with tab-stops**, **multi-cursor** editing (`Ctrl+Shift+D` / `L`), *Compare with original…* (a diff
-  against the bundled example with *Revert*), six **colour themes**. **Sessions**: save / open the open tabs with their settings; an autosave
+  against the bundled example with *Revert*), **colour themes** (the application's: follow *View ▸ Theme*, or pin one to the fragment editors). **Sessions**: save / open the open tabs with their settings; an autosave
   every few minutes and *Recover last session* after a crash.
 * **Tools**: a **Grading** page (exposure, Reinhard / filmic / ACES tone mapping, gamma, contrast, saturation, hue,
   vignette, invert, plus a post stack — bloom, chromatic aberration, grain, `.cube` LUTs — a display-pass stage,
@@ -673,6 +726,12 @@ title shows the gradient's name and a `*` while it has unsaved edits.
     and SVG (rasterised via Qt). Transparent pixels are ignored.
 * The gradient is painted in the editor with one **node** beneath each colour stop.
   Drag a node anywhere along the bar, including past other nodes; the others stay put.
+* **Gestures** (as in Ultra Fractal / Apophysis): **double-click** the strip or an empty spot on the node bar to add a
+  node there in the colour already there, which adds a handle without changing the gradient. With the bar focused
+  (click the strip or the bar), **Delete / Backspace** remove the selected node, **← / →** nudge it by one index unit
+  (0–399; **Shift** = 10) and **Enter** opens the colour picker. **Right-click** a node for *Add node*, *Add random
+  node*, *Randomize node*, *Pick colour…* and *Delete node*; right-click empty space for *Add node here*. The panel's
+  buttons, the keys and the menus share one implementation (`widgets/node_commands.py`).
 * **Save** (`Ctrl+S`) writes back to the source file when it is a flame/ugr
   (for a flame, only the first palette block is rewritten; everything else is preserved).
   **Save As…** lets you pick `.flame` or `.ugr`. Image-derived gradients save as `.ugr`.
@@ -696,7 +755,11 @@ fractalchemy/
   fractal/              the shared scene: Flame / XForm / Camera / Coloring, the variation registry (numpy + GLSL),
                         formats/ (.flame XML, .chaos, .fa), triangles (affine ⇄ editor triangle geometry),
                         triangle_drag (the mouse-drag maths), xform_ops (add / duplicate / link / delete transforms
-                        with consistent xaos)
+                        with consistent xaos), random_flame (the Random Batch recipes, framing, the blow-up test),
+                        blend (align + blend flames: animation frames, drift, interpolated children), mutation (the
+                        mutation operators and mutants), breeding (alternate / interpolate / union children)
+  themes/               Qt-free themes: model (seed colours → every role, WCAG contrast rules enforced), catalog
+                        (System + 38 themes), nord (the Nord family)
   formulas/             the formulas: builtin/ (native Python), library/ (the plugin dialect, one file each:
                         apophysis7x / plugins / ports / reconstructed / jwildfire), lang/ (the compiler), loader (user folders,
                         cache), apophysis_depth (the built-ins' depth rule), workbench (the Formula Editor's scratch
@@ -741,25 +804,30 @@ fractalchemy/
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,
                         model/filter/tree, controller, menus, dialog, panel
   imaging/              decoders/plugins, SVG rasteriser, palette extraction, colour ordering
-  widgets/              GradientStrip, NodeBar, GradientEditor, position mapping, run-time painted icons (+ glyphs),
+  widgets/              GradientStrip, NodeBar, NodeCommands (the node operations shared by the panel, keys and menus),
+                        GradientEditor, position mapping, run-time painted icons (+ glyphs), windows (bring_to_front),
                         TriangleView (the editor canvas), ValueTable (name / value lists with drag editing),
                         PaletteSlider, Timeline (the animation timeline), actions / layouts / silent helpers,
                         BaseCodeEditor (line numbers, find / replace, line edits, completion with a pluggable
                         completer) → CodeEditor (the script editor: Python highlighting and completer) and
                         FormulaCodeEditor (C dialect highlighting and completer), CompletionPopup, FindBar,
                         GradientBar (the Formula Editor's clickable gradient swatch), CollapsibleSection, logo (the
-                        application's mark — docs/logo.md, renders in logo/)
+                        application's mark — docs/logo.md, renders in logo/), theming (ThemeManager: applying a theme,
+                        the palette, `on_theme_changed`, themed style sheets), theme_menu (View ▸ Theme), syntax (the
+                        theme-coloured highlighter base), FlameGrid (the Mutate & Breed grid)
   scripting/            the scripting engine (Qt-free): api (the objects and functions scripts see), runner (stoppable
                         execution with line-numbered errors), docs (the reference database behind completion and the
                         help tabs), completion (type-aware completion / context help), generate (Flame → Script),
                         templates (+ builtin_templates/*.py)
   ui/                   .ui loader, background tasks, MainWindow, FractalDocument (undo history), FractalViewport +
                         ViewGeometry (image framing, view vs. camera pan/zoom), ViewerBar (zoom + image size),
-                        SettingsPanel, FractalLibraryPanel, ThumbnailProvider, RenderStatus (status bar),
+                        InspectorPanel (the Info + Image tabs), FractalLibraryPanel, ThumbnailProvider, RenderStatus (status bar),
                         GradientLink, FormulaBrowser, LibraryHost (shared library-pane wiring),
                         EditorWindow (+ editor_context, editor_actions, editor_operations, editor_panels and
                         editor_value_tabs: the tabs, live_preview: the mini preview shared with the animation),
                         AnimationWindow (+ animation_document, animation_panels, animation_playback),
+                        MutationWindow (+ mutation_panels: the Mutate / Breed options, grid_renderer: small renders
+                        of in-memory flames through the render service),
                         JobWindowBase → RenderWindow and AnimationRenderWindow (+ animation_render_panels),
                         FileActionsBase + the fractal / gradient file actions, GradientDocument,
                         GradientLibraryWindow, RenderWindow (+ render_size_panel, render_quality_panel,
@@ -781,7 +849,8 @@ fractalchemy/
                         the Mesh and Export tabs with the density histogram, instances_panel: assets, instancers and the
                         own-IFS table, jobs: MeshJob / ExportJob / MeshPreviewJob, SolidRenderWindow: the render to file
                         on its own thread)
-tools/                  fragments_snapshot.py (the example fragments' parameter inventory fixture), render_frag.py (the
+tools/                  theme_snapshots.py (screenshots of the windows in chosen themes, for review),
+                        fragments_snapshot.py (the example fragments' parameter inventory fixture), render_frag.py (the
                         fragment batch renderer / checker),
                         import_apo_plugins.py (plugin sources → library), apo_decompile.py (plugin DLLs → formulas),
                         import_jwf_variations.py + jwf_translate.py (JWildfire *Func.java → formulas), render_logo.py,

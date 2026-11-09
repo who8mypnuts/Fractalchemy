@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QHBoxLayout, QLabel
 from ..formulas import workbench as W
 from ..fractal import variations as V
 from .editor_value_tabs import variation_tags
+from ..widgets.theming import on_theme_changed
 from .formula_origins import ORDER, ORIGINS, USER, origin_of
 
 SEARCH_DEBOUNCE_MS = 200
@@ -133,6 +134,7 @@ class FormulaListPanel(QWidget):
         self.tree.customContextMenuRequested.connect(self._context_menu)
         self.new_button.clicked.connect(self.new_requested)
         self.populate()
+        on_theme_changed(self, lambda _theme: self.populate())     # rows are tinted with the theme's origin colours
 
     # --- contents ------------------------------------------------------------------------------------------
     def populate(self) -> None:

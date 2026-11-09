@@ -36,11 +36,11 @@ from ..fractal.scene import Camera
 from ..render.service import PRIORITY_VIEWPORT, RenderService
 from ..render.settings import RenderSettings, RenderStats
 from .fractal_document import FractalDocument
+from ..widgets.theming import theme_color
 
 MAX_ZOOM = 3.0                  # 300 %
 VIEW_ZOOM_STEP = 1.25           # per wheel notch
 CAMERA_ZOOM_PER_NOTCH = 0.25    # Apophysis zoom units (powers of two)
-EMPTY_BACKGROUND = QColor(24, 24, 24)
 FRAME_COLOR = QColor(70, 70, 70)
 GOLDEN = (3 - 5 ** 0.5) / 2     # 0.381966…: the golden section of a length (1 − 1/φ)
 GUIDE_FRACTIONS: dict[str, tuple[float, ...]] = {
@@ -369,7 +369,7 @@ class FractalViewport(QWidget):
     # --- Qt events ----------------------------------------------------------
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), EMPTY_BACKGROUND)
+        painter.fillRect(self.rect(), theme_color("canvas_bg"))
         if self._image is not None and not self._image_region.isEmpty():
             # draw the picture where its part of the image sits under the *current* view, so panning and
             # zooming feel immediate; the re-render replaces it when it lands

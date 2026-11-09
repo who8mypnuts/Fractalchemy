@@ -1,4 +1,4 @@
-"""The *Info* tab of the settings panel: facts about the loaded fractal.
+"""The *Info* tab of the Inspector: facts about the loaded fractal.
 
 A two-column property tree: the file it came from, image and camera, every transform with its
 variations / parameters / affine, the distinct formulas the fractal uses (with their kind,
@@ -23,6 +23,7 @@ from ..fractal import variations as V
 from ..fractal.scene import Flame, XForm, identity_affine
 from ..render.settings import RenderStats
 from ..widgets.images import palette_pixmap
+from ..widgets.theming import on_theme_changed, theme_color
 from .formula_browser import KIND_LABELS, formula_description, origin_group
 
 FORMULA_ROLE = Qt.ItemDataRole.UserRole
@@ -98,8 +99,10 @@ class InfoPanel(QWidget):
         self._flame: Flame | None = None
         self._stats: RenderStats | None = None
         self._groups: dict[str, QTreeWidgetItem] = {}
+        self._source: tuple[Path | None, int] = (None, 0)
         self._build()
         self.show_flame(None)
+        on_theme_changed(self, lambda _theme: self.show_flame(self._flame, *self._source))   # the "not available" colour
 
     def _build(self) -> None:
         tree = self.tree
@@ -125,6 +128,7 @@ class InfoPanel(QWidget):
     def show_flame(self, flame: Flame | None, source: Path | None = None, index: int = 0) -> None:
         """Rebuild the whole tree for `flame` (None = nothing loaded)."""
         self._flame = flame
+        self._source = (source, index)
         self.tree.clear()
         self._groups = {}
         if flame is None:
@@ -240,7 +244,7 @@ class InfoPanel(QWidget):
                 _row(child, key, fmt(value))
             if V.REGISTRY.get(name) is None:
                 child.setText(1, f"{fmt(weight)}  ·  {NOT_AVAILABLE}")
-                child.setForeground(1, QColor(200, 60, 60))
+                child.setForeground(1, theme_color("error"))
         variations.setExpanded(True)
         if xform.has_pre():
             _row(item, "Pre affine", affine_text(xform.pre), tooltip="Applied to the point before the affine (Fractalchemy's pre affine)")
@@ -260,7 +264,7 @@ class InfoPanel(QWidget):
             item = _row(group, name, value, tooltip=tooltip)
             item.setData(0, FORMULA_ROLE, name)
             if name in missing:
-                item.setForeground(1, QColor(200, 60, 60))
+                item.setForeground(1, theme_color("error"))
 
     def _fill_coloring(self, flame: Flame) -> None:
         col = flame.coloring

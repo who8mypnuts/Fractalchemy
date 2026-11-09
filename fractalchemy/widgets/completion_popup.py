@@ -11,6 +11,8 @@ from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import QFrame, QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from ..scripting import completion as C
+from ..themes import Theme
+from .theming import current_theme
 
 POPUP_ROWS = 9
 POPUP_MIN_WIDTH = 300
@@ -39,17 +41,18 @@ def badge_pixmap(kind: str, size: int = 16) -> QPixmap:
     return pixmap
 
 
-def item_doc_html(item: C.Item) -> str:
-    """The inline documentation shown beside the completion list."""
+def item_doc_html(item: C.Item, theme: Theme | None = None) -> str:
+    """The inline documentation shown beside the completion list (colours: `theme`, default the application's)."""
     from html import escape
+    colors = (theme or current_theme()).colors
     sig = item.sig or (f"{item.name}()" if item.kind in ("function", "method") else item.name + (f" : {item.type}" if item.type else ""))
-    html = f"<div style='font-family: monospace; color: #0d47a1; font-weight: bold'>{escape(sig)}</div>"
+    html = f"<div style='font-family: monospace; color: {colors['function']}; font-weight: bold'>{escape(sig)}</div>"
     if item.desc:
         html += f"<div style='margin-top: 3px'>{escape(item.desc)}</div>"
     if item.detail:
-        html += f"<div style='color: #777; margin-top: 3px'>parameters: {escape(item.detail)}</div>"
+        html += f"<div style='color: {colors['dim_text']}; margin-top: 3px'>parameters: {escape(item.detail)}</div>"
     if item.entry is not None and item.entry.example:
-        html += f"<pre style='background: #f4f4f4; margin-top: 4px; padding: 3px'>{escape(item.entry.example)}</pre>"
+        html += f"<pre style='background: {colors['alt_base']}; margin-top: 4px; padding: 3px'>{escape(item.entry.example)}</pre>"
     return html
 
 
@@ -82,7 +85,6 @@ class CompletionPopup(QFrame):
         self.doc.setFrameShape(QFrame.Shape.StyledPanel)
         self.doc.setMargin(6)
         self.doc.setFixedWidth(DOC_WIDTH)
-        self.doc.setStyleSheet("QLabel { background: #fffdf5; }")
         self.items: list[C.Item] = []
 
     def show_items(self, items: list[C.Item], at: QPoint) -> None:
@@ -91,7 +93,7 @@ class CompletionPopup(QFrame):
         for item in items:
             row = QTreeWidgetItem([item.name, item.type or ""])
             row.setIcon(0, badge_pixmap(item.kind))
-            row.setForeground(1, QColor("#777777"))
+            row.setForeground(1, QColor(self._theme()["dim_text"]))
             font = row.font(0)
             font.setFamily(self._editor.font().family())
             row.setFont(0, font)
@@ -123,7 +125,9 @@ class CompletionPopup(QFrame):
         if item is None or not self.isVisible():
             self.doc.hide()
             return
-        self.doc.setText(item_doc_html(item))
+        theme = self._theme()
+        self.doc.setStyleSheet(f"QLabel {{ background: {theme['tooltip']}; color: {theme['tooltip_text']}; }}")
+        self.doc.setText(item_doc_html(item, theme))
         self.doc.adjustSize()
         x = self.x() + self.width() + 2
         screen = self.screen().availableGeometry() if self.screen() else QRect(0, 0, 100000, 100000)
@@ -131,6 +135,10 @@ class CompletionPopup(QFrame):
             x = self.x() - DOC_WIDTH - 2
         self.doc.move(x, self.y())
         self.doc.show()
+
+    def _theme(self) -> Theme:
+        """The editor's theme (a pinned one included), else the application's."""
+        return getattr(self._editor, "theme", None) or current_theme()
 
     def hideEvent(self, event) -> None:
         self.doc.hide()

@@ -1,4 +1,4 @@
-"""The *Image* tab of the settings panel: preview effort, camera, 3D camera and colouring of the fractal.
+"""The *Image* tab of the Inspector: preview effort, camera, 3D camera and colouring of the fractal.
 
 Every control edits the `FractalDocument`'s flame (which re-renders the viewport) and follows the
 document when the flame changes, so the tab always shows the current values. Each group has a

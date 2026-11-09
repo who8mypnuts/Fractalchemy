@@ -390,7 +390,9 @@ built from these is exactly what *Render ▸ Export mesh…* wants.
 
 *Edit ▸ Preferences…* (stored per user): **GUI** — recent files, loop play by default, draw camera paths and hide
 them behind the surface, 2D wheel mode (zoom towards the pointer or the centre), log rows kept, the Parameters dock's
-arrangement, the 3D navigation style; **Editor** — font size, the colour theme, jump to the first error line, reload a
+arrangement, the 3D navigation style; **Editor** — font size, the colour theme (*Follow application theme* — the
+default, recolouring with the main window's *View ▸ Theme* — or any of the application's themes pinned to the fragment
+editors; *Edit ▸ Editor theme* offers the same), jump to the first error line, reload a
 tab when its file changes on disk, the **session autosave** interval; **GLSL** — build on open (*autorun*), auto-build, move `main` to the end
 (FragM's *moveMain*), locked parameters as `#define` or `const`, the compatibility layer (*modernise* / FragM's patch /
 off), presets carry easing curves, the animation frame rate, the viewport's refresh interval and interactive scale,

@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, fields, replace
 
 from .. import config
-from .editor_themes import THEMES
+from .editor_themes import DEFAULT_THEME, canonical
 from .glsl_compat import MODES
 
 DEFAULT_LOG_NAME = "fragments.log"
@@ -32,7 +32,7 @@ class FragPreferences:
         parameter_layout: The Parameters dock's arrangement: `sections` (one page, collapsible groups) or `tabs`.
         navigation: 3D mouse navigation: `orbit` (DCC conventions around the target) or `fragm` (FragM's fly controls).
         font_size: The editors' font size in points (0 = the system's fixed font size).
-        editor_theme: The editors' colour theme (`editor_themes.THEMES`).
+        editor_theme: The editors' colour theme: `editor_themes.FOLLOW` or a catalogue theme name.
         jump_to_error: Move the cursor to the first error line after a failed build.
         autoload: Reload a tab when its file changes on disk and the tab has no unsaved edits.
         autorun: Build a fragment as soon as it is opened.
@@ -63,7 +63,7 @@ class FragPreferences:
     parameter_layout: str = "sections"
     navigation: str = "orbit"
     font_size: int = 0
-    editor_theme: str = "Default"
+    editor_theme: str = DEFAULT_THEME
     jump_to_error: bool = True
     autoload: bool = True
     autorun: bool = True
@@ -110,7 +110,7 @@ class FragPreferences:
                        gpu_load=max(5, min(100, int(self.gpu_load))), autosave_minutes=max(0, min(120, int(self.autosave_minutes))),
                        parameter_layout=self.parameter_layout if self.parameter_layout in ("sections", "tabs") else "sections",
                        navigation=self.navigation if self.navigation in ("orbit", "fragm") else "orbit",
-                       editor_theme=self.editor_theme if self.editor_theme in THEMES else "Default",
+                       editor_theme=canonical(self.editor_theme),
                        include_paths=[str(p) for p in self.include_paths if str(p).strip()])
 
 

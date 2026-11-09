@@ -15,48 +15,35 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QKeyEvent, QSyntaxHighlighter, QTextCharFormat, QTextDocument
+from PySide6.QtGui import QKeyEvent, QTextDocument
 from PySide6.QtWidgets import QWidget
 
 from ..scripting import completion as C
 from ..scripting import docs as D
 from .base_code_editor import BaseCodeEditor, LineNumberArea
 from .completion_popup import CompletionPopup, badge_pixmap, item_doc_html
+from .syntax import ThemedHighlighter
 
 AUTO_TRIGGER_LETTERS = 2
-
-# Colours of the highlighter (a light scheme that reads on the default Qt palette)
-COLORS = {
-    "keyword": "#7b2fa0", "builtin": "#1565c0", "api": "#0d47a1", "member": "#8d5a00", "string": "#2e7d32", "comment": "#8a8a8a",
-    "number": "#c45200", "decorator": "#7b2fa0", "definition": "#1565c0", "meta": "#4a7a48",
-}
-
 
 # =====================================================================================================
 # highlighter
 # =====================================================================================================
-class PythonHighlighter(QSyntaxHighlighter):
-    """Python colouring with the scripting API's globals and members picked out."""
+class PythonHighlighter(ThemedHighlighter):
+    """Python colouring with the scripting API's globals and members picked out (colours: the theme's syntax roles)."""
     IN_TRIPLE_SINGLE, IN_TRIPLE_DOUBLE = 1, 2
+    STYLES = {"keyword": (True, False), "builtin": (False, False), "api": (True, False), "member": (False, False),
+              "string": (False, False), "comment": (False, True), "number": (False, False), "decorator": (False, False),
+              "definition": (True, False), "meta": (False, False)}
 
     def __init__(self, document: QTextDocument):
         super().__init__(document)
-        self._formats = {name: self._format(color, bold=name in ("keyword", "api", "definition")) for name, color in COLORS.items()}
-        self._formats["comment"].setFontItalic(True)
         self._keywords = set(C.KEYWORDS)
         self._builtins = set(C.BUILTINS)
         self._api = set(D.GLOBALS)
         self._members = {name for doc in D.TYPES.values() for name in doc.members}
         self._word = re.compile(r"[A-Za-z_]\w*")
         self._number = re.compile(r"\b\d+(?:\.\d*)?(?:e[+-]?\d+)?\b|\b0x[0-9a-fA-F]+\b")
-
-    @staticmethod
-    def _format(color: str, bold: bool = False) -> QTextCharFormat:
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(color))
-        if bold:
-            fmt.setFontWeight(QFont.Weight.Bold)
-        return fmt
 
     def highlightBlock(self, text: str) -> None:
         state = self.previousBlockState()

@@ -16,6 +16,8 @@ from ..render.final_engine import PHASE_CANCELLED, PHASE_DONE, FinalProgress
 from ..render.final_service import FinalOutcome
 from ..render.units import format_rate, format_seconds
 from ..widgets.images import rgba_to_qimage
+from ..widgets.theming import set_themed_style
+from ..widgets.theming import colored_html
 
 PREVIEW_MIN = QSize(320, 200)
 PROGRESS_STEPS = 10000
@@ -30,7 +32,7 @@ class PreviewLabel(QLabel):
         self.setMinimumSize(PREVIEW_MIN)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setStyleSheet("background: #181818; color: #888;")
+        set_themed_style(self, "background: {canvas_bg}; color: {canvas_text};")
         self.setText("The render preview appears here")
 
     def set_image(self, pixmap: QPixmap | None) -> None:
@@ -145,7 +147,7 @@ class RenderProgressPanel(QWidget):
 
     def show_failure(self, message: str) -> None:
         """Show an error."""
-        self.result.setText(f'<span style="color:#c0392b">{message}</span>')
+        self.result.setText(colored_html(message, "error"))
         self.phase.setText("Failed")
 
     def clear_result(self) -> None:

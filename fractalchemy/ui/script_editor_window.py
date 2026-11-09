@@ -40,6 +40,8 @@ from ..widgets.icons import action_icon, script_icon
 from .fractal_document import FractalDocument
 from .script_drawer import ScriptDrawer
 from .script_runner import REQUEST_CONFIRM, REQUEST_INPUT, ScriptRunner
+from ..widgets.windows import bring_to_front
+from ..widgets.theming import colored_html, current_theme
 
 WINDOW_TITLE = "Script Editor"
 DRAWER_WIDTH = 400
@@ -104,9 +106,9 @@ class OutputPanel(QTextBrowser):
         self.append(f"<span style='white-space: pre'>{html}</span>")
 
     def append_note(self, text: str, kind: str = "info", line: int | None = None) -> None:
-        """A coloured line: `info` (grey), `ok` (green), `error` (red, clickable when `line` is given)."""
+        """A coloured line in the theme's colours: `info` (dimmed), `ok` (success), `error` (clickable when `line` is given)."""
         self.flush()
-        color = {"info": "#777777", "ok": "#2e7d32", "error": "#c62828"}.get(kind, "#333333")
+        color = current_theme()[{"info": "dim_text", "ok": "success", "error": "error"}.get(kind, "text")]
         body = escape(text).replace("\n", "<br>")
         if line is not None:
             body = f"<a href='line:{line}' style='color: {color}'>{body}</a>"
@@ -343,10 +345,7 @@ class ScriptEditorWindow(QMainWindow):
 
     # --- window management --------------------------------------------------------------------------------------------
     def bring_to_front(self) -> None:
-        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        bring_to_front(self)
         self.editor.setFocus()
 
     def closeEvent(self, event) -> None:
@@ -442,12 +441,11 @@ class ScriptEditorWindow(QMainWindow):
         run_rows: list[tuple[str, str]] = []
         info = self._last_run_info
         if self.runner.running:
-            run_rows.append(("Result", "<span style='color: #e65100'>running…</span>"))
+            run_rows.append(("Result", colored_html("running…", "warning")))
         elif info:
             outcome = info.get("outcome", "")
-            color = "#2e7d32" if info.get("ok") else "#c62828"
             run_rows += [("Started", info.get("started", "")), ("Duration", f"{info.get('seconds', 0):.2f} s"),
-                         ("Result", f"<span style='color: {color}'>{escape(outcome)}</span>"),
+                         ("Result", colored_html(escape(outcome), "success" if info.get("ok") else "error")),
                          ("Transforms", f"{info.get('before', '?')} → {info.get('after', '?')}"), ("Output", f"{info.get('lines', 0)} lines")]
         else:
             run_rows.append(("Result", "not run yet"))

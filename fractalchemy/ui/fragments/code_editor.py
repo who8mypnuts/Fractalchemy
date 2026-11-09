@@ -17,18 +17,17 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QKeyEvent, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextDocument
+from PySide6.QtGui import QColor, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import QTextEdit, QToolTip, QWidget
 
 from ...fragments import glsl_keywords as K
 from ...fragments.definitions import find_definition
-from ...fragments.editor_themes import DEFAULT_THEME, theme as editor_theme
+from ...fragments.editor_themes import FOLLOW, canonical, pinned
 from ...scripting.completion import Completion, Item
 from ...widgets.base_code_editor import INDENT, BaseCodeEditor
+from ...widgets.syntax import ThemedHighlighter
 from .editor_tools import DiagnosticMarks, MultiSelection, SnippetSession, word_at
 
-COLORS = {key: value for key, value in editor_theme(DEFAULT_THEME).items() if key in
-          ("keyword", "type", "function", "builtin", "string", "comment", "number", "preprocessor", "annotation", "preset", "special")}
 BLOCK_COMMENT, IN_PRESET = 1, 2
 BRACKETS = {"(": ")", "[": "]", "{": "}"}
 CLOSERS = {v: k for k, v in BRACKETS.items()}
@@ -36,32 +35,13 @@ WORD = re.compile(r"[A-Za-z_]\w*")
 FUNCTION_DEF = re.compile(r"^[ \t]*((?:[a-z]+\s+)?(?:void|float|int|bool|uint|double|[biud]?vec[234]|mat[234](?:x[234])?|d?mat[234]))\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{", re.MULTILINE)
 NUMBER = re.compile(r"\b(?:0[xX][0-9A-Fa-f]+[uU]?|\d+\.?\d*(?:[eE][+-]?\d+)?[fFuUlL]{0,2}|\.\d+(?:[eE][+-]?\d+)?[fF]?)\b")
 ANNOTATION = re.compile(r"\b(slider|color|checkbox|menu|file)\s*\[[^\]]*\]|\b(Locked|NotLocked|NotLockable|AlwaysLocked|Logarithmic)\b")
-MATCH_COLOR = QColor(30, 136, 229, 70)
 
 
-class GlslHighlighter(QSyntaxHighlighter):
-    """Colouring for fragment sources (see the module docstring)."""
-
-    def __init__(self, document: QTextDocument):
-        super().__init__(document)
-        self._formats: dict[str, QTextCharFormat] = {}
-        self.set_colors(COLORS)
-
-    def set_colors(self, colours: dict[str, str]) -> None:
-        """Use another set of syntax colours (a theme) and recolour the document."""
-        self._formats = {name: self._format(colours.get(name, COLORS[name]), bold=name in ("keyword", "preprocessor")) for name in COLORS}
-        self._formats["comment"].setFontItalic(True)
-        self._formats["preset"].setFontItalic(True)
-        if self.document() is not None:
-            self.rehighlight()
-
-    @staticmethod
-    def _format(colour: str, bold: bool = False) -> QTextCharFormat:
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(colour))
-        if bold:
-            fmt.setFontWeight(QFont.Weight.Bold)
-        return fmt
+class GlslHighlighter(ThemedHighlighter):
+    """Colouring for fragment sources (see the module docstring; colours: the theme's syntax roles)."""
+    STYLES = {"keyword": (True, False), "type": (False, False), "function": (False, False), "builtin": (False, False),
+              "string": (False, False), "comment": (False, True), "number": (False, False), "preprocessor": (True, False),
+              "annotation": (False, False), "preset": (False, True), "special": (False, False)}
 
     def highlightBlock(self, text: str) -> None:  # noqa: N802 - Qt override
         previous = self.previousBlockState()
@@ -197,28 +177,17 @@ class GlslCodeEditor(BaseCodeEditor):
         self.diagnostics = DiagnosticMarks(self)
         self.multi = MultiSelection(self)
         self._snippet: SnippetSession | None = None
-        self.theme_name = DEFAULT_THEME
         self.setMouseTracking(True)
 
     # --- themes -------------------------------------------------------------------------------------------------------------
+    @property
+    def theme_name(self) -> str:
+        """The *Editor theme* preference this editor shows: `editor_themes.FOLLOW` or the pinned theme's name."""
+        return self.pinned_theme or FOLLOW
+
     def set_theme(self, name: str) -> None:
-        """Apply an `editor_themes` theme: syntax colours, background, text, gutter, current line and selection."""
-        from PySide6.QtGui import QPalette
-        colours = editor_theme(name)
-        self.theme_name = name
-        self.highlighter.set_colors(colours)
-        palette = self.style().standardPalette() if not colours["background"] else QPalette(self.palette())
-        if colours["background"]:
-            palette.setColor(QPalette.ColorRole.Base, QColor(colours["background"]))
-            palette.setColor(QPalette.ColorRole.Text, QColor(colours["text"]))
-            palette.setColor(QPalette.ColorRole.Highlight, QColor(colours["selection"]))
-            palette.setColor(QPalette.ColorRole.HighlightedText, QColor(colours["text"]))
-        self.setPalette(palette)
-        self.viewport().setPalette(palette)
-        self.gutter_colors = (QColor(colours["gutter"]) if colours["gutter"] else None, QColor(colours["gutter_text"]))
-        self.current_line_color = QColor(colours["current_line"]) if colours["current_line"] else None
-        self._numbers.update()
-        self._highlight_lines()
+        """Apply an *Editor theme* preference value: follow the application theme, or pin a catalogue theme."""
+        self.pin_theme(pinned(canonical(name)))
 
     # --- diagnostics, hover, go to definition ----------------------------------------------------------------------------
     def set_diagnostics(self, items: list[tuple[int, str, str]]) -> None:
@@ -400,7 +369,7 @@ class GlslCodeEditor(BaseCodeEditor):
         if pair and pair[1] is not None:
             for at in pair:
                 selection = QTextEdit.ExtraSelection()
-                selection.format.setBackground(MATCH_COLOR)
+                selection.format.setBackground(QColor(self.theme["match"]))
                 selection.cursor = QTextCursor(self.document())
                 selection.cursor.setPosition(at)
                 selection.cursor.setPosition(at + 1, QTextCursor.MoveMode.KeepAnchor)

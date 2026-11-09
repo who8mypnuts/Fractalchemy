@@ -13,7 +13,8 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QActionGroup, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import QMenu, QToolBar
 
-from ...fragments.editor_themes import theme_names
+from ...fragments.editor_themes import FOLLOW
+from ...widgets.theme_menu import add_theme_groups
 from ...fragments.examples import example_tree, examples_dir
 from ...fragments.templates import BUILTIN_TEMPLATES, CODE_SNIPPETS, SNIPPETS, user_templates
 from ...widgets.actions import make_action, populate
@@ -211,10 +212,9 @@ class FragmentActions:
         populate(edit, self.insert_gradient, None)
         self.theme_menu = edit.addMenu("Editor theme")
         self.theme_group = QActionGroup(w)
-        for name in theme_names():
-            action = self.theme_menu.addAction(name, lambda n=name: w.set_editor_theme(n))
-            action.setCheckable(True)
-            self.theme_group.addAction(action)
+        self._theme_action(self.theme_menu, FOLLOW)         # the default: recolour with View ▸ Theme of the main window
+        self.theme_menu.addSeparator()
+        add_theme_groups(self.theme_menu, self._theme_action)   # or pin one theme to the fragment editors
         populate(edit, self.preferences)
         build = bar.addMenu("&Build")
         populate(build, self.build, self.auto_build, None, self.manual_render, self.render_now, None, self.composer, None, self.preprocessed, self.test_versions, self.clear_textures)
@@ -328,7 +328,13 @@ class FragmentActions:
         self.windows_menu.addSeparator()
         self.windows_menu.addAction(self.controllers)
 
+    def _theme_action(self, menu, name: str) -> None:
+        action = menu.addAction(name, lambda n=name: self.w.set_editor_theme(n))
+        action.setCheckable(True)
+        self.theme_group.addAction(action)
+
     def check_theme(self, name: str) -> None:
+        """Tick *Edit ▸ Editor theme ▸ `name`*."""
         for action in self.theme_group.actions():
             action.setChecked(action.text() == name)
 

@@ -8,11 +8,11 @@ even when it covers the main window.
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPaintEvent
+from PySide6.QtGui import QImage, QPainter, QPaintEvent
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-BACKGROUND = QColor(24, 24, 24)
-TEXT = QColor(110, 110, 110)
+from .theming import theme_color
+
 
 
 class FractalPreview(QWidget):
@@ -37,9 +37,9 @@ class FractalPreview(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), BACKGROUND)
+        painter.fillRect(self.rect(), theme_color("canvas_bg"))
         if self._image is None or self._image.isNull():
-            painter.setPen(TEXT)
+            painter.setPen(theme_color("canvas_text"))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._placeholder)
         else:
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)

@@ -28,6 +28,7 @@ from .animation_render_panels import AnimationOutputPanel, AnimationProgressPane
 from .job_window import JobWindowBase
 from .render_quality_panel import QualityPanel
 from .render_size_panel import SizePanel
+from ..widgets.theming import colored_html
 
 WINDOW_TITLE = "Render Animation"
 SETTINGS_KEY = "animation_render/settings"
@@ -164,7 +165,7 @@ class AnimationRenderWindow(JobWindowBase):
         frames = s.frames(anim.total_frames)
         self.video_panel.show_command(s, anim.fps, anim.total_frames, frames[0] if frames else 0)
         if problems and self.job is None:
-            self.plan_label.setText('<span style="color:#c0392b">' + "; ".join(problems) + "</span>")
+            self.plan_label.setText(colored_html("; ".join(problems), "error"))
             self.estimate_label.setText("")
             return
         kind = engine_kind(s.image, gpu_available()[0])

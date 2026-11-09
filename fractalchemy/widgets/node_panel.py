@@ -1,33 +1,34 @@
-"""Controls for the selected node: number, colour, add / randomise / delete."""
+"""Controls for the selected node: number, position, colour, add / randomise / delete.
+
+The operations themselves are `NodeCommands` (shared with the node bar's keys and right-click menu); the panel is a view
+of the selection plus buttons that call them.
+"""
 
 from __future__ import annotations
-
-import random
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QAbstractSpinBox, QFormLayout, QGroupBox, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget
 
-from .. import config
 from ..model import RGB, rgb_to_hex
-from ..model import node_ops
 from ..ui.document import GradientDocument
 from .color_dialog import ColorPickerDialog
+from .node_commands import INDEX_UNITS, NodeCommands
 from .qt_colors import contrasting_pen_color
 from .silent import set_value_silently
 
 PANEL_WIDTH = 210
-POSITION_MAX = config.UGR_MAX_INDEX  # 0..399, Ultra Fractal's native gradient index units
+POSITION_MAX = INDEX_UNITS          # 0..399, Ultra Fractal's native gradient index units
 
 
 class NodePanel(QGroupBox):
     """Built empty (promotable in Designer); call `bind()` once. Greyed out with no selection."""
 
     def __init__(self, parent: QWidget | None = None):
-        """Build the controls and the (hidden) colour picker."""
+        """Build the controls; the operations (and the colour picker) arrive with `bind()`."""
         super().__init__("Selected node", parent)
         self._document: GradientDocument | None = None
-        self._rng = random.Random()
+        self._commands: NodeCommands | None = None
         self.number = QSpinBox(self)
         self.swatch = QPushButton(self)
         self.position = QSpinBox(self)
@@ -36,7 +37,6 @@ class NodePanel(QGroupBox):
         self.add_random_button = QPushButton("Add random node", self)
         self.randomize_button = QPushButton("Randomize node", self)
         self.delete_button = QPushButton("Delete node", self)
-        self.picker = ColorPickerDialog(self)
         self._build()
         self._connect()
         self.setEnabled(False)
@@ -79,15 +79,14 @@ class NodePanel(QGroupBox):
         self.position.valueChanged.connect(self._move_to)
         self.position_slider.valueChanged.connect(self._move_to)
         self.swatch.clicked.connect(self.open_picker)
-        self.add_button.clicked.connect(lambda: self._insert(self._current_color()))
-        self.add_random_button.clicked.connect(lambda: self._insert(node_ops.random_color(self._rng)))
-        self.randomize_button.clicked.connect(self._randomize)
-        self.delete_button.clicked.connect(self._delete)
-        self.picker.color_changed.connect(self._set_color)
+        self.add_button.clicked.connect(lambda: self._commands.add_after())
+        self.add_random_button.clicked.connect(lambda: self._commands.add_random())
+        self.randomize_button.clicked.connect(lambda: self._commands.randomize())
+        self.delete_button.clicked.connect(lambda: self._commands.delete())
 
     # --- binding ------------------------------------------------------------
-    def bind(self, document: GradientDocument) -> None:
-        """Attach the document and start following its selection.
+    def bind(self, document: GradientDocument, commands: NodeCommands | None = None) -> None:
+        """Attach the document and the node operations (made here when not given) and start following the selection.
 
         Raises:
             RuntimeError: If called twice.
@@ -95,6 +94,7 @@ class NodePanel(QGroupBox):
         if self._document is not None:
             raise RuntimeError("NodePanel is already bound to a document")
         self._document = document
+        self._commands = commands if commands is not None else NodeCommands(document, self)
         document.selection_changed.connect(self._refresh)
         document.stop_changed.connect(lambda _i: self._refresh())
         document.gradient_changed.connect(self._refresh)
@@ -102,38 +102,24 @@ class NodePanel(QGroupBox):
         self._refresh()
 
     # --- actions ------------------------------------------------------------
+    @property
+    def commands(self) -> NodeCommands | None:
+        """The shared node operations (None before `bind()`)."""
+        return self._commands
+
+    @property
+    def picker(self) -> ColorPickerDialog:
+        """The colour picker (owned by the node operations)."""
+        return self._commands.picker
+
     def open_picker(self) -> None:
         """Show the colour picker for the selected node beside the window."""
-        index = self._selected()
-        if index < 0:
-            return
-        self.picker.set_color(self._current_color(), as_original=True)
-        self.picker.show_beside(self)
-
-    def _insert(self, color: RGB) -> None:
-        index = self._selected()
-        if index >= 0:
-            stops, new_index = node_ops.inserted_after(self._document.gradient, index, color)
-            self._document.insert_stop(stops, new_index)
-
-    def _randomize(self) -> None:
-        if self._selected() >= 0:
-            self._set_color(node_ops.perturbed_color(self._current_color(), self._rng))
-
-    def _delete(self) -> None:
-        index = self._selected()
-        if index >= 0 and self.delete_button.isEnabled():
-            self._document.remove_stop(index)
+        self._commands.pick_colour(self)
 
     def _move_to(self, units: int) -> None:
         index = self._selected()
         if index >= 0 and round(self._document.gradient.stops[index].position * POSITION_MAX) != units:
             self._document.move_stop(index, units / POSITION_MAX)  # selection follows if it crosses a neighbour
-
-    def _set_color(self, color: RGB) -> None:
-        index = self._selected()
-        if index >= 0 and self._document.gradient.stops[index].color != tuple(color):
-            self._document.set_color(index, tuple(color))
 
     # --- presentation -------------------------------------------------------
     def _refresh(self, *_args) -> None:
@@ -142,18 +128,14 @@ class NodePanel(QGroupBox):
         active = 0 <= index < len(stops)
         self.setEnabled(active)
         if not active:
-            if self.picker.isVisible():
-                self.picker.hide()
             return
         stop = stops[index]
         set_value_silently(self.number, index + 1, minimum=1, maximum=len(stops))
         units = round(stop.position * POSITION_MAX)
         set_value_silently(self.position, units)
         set_value_silently(self.position_slider, units)
-        self.delete_button.setEnabled(len(stops) > node_ops.MIN_NODES)
+        self.delete_button.setEnabled(self._commands.can_delete)
         self._paint_swatch(stop.color)
-        if self.picker.isVisible() and self.picker.color() != stop.color:
-            self.picker.set_color(stop.color, as_original=True)  # selection moved: retarget the picker
 
     def _paint_swatch(self, color: RGB) -> None:
         text = contrasting_pen_color(color).name()
@@ -163,6 +145,3 @@ class NodePanel(QGroupBox):
     # --- helpers ------------------------------------------------------------
     def _selected(self) -> int:
         return self._document.selected_index if self._document else -1
-
-    def _current_color(self) -> RGB:
-        return self._document.gradient.stops[self._selected()].color

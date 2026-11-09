@@ -43,6 +43,7 @@ from .mesh_panels import ExportPanel, MeshPanel
 from .panels import CameraPanel, EnvironmentPanel, LightsPanel, MaterialsPanel, RenderPanel
 from .render_window import SolidRenderWindow
 from .viewport import DEFAULT_QUALITY, Viewport3D, quality_named
+from ...widgets.windows import bring_to_front
 
 WINDOW_TITLE = "3D Editor"
 SETTINGS_GROUP = "three_d"
@@ -251,10 +252,7 @@ class ThreeDWindow(QMainWindow):
     # --- window ---------------------------------------------------------------------------------------------------
     def bring_to_front(self) -> None:
         """Show the window (restoring it if minimised) and raise it."""
-        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        bring_to_front(self)
 
     def hideEvent(self, event) -> None:
         self.save_state()

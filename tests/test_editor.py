@@ -248,7 +248,8 @@ def test_editor_opens_from_the_main_window_and_follows_the_document(editor):
     assert [e.key for e in ed.view.entries()] == ed.context.keys()
     assert ed.view.triangle(0) == T.affine_to_triangle(flame.xforms[0].coefs)
     assert ed.mode_buttons[MODE_NORMAL].isChecked() and ed.mode == MODE_NORMAL
-    assert config.HIGHLIGHT_COLOR.lower() in ed.mode_buttons[MODE_NORMAL].styleSheet().lower()
+    from fractalchemy.widgets.theming import theme_color
+    assert theme_color("accent").name() in ed.mode_buttons[MODE_NORMAL].styleSheet().lower()   # the theme's accent
     wait_until(lambda: ed.preview.stats is not None, 30000)
     ed.transform_combo.setCurrentIndex(1)
     assert ed.context.selected == 1 and ed.view.selected_key == 1

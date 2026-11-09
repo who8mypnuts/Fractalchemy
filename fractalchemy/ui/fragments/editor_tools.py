@@ -19,9 +19,6 @@ from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit
 
 STOP = re.compile(r"\$\{(\d+):([^}]*)\}|\$(\d+)")
-ERROR_COLOR = QColor("#d32f2f")
-WARNING_COLOR = QColor("#f9a825")
-MULTI_COLOR = QColor(30, 136, 229, 90)
 
 
 class DiagnosticMarks:
@@ -50,6 +47,7 @@ class DiagnosticMarks:
     def selections(self) -> list[QTextEdit.ExtraSelection]:
         out = []
         document = self._editor.document()
+        theme = self._editor.theme                       # the underline colours follow the editor's theme
         for line, severity, _message in self._items:
             block = document.findBlockByNumber(line - 1)
             if not block.isValid():
@@ -60,7 +58,7 @@ class DiagnosticMarks:
             first = len(text) - len(text.lstrip())
             selection = QTextEdit.ExtraSelection()
             selection.format.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
-            selection.format.setUnderlineColor(ERROR_COLOR if severity == "error" else WARNING_COLOR)
+            selection.format.setUnderlineColor(QColor(theme["error" if severity == "error" else "warning"]))
             selection.cursor = QTextCursor(block)
             selection.cursor.setPosition(block.position() + first)
             selection.cursor.setPosition(block.position() + len(text), QTextCursor.MoveMode.KeepAnchor)
@@ -164,7 +162,7 @@ class MultiSelection:
         out = []
         for cursor in self._cursors:
             selection = QTextEdit.ExtraSelection()
-            selection.format.setBackground(MULTI_COLOR)
+            selection.format.setBackground(QColor(self._editor.theme["match"]))
             selection.cursor = QTextCursor(cursor)
             out.append(selection)
         return out

@@ -1,11 +1,15 @@
 """Where a formula came from, and the colour that says so in every list.
 
-Four origins, each with a light background and a darker text colour that reads on it:
+Four origins, each with a row tint and a text colour that reads on it:
 
     built-in     the flam3 classics and Apophysis 7X built-ins (native Python)     blue
     apophysis    the bundled Apophysis plugin library (sources, ports, DLLs)        amber
     jwildfire    variations translated from JWildfire                               green
     user         the user's own formulas                                            violet
+
+The colours belong to the theme (`origin_<kind>` / `origin_<kind>_text`, made from the theme's own blue / yellow /
+green / purple): pale tints with dark text on light themes, dark tints with light text on dark ones, always at least
+4.5:1. The lists that use them repaint when the theme changes.
 
 `origin_of(var)` classifies a registered variation; `ORIGINS` carries the labels and colours, so the Formula
 Editor's list, the formula browser and the Transform Editor's Variations tab all paint the same way.
@@ -18,6 +22,8 @@ from pathlib import Path
 
 from PySide6.QtGui import QColor
 
+from ..widgets.theming import theme_color
+
 from ..formulas import workbench as W
 from ..fractal import variations as V
 
@@ -26,29 +32,28 @@ BUILTIN, APOPHYSIS, JWILDFIRE, USER = "built-in", "apophysis", "jwildfire", "use
 
 @dataclass(frozen=True)
 class Origin:
-    """One origin: its key, a label, and the two colours."""
+    """One origin: its key, a label, the theme roles of its colours, and a description."""
     key: str
     label: str
-    background: str
-    text: str
+    role: str                # the theme role of the row tint; the text colour is `<role>_text`
     description: str
 
     @property
     def background_color(self) -> QColor:
-        """The light row background."""
-        return QColor(self.background)
+        """The row tint in the current theme."""
+        return theme_color(self.role)
 
     @property
     def text_color(self) -> QColor:
-        """The darker text colour that contrasts with the background."""
-        return QColor(self.text)
+        """The text colour that reads on the tint (current theme)."""
+        return theme_color(f"{self.role}_text")
 
 
 ORIGINS: dict[str, Origin] = {
-    BUILTIN: Origin(BUILTIN, "Built-in", "#e3effb", "#123f73", "flam3 classics and Apophysis 7X built-ins (native Python)"),
-    APOPHYSIS: Origin(APOPHYSIS, "Apophysis", "#fff1d6", "#6b4400", "bundled Apophysis plugin library (sources, ports, reconstructed DLLs)"),
-    JWILDFIRE: Origin(JWILDFIRE, "JWildfire", "#e4f5e3", "#1e5a22", "variations translated from JWildfire"),
-    USER: Origin(USER, "User", "#f1e6fb", "#4d1d7a", "your own formulas"),
+    BUILTIN: Origin(BUILTIN, "Built-in", "origin_builtin", "flam3 classics and Apophysis 7X built-ins (native Python)"),
+    APOPHYSIS: Origin(APOPHYSIS, "Apophysis", "origin_apophysis", "bundled Apophysis plugin library (sources, ports, reconstructed DLLs)"),
+    JWILDFIRE: Origin(JWILDFIRE, "JWildfire", "origin_jwildfire", "variations translated from JWildfire"),
+    USER: Origin(USER, "User", "origin_user", "your own formulas"),
 }
 ORDER = (BUILTIN, APOPHYSIS, JWILDFIRE, USER)
 

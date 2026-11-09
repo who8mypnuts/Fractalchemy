@@ -11,10 +11,11 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
 from ...fragments.definitions import all_definitions
+from ...widgets.theming import on_theme_changed, theme_color
 
 RE_STEP = re.compile(r"^\s*//\s*STEP\s*(\d+)\s*:\s*(.*)$", re.IGNORECASE)
 RE_GROUP = re.compile(r"^\s*#group\s+(.*?)\s*$", re.IGNORECASE)
@@ -69,6 +70,7 @@ class WalkthroughPanel(QWidget):
         self._text_provider = lambda: None
         self._timer = QTimer(self, singleShot=True, interval=REFRESH_MS)
         self._timer.timeout.connect(self.refresh)
+        on_theme_changed(self, lambda _theme: self.refresh())
 
     def bind(self, text_provider) -> None:
         """`text_provider()` returns the current document's text (None when there is no tab)."""
@@ -88,7 +90,7 @@ class WalkthroughPanel(QWidget):
         for number, line, title in steps:
             item = QListWidgetItem(f"Step {number}: {title}")
             item.setData(LINE_ROLE, line)
-            item.setForeground(QColor("#1565c0"))
+            item.setForeground(theme_color("link"))        # steps read as links (the theme's link colour)
             self.list.addItem(item)
         if steps and outline:
             separator = QListWidgetItem("— outline —")

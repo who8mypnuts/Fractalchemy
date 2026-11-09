@@ -19,7 +19,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QMouseEvent, QPainter, QPaintEvent, QPen, QPolygonF, QWheelEvent
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from .. import config
+from .theming import theme_color
 
 RULER_HEIGHT = 22
 TRACK_HEIGHT = 44
@@ -27,9 +27,7 @@ MARGIN = 10
 MARKER_HALF = 7
 MARKER_HIT = 9
 MAX_PIXELS_PER_FRAME = 80.0
-BACKGROUND = QColor(28, 28, 28)
-RULER_BACKGROUND = QColor(40, 40, 40)
-TRACK_BACKGROUND = QColor(34, 34, 34)
+RULER_LIGHTER, TRACK_LIGHTER, SEGMENT_LIGHTER = 160, 125, 175   # shades of the canvas ground (percent)
 TICK_COLOR = QColor(110, 110, 110)
 SECOND_COLOR = QColor(160, 160, 160)
 TEXT_COLOR = QColor(190, 190, 190)
@@ -260,9 +258,10 @@ class Timeline(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
-        painter.fillRect(self.rect(), BACKGROUND)
-        painter.fillRect(QRectF(0, 0, w, RULER_HEIGHT), RULER_BACKGROUND)
-        painter.fillRect(QRectF(0, RULER_HEIGHT, w, TRACK_HEIGHT), TRACK_BACKGROUND)
+        ground = theme_color("canvas_bg")                        # always dark; tinted by the theme
+        painter.fillRect(self.rect(), ground)
+        painter.fillRect(QRectF(0, 0, w, RULER_HEIGHT), ground.lighter(RULER_LIGHTER))
+        painter.fillRect(QRectF(0, RULER_HEIGHT, w, TRACK_HEIGHT), ground.lighter(TRACK_LIGHTER))
         painter.setClipRect(QRectF(MARGIN - 1, 0, w - 2 * MARGIN + 2, h))
         self._paint_range(painter)
         self._paint_ruler(painter)
@@ -273,7 +272,7 @@ class Timeline(QWidget):
 
     def _paint_range(self, painter: QPainter) -> None:
         x0, x1 = self.x_of(0), self.x_of(self._total)
-        painter.fillRect(QRectF(x0, RULER_HEIGHT, x1 - x0, TRACK_HEIGHT), QColor(46, 46, 46))
+        painter.fillRect(QRectF(x0, RULER_HEIGHT, x1 - x0, TRACK_HEIGHT), theme_color("canvas_bg").lighter(SEGMENT_LIGHTER))
         if self._keyframes:
             first, last = self._keyframes[0].frame, self._keyframes[-1].frame
             y = RULER_HEIGHT + TRACK_HEIGHT / 2
@@ -315,7 +314,7 @@ class Timeline(QWidget):
 
     def _paint_keyframes(self, painter: QPainter) -> None:
         y = RULER_HEIGHT + TRACK_HEIGHT / 2
-        highlight = QColor(config.HIGHLIGHT_COLOR)
+        highlight = theme_color("canvas_accent")
         font = QFont(painter.font())
         font.setPointSizeF(max(6.5, font.pointSizeF() - 1.5))
         painter.setFont(font)
@@ -332,7 +331,7 @@ class Timeline(QWidget):
 
     def _paint_playhead(self, painter: QPainter) -> None:
         x = self.x_of(self._current)
-        color = QColor(config.HIGHLIGHT_COLOR)
+        color = theme_color("canvas_accent")
         painter.setPen(QPen(color, 1.5))
         painter.drawLine(QPointF(x, 4), QPointF(x, RULER_HEIGHT + TRACK_HEIGHT))
         painter.setBrush(color)

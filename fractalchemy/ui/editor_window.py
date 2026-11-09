@@ -22,13 +22,13 @@ from PySide6.QtGui import QCloseEvent, QColor, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton,
                                QScrollArea, QSplitter, QStatusBar, QTabWidget, QVBoxLayout, QWidget)
 
-from .. import config
 from ..fractal import triangles as T
 from ..fractal.scene import XForm, identity_affine
 from ..fractal.triangles import Triangle
 from ..render.service import RenderService
 from ..render.xform_preview import variation_preview
 from ..widgets.icons import editor_icon
+from ..widgets.theming import on_theme_changed, theme_color
 from ..widgets.silent import blocked, updating
 from ..widgets.triangle_view import PIVOT_LOCAL, PIVOT_WORLD, Hit, TriangleEntry, TriangleView, transform_color
 from .editor_actions import EditorActions
@@ -38,6 +38,7 @@ from .editor_panels import ColorsTab, TransformTab, TriangleTab
 from .editor_value_tabs import VariablesTab, VariationsTab, XaosTab
 from .live_preview import DEFAULT_QUALITY, LivePreview, quality_level
 from .fractal_document import FractalDocument
+from ..widgets.windows import bring_to_front
 
 WINDOW_TITLE = "Transform Editor"
 SETTINGS_GROUP = "editor"
@@ -46,8 +47,8 @@ SIDE_PANEL_WIDTH = 450
 MODE_NOTES = {MODE_PRE: "pre affine → normal → variations → post affine: editing the first step", MODE_NORMAL: "",
               MODE_POST: "pre affine → normal → variations → post affine: editing the last step"}
 MODE_BUTTON_STYLE = """
-QPushButton {{ padding: 4px 14px; font-weight: bold; border: 1px solid #777; border-radius: 4px; }}
-QPushButton:checked {{ background: {color}; color: white; border-color: {dark}; }}
+QPushButton {{ padding: 4px 14px; font-weight: bold; border: 1px solid {border}; border-radius: 4px; }}
+QPushButton:checked {{ background: {color}; color: {text}; border-color: {dark}; }}
 QPushButton:!checked:hover {{ border-color: {color}; }}
 """
 # what each kind of document change touches: (refresh the canvas, the tabs to refresh when the selected transform changed)
@@ -139,14 +140,11 @@ class EditorWindow(QMainWindow):
         row.addWidget(QLabel("Edit:", self))
         group = QButtonGroup(self)
         group.setExclusive(True)
-        color = QColor(config.HIGHLIGHT_COLOR)
-        style = MODE_BUTTON_STYLE.format(color=color.name(), dark=color.darker(130).name())
         for mode in MODES:
             button = QPushButton(MODE_LABELS[mode], self)
             button.setCheckable(True)
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)     # keep the keyboard on the canvas
             button.setToolTip(MODE_TIPS[mode])
-            button.setStyleSheet(style)
             button.setChecked(mode == MODE_NORMAL)
             button.clicked.connect(lambda _c=False, m=mode: self.set_mode(m))
             group.addButton(button)
@@ -155,7 +153,17 @@ class EditorWindow(QMainWindow):
         self.mode_note.setEnabled(False)
         row.addSpacing(12)
         row.addWidget(self.mode_note, 1)
+        self._style_mode_buttons()
+        on_theme_changed(self, lambda _theme: self._style_mode_buttons())
         return row
+
+    def _style_mode_buttons(self) -> None:
+        """The active mode in the theme's accent colour."""
+        accent = theme_color("accent")
+        style = MODE_BUTTON_STYLE.format(color=accent.name(), dark=accent.darker(130).name(), text=theme_color("accent_text").name(),
+                                         border=theme_color("border").name())
+        for button in self.mode_buttons.values():
+            button.setStyleSheet(style)
 
     def _side_panel(self) -> QWidget:
         """The preview, the transform header (list, name, weight) and the tabs."""
@@ -272,10 +280,7 @@ class EditorWindow(QMainWindow):
     # --- window management ----------------------------------------------------------------------------------
     def bring_to_front(self) -> None:
         """Show the window (restoring it if minimised) and give the canvas the focus."""
-        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        bring_to_front(self)
         self.preview.request()
         self.view.setFocus()
 

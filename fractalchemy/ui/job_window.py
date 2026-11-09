@@ -14,6 +14,8 @@ import time
 from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSplitter, QVBoxLayout, QWidget
 
+from ..widgets.windows import bring_to_front
+
 OPTIONS_MIN_WIDTH = 520
 
 
@@ -180,9 +182,7 @@ class JobWindowBase(QMainWindow):
     # --- window ----------------------------------------------------------------------------------------------------
     def bring_to_front(self) -> None:
         """Show, raise and focus the window."""
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        bring_to_front(self)
 
     def confirm_quit(self) -> bool:
         """Ask before quitting with a job running; stops it if the user agrees. False = keep running."""

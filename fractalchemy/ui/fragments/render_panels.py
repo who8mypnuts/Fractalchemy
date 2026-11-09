@@ -29,6 +29,7 @@ from ...widgets.silent import blocked
 from ..render_output_panel import fill_depth_combo, fill_format_combo
 from ... import config
 from .buffer_size import MAX_SIDE
+from ...widgets.theming import colored_html, set_themed_style
 
 MAX_TILES = 32
 MAX_TILE_SIDE = config.FRAG_MAX_TILE_SIDE
@@ -121,10 +122,10 @@ class TilesPanel(QGroupBox):
         self.size_label.setText(f"{width} × {height} pixels")
 
     def mark_problem(self, bad: bool) -> None:
-        """A red frame around the tile boxes while the tile is larger than the GPU limit."""
-        style = "QSpinBox { border: 2px solid #c0392b; }" if bad else ""
+        """A frame in the theme's error colour around the tile boxes while the tile is larger than the GPU limit."""
+        style = "QSpinBox {{ border: 2px solid {error}; }}" if bad else ""
         for spin in (self.width_spin, self.height_spin):
-            spin.setStyleSheet(style)
+            set_themed_style(spin, style)
             spin.setToolTip(f"A tile may be at most {MAX_TILE_SIDE} pixels a side — raise Tiles per side instead" if bad else "")
 
     def set_tile_size(self, width: int, height: int) -> None:
@@ -266,7 +267,7 @@ class AnimationPanel(QGroupBox):
         if s.video and not problems:
             self.video_label.setText(" ".join(s.ffmpeg_command(25, 100, 0)))
         else:
-            self.video_label.setText('<span style="color:#c0392b">' + "; ".join(problems) + "</span>" if problems else "")
+            self.video_label.setText(colored_html("; ".join(problems), "error") if problems else "")
         for widget in (self.video_combo, self.crf_spin, self.keep_check):
             widget.setEnabled(s.video)
 

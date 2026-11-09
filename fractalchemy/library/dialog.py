@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from .controller import LibraryController
+from ..widgets.theming import set_themed_style
 
 
 class EditLibraryDialog(QDialog):
@@ -63,7 +64,7 @@ class EditLibraryDialog(QDialog):
         button = QToolButton(self)
         button.setText("✕")
         button.setToolTip(f"Remove {path.name} from the library")
-        button.setStyleSheet("QToolButton { color: #d03030; font-weight: bold; border: none; }")
+        set_themed_style(button, "QToolButton {{ color: {error}; font-weight: bold; border: none; }}")
         button.clicked.connect(lambda: self._controller.remove_root(path))
         return button
 

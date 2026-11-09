@@ -39,6 +39,7 @@ from .animation_panels import AnimationSettingsPanel, KeyframePanel
 from .animation_playback import Playback
 from .fractal_document import FractalDocument
 from .live_preview import DEFAULT_QUALITY, LivePreview, quality_level
+from ..widgets.windows import bring_to_front
 
 WINDOW_TITLE = "Animation"
 SETTINGS_GROUP = "animation"
@@ -216,10 +217,7 @@ class AnimationWindow(QMainWindow):
     # --- window management ----------------------------------------------------------------------------------
     def bring_to_front(self) -> None:
         """Show the window (restoring it if minimised), focus it and refresh the preview."""
-        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        bring_to_front(self)
         self.preview.request()
 
     def confirm_discard(self) -> bool:

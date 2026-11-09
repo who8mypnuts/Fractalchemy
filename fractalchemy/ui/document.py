@@ -83,9 +83,21 @@ class GradientDocument(QObject):
     # --- commands -----------------------------------------------------------
     def replace(self, gradient: Gradient, source_path: Path | None = None, source_index: int = 0) -> None:
         """Show a new gradient, recording where it came from; clears edits and selection."""
-        self._gradient = gradient
         self._source_path = source_path
         self._source_index = source_index
+        self._show(gradient)
+
+    def follow(self, gradient: Gradient) -> None:
+        """Show `gradient` in place of the current one, keeping the source (path / index).
+
+        Used when the fractal that owns this entry changed its palette from elsewhere (undo, paste, a mutation): the
+        entry still belongs to that fractal, so *Save* keeps writing into it. Edits, selection and pending adjustments
+        are cleared and the document is unmodified; the fractal carries the change.
+        """
+        self._show(gradient)
+
+    def _show(self, gradient: Gradient) -> None:
+        self._gradient = gradient
         self.modified = False
         self._reset_adjustments()
         self.select(-1)

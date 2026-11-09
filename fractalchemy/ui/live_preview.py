@@ -18,7 +18,7 @@ import logging
 from dataclasses import dataclass
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor, QImage, QPainter, QPaintEvent
+from PySide6.QtGui import QAction, QActionGroup, QImage, QPainter, QPaintEvent
 from PySide6.QtWidgets import QMenu, QSizePolicy, QWidget
 
 from .. import config
@@ -27,9 +27,8 @@ from ..render.settings import RenderSettings, RenderStats
 from ..widgets.fractal_preview import fitted_rect
 from ..widgets.images import rgba_to_qimage
 from .fractal_document import FractalDocument
+from ..widgets.theming import theme_color
 
-BACKGROUND = QColor(24, 24, 24)
-TEXT = QColor(110, 110, 110)
 
 
 @dataclass(frozen=True)
@@ -220,9 +219,9 @@ class LivePreview(QWidget):
     # --- painting -------------------------------------------------------------------------------------------
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), BACKGROUND)
+        painter.fillRect(self.rect(), theme_color("canvas_bg"))
         if self._image is None or self._image.isNull():
-            painter.setPen(TEXT)
+            painter.setPen(theme_color("canvas_text"))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Rendering…" if self._busy else self.placeholder)
         else:
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)

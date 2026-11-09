@@ -22,7 +22,7 @@ import math
 
 import numpy as np
 from PySide6.QtCore import QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPaintEvent, QResizeEvent, QWheelEvent
+from PySide6.QtGui import QImage, QMouseEvent, QPainter, QPaintEvent, QResizeEvent, QWheelEvent
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ... import config
@@ -33,12 +33,11 @@ from ...widgets.fractal_preview import fitted_rect
 from ...widgets.images import rgba_to_qimage
 from .document import Scene3DDocument
 from .jobs import MeshPreviewJob
+from ...widgets.theming import theme_color
 
 MESH_SAMPLES_PER_PIXEL = 3       # the mesh preview splats about this many surface points per G-buffer pixel
 MESH_SAMPLES_MIN, MESH_SAMPLES_MAX = 200_000, 2_000_000
 
-BACKGROUND = QColor(24, 24, 24)
-TEXT = QColor(110, 110, 110)
 ORBIT_RADIANS_PER_PIXEL = 0.008
 ZOOM_PER_NOTCH = 0.25            # powers of two per wheel notch
 PERSPECTIVE_PER_NOTCH = 0.05
@@ -298,15 +297,15 @@ class Viewport3D(QWidget):
     # --- painting / geometry ---------------------------------------------------------------------------------------
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), BACKGROUND)
+        painter.fillRect(self.rect(), theme_color("canvas_bg"))
         if self._image is not None and not self._image.isNull():
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self._image.size() != self.size())
             painter.drawImage(fitted_rect(self._image.size(), self.rect()), self._image)
         elif self._document is None or self._document.flame is None:
-            painter.setPen(TEXT)
+            painter.setPen(theme_color("canvas_text"))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.placeholder)
         else:
-            painter.setPen(TEXT)
+            painter.setPen(theme_color("canvas_text"))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Rendering…")
         painter.end()
 

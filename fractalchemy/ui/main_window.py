@@ -25,9 +25,11 @@ from ..library.items import LibraryItem
 from ..library.roots import LibraryRoots
 from ..render.service import RenderService
 from ..widgets.collapsible_splitter import CollapsibleSplitter
-from ..widgets.icons import (action_icon, animation_icon, editor_icon, formula_icon, fragments_icon, gradient_icon, render_icon,
-                             script_icon, three_d_icon)
+from ..widgets.icons import (action_icon, animation_icon, editor_icon, formula_icon, fragments_icon, gradient_icon, mutation_icon,
+                             render_icon, script_icon, three_d_icon)
 from ..widgets.logo import logo_icon, wordmark_pixmap
+from ..widgets.theme_menu import ThemeMenu
+from ..widgets.windows import bring_to_front
 from .animation_window import AnimationWindow
 from .background import run_in_background
 from .editor_window import EditorWindow
@@ -40,7 +42,7 @@ from .gradient_link import GradientLink
 from .loader import load_ui
 from .render_status import RenderStatus
 from .render_window import RenderWindow
-from .settings_panel import SettingsPanel
+from .inspector_panel import InspectorPanel
 from .thumbnails import ThumbnailProvider
 from .viewer_bar import ViewerBar
 
@@ -49,12 +51,12 @@ CUSTOM_WIDGETS = {
     "FractalLibraryPanel": FractalLibraryPanel,
     "FractalViewport": FractalViewport,
     "ViewerBar": ViewerBar,
-    "SettingsPanel": SettingsPanel,
+    "InspectorPanel": InspectorPanel,
     "CollapsibleSplitter": CollapsibleSplitter,
 }
 SCANNING_MESSAGE = "Scanning fractal library…"
 LIBRARY_PANE_WIDTH = 300
-SETTINGS_PANE_WIDTH = 320
+INSPECTOR_PANE_WIDTH = 320
 MESSAGE_MS = 6000
 GUIDES_KEY = "viewer/guides"
 GUIDE_KINDS_KEY = "viewer/guide_kinds"
@@ -94,6 +96,7 @@ class MainWindow(QMainWindow):
         self._formula_editor = None
         self._three_d = None
         self._fragments = None
+        self._mutation = None
         self._batch: list[Flame] = []          # generated fractals shown in the library's temporary area
         self._batch_showing: int | None = None
         self.files = FractalFileActions(self.document, self)
@@ -105,14 +108,14 @@ class MainWindow(QMainWindow):
         self.animation = AnimationWindow(self.document, self.render_service, self.show_flame, self,
                                          settings if settings is not None else QSettings())
         self.animation.rate_hint = self._preview_rate
-        self.splitter.first_label, self.splitter.last_label = "fractal library", "settings panel"
+        self.splitter.first_label, self.splitter.last_label = "fractal library", "inspector"
         self.splitter.set_first_width(LIBRARY_PANE_WIDTH)
-        self.splitter.set_last_width(SETTINGS_PANE_WIDTH)
+        self.splitter.set_last_width(INSPECTOR_PANE_WIDTH)
         for pane, stretch in ((0, 0), (1, 1), (2, 0)):   # window resizes go to the viewport, not the side panes
             self.splitter.setStretchFactor(pane, stretch)
         self._settings = settings if settings is not None else QSettings()
-        self.settingsPanel.attach_settings(self._settings)
-        self.settingsPanel.bind(self.document)
+        self.inspectorPanel.attach_settings(self._settings)
+        self.inspectorPanel.bind(self.document)
         self._connect_actions()
         self._connect_document()
         self._connect_library()
@@ -165,6 +168,8 @@ class MainWindow(QMainWindow):
         self.actionFormulas.triggered.connect(lambda: self.show_formulas())
         self.actionRandomBatch.setIcon(action_icon("random"))
         self.actionRandomBatch.triggered.connect(self.show_random_batch_window)
+        self.actionMutate.setIcon(mutation_icon())
+        self.actionMutate.triggered.connect(lambda: self.show_mutation())
         self.actionScriptEditor.setIcon(script_icon())
         self.actionScriptEditor.triggered.connect(lambda: self.show_script_editor())
         self.actionFormulaEditor.setIcon(formula_icon())
@@ -175,10 +180,13 @@ class MainWindow(QMainWindow):
         self.actionFragments.triggered.connect(lambda: self.show_fragments())
         self.actionAboutQt.triggered.connect(lambda: QMessageBox.aboutQt(self, f"About Qt — {config.APP_NAME}"))
         self.menuView.insertAction(self.actionShowStatusBar, self.toolBar.toggleViewAction())
+        self.theme_menu = ThemeMenu(self)               # View ▸ Theme: the whole application's colours
+        self.menuView.insertMenu(self.toolBar.toggleViewAction(), self.theme_menu)
+        self.menuView.insertSeparator(self.toolBar.toggleViewAction())
         self.actionShowStatusBar.toggled.connect(self.statusBar().setVisible)
         self.splitter.collapsed_changed.connect(lambda collapsed: self.actionToggleFractalLibrary.setChecked(not collapsed))
-        self.actionToggleSettings.toggled.connect(lambda shown: self.splitter.set_last_collapsed(not shown))
-        self.splitter.last_collapsed_changed.connect(lambda collapsed: self.actionToggleSettings.setChecked(not collapsed))
+        self.actionToggleInspector.toggled.connect(lambda shown: self.splitter.set_last_collapsed(not shown))
+        self.splitter.last_collapsed_changed.connect(lambda collapsed: self.actionToggleInspector.setChecked(not collapsed))
         self.actionZoomFit.triggered.connect(self.viewport.zoom_to_fit)
         self.actionZoomActual.triggered.connect(lambda: self.viewport.set_zoom(1.0))
 
@@ -186,7 +194,7 @@ class MainWindow(QMainWindow):
         self.document.flame_replaced.connect(self._on_flame_replaced)
         self.document.camera_changed.connect(self._on_camera_changed)
         self.document.palette_changed.connect(self._on_palette_changed)
-        self.document.coloring_changed.connect(self.settingsPanel.info.show_coloring)
+        self.document.coloring_changed.connect(self.inspectorPanel.info.show_coloring)
         self.document.modified_changed.connect(self._on_modified_changed)
         self.document.undo_changed.connect(self._on_undo_changed)
         self.document.flame_restored.connect(self._on_flame_restored)
@@ -194,7 +202,7 @@ class MainWindow(QMainWindow):
         self.document.transforms_changed.connect(self._on_xform_changed)
         self._info_timer = QTimer(self, singleShot=True, interval=config.EDIT_RENDER_DELAY_MS)
         self._info_timer.timeout.connect(self._on_flame_restored)
-        self.settingsPanel.info.formula_activated.connect(self.show_formulas)
+        self.inspectorPanel.info.formula_activated.connect(self.show_formulas)
 
     def _connect_library(self) -> None:
         panel = self.fractalLibraryPanel
@@ -211,11 +219,11 @@ class MainWindow(QMainWindow):
     def _connect_render(self) -> None:
         self.render_service.engine_ready.connect(self.status.set_engine)
         self.viewport.render_progress.connect(self.status.show_progress)
-        self.viewport.render_progress.connect(self.settingsPanel.info.show_render)
+        self.viewport.render_progress.connect(self.inspectorPanel.info.show_render)
         self.viewport.render_failed.connect(lambda message: self._message(f"Cannot render: {message}"))
 
     def _connect_viewer_controls(self) -> None:
-        bar, panel, view = self.viewerBar, self.settingsPanel, self.viewport
+        bar, panel, view = self.viewerBar, self.inspectorPanel, self.viewport
         bar.zoom_requested.connect(view.set_zoom)
         bar.resolution_chosen.connect(self.document.set_image_size)
         bar.guides_changed.connect(self._on_guides_changed)
@@ -302,9 +310,21 @@ class MainWindow(QMainWindow):
             self._random_window.status.connect(self._message)
         else:
             self._random_window.populate()   # formulas added meanwhile
-        self._random_window.show()
-        self._random_window.raise_()
-        self._random_window.activateWindow()
+        bring_to_front(self._random_window)
+
+    # --- mutate & breed -----------------------------------------------------
+    @property
+    def mutation_window(self):
+        """The Mutate & Breed window (created on first use; hidden rather than destroyed when closed)."""
+        if self._mutation is None:
+            from .mutation_window import MutationWindow
+            self._mutation = MutationWindow(self.document, self.render_service, self, self._settings)
+            self._mutation.open_requested.connect(self.show_flame)
+        return self._mutation
+
+    def show_mutation(self) -> None:
+        """Open (or raise) the Mutate & Breed window on the fractal shown here."""
+        self.mutation_window.bring_to_front()
 
     # --- script editor ------------------------------------------------------
     @property
@@ -389,6 +409,8 @@ class MainWindow(QMainWindow):
             self._random_window.populate()
         if self._formula_browser is not None:
             self._formula_browser.populate()
+        if self._mutation is not None:
+            self._mutation.refresh_formulas()
 
     def show_random_batch(self, flames: list) -> None:
         """Put generated flames in the library's temporary area (under 'Randomly Generated') and show the first."""
@@ -458,7 +480,7 @@ class MainWindow(QMainWindow):
         flame = self.document.flame
         self.status.show_fractal(flame, self.document.source_path.name if self.document.source_path else "")
         self.viewerBar.show_flame(flame)
-        self.settingsPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
+        self.inspectorPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
         self._update_title()
 
     def _update_title(self) -> None:
@@ -533,9 +555,7 @@ class MainWindow(QMainWindow):
             self._formula_browser = FormulaBrowser(self)
         if name:
             self._formula_browser.select(name)
-        self._formula_browser.show()
-        self._formula_browser.raise_()
-        self._formula_browser.activateWindow()
+        bring_to_front(self._formula_browser)
 
     def _on_flame_replaced(self) -> None:
         flame = self.document.flame
@@ -543,7 +563,7 @@ class MainWindow(QMainWindow):
         self.status.show_fractal(flame, source)
         self.status.show_idle()
         self.viewerBar.show_flame(flame)
-        self.settingsPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
+        self.inspectorPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
         for action in (self.actionSaveFractal, self.actionSaveAs, self.actionCopyParameters):
             action.setEnabled(flame is not None)
         self._update_title()
@@ -553,11 +573,11 @@ class MainWindow(QMainWindow):
         if flame is not None:
             cx, cy = flame.camera.center
             self._message(f"center {cx:.4f}, {cy:.4f}   zoom {flame.camera.zoom:.2f}", 2000)
-        self.settingsPanel.info.show_camera()
+        self.inspectorPanel.info.show_camera()
 
     def _on_palette_changed(self) -> None:
         self._message("Gradient applied to the fractal", 2000)
-        self.settingsPanel.info.show_palette()
+        self.inspectorPanel.info.show_palette()
 
     def _message(self, text: str, ms: int = MESSAGE_MS) -> None:
         self.statusBar().showMessage(text, ms)
@@ -602,6 +622,8 @@ class MainWindow(QMainWindow):
         if self._three_d is not None:
             self._three_d.save_state()
             self._three_d.hide()
+        if self._mutation is not None:
+            self._mutation.close()
         if self._fragments is not None:
             self._fragments.save_state()
             self._fragments.hide()

@@ -68,20 +68,93 @@ def test_a_loose_flame_gives_the_editor_a_loose_copy_of_its_palette(window, work
     assert [s.color for s in document.gradient.stops][0] == flame.palette[0]
 
 
-def test_switching_fractals_with_unsaved_gradient_edits_asks_first(window, workdir, monkeypatch):
+def never_ask(monkeypatch):
+    """Make any unsaved-changes prompt fail the test."""
+    def fail(*_args, **_kwargs):
+        raise AssertionError("the Gradient Library must not ask here")
+    monkeypatch.setattr(QMessageBox, "question", fail)
+
+
+def test_switching_fractals_never_asks_about_unsaved_gradient_edits(window, workdir, monkeypatch):
     open_and_wait(window, workdir / "candy.flame", 0)
     document = window.gradient_library.document
     document.set_color(0, (1, 2, 3))
     assert document.modified
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Cancel)
+    never_ask(monkeypatch)
     window.open_path(workdir / "candy.flame", 2)
-    wait_until(lambda: window.document.source_index == 2)
-    spin(200)
-    assert document.source_index == 0 and document.modified      # the editor kept the edits
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Discard)
-    window.open_path(workdir / "candy.flame", 4)
-    wait_until(lambda: document.is_showing(workdir / "candy.flame", 4))
-    assert not document.modified
+    wait_until(lambda: document.is_showing(workdir / "candy.flame", 2))
+    assert not document.modified and document.gradient.name == load_flame(workdir / "candy.flame", 2).name
+    document.set_color(0, (4, 5, 6))
+    window.show_flame(load_flame(workdir / "candy.flame", 1))       # a loose flame too
+    assert document.source_path is None and document.gradient.name == "outlined" and not document.modified
+
+
+# --- following the fractal (undo / paste / script / mutation) --------------------------
+def editor_first_colour(win):
+    return win.gradient_library.document.gradient.stops[0].color
+
+
+def test_undo_and_redo_of_a_gradient_edit_update_the_editor_without_asking(window, workdir, monkeypatch):
+    open_and_wait(window, workdir / "candy.flame", 0)
+    document = window.gradient_library.document
+    original = window.document.flame.palette[0]
+    document.set_color(0, (200, 0, 0))
+    assert window.document.flame.palette[0] == (200, 0, 0) and document.modified
+    never_ask(monkeypatch)
+    window.document.undo()
+    assert window.document.flame.palette[0] == original
+    assert editor_first_colour(window) == original and not document.modified
+    assert document.is_showing(workdir / "candy.flame", 0)          # still the fractal's own entry
+    window.document.redo()
+    assert editor_first_colour(window) == (200, 0, 0)
+
+
+def test_replacing_the_flame_in_place_shows_its_new_gradient_and_keeps_the_entry(window, workdir, monkeypatch):
+    """The path a mutant / child takes when adopted: `replace_flame_parameters`."""
+    open_and_wait(window, workdir / "candy.flame", 0)
+    document = window.gradient_library.document
+    document.set_color(1, (9, 9, 9))                                # unsaved edits that must not trigger a prompt
+    never_ask(monkeypatch)
+    mutant = window.document.flame.copy()
+    mutant.palette = [(0, 255, 0)] * 128 + [(0, 0, 255)] * 128
+    window.document.replace_flame_parameters(mutant, "mutate")
+    assert {s.color for s in document.gradient.stops} == {(0, 255, 0), (0, 0, 255)}
+    assert document.is_showing(workdir / "candy.flame", 0) and not document.modified
+    document.set_color(0, (255, 0, 0))                              # an edit lands on the new gradient, not a stale one
+    assert window.document.flame.palette[0] == (255, 0, 0) and window.document.flame.palette[200] == (0, 0, 255)
+
+
+def test_paste_and_script_results_update_the_editor(window, workdir, monkeypatch):
+    open_and_wait(window, workdir / "candy.flame", 0)
+    never_ask(monkeypatch)
+    pasted = load_flame(workdir / "candy.flame", 3)
+    window.document.paste(pasted)
+    assert editor_first_colour(window) == pasted.palette[0]
+    scripted = window.document.flame.copy()
+    scripted.palette = [(10, 20, 30)] * 256
+    window.document.apply_script(scripted)
+    assert editor_first_colour(window) == (10, 20, 30)
+
+
+def test_an_undo_that_leaves_the_palette_alone_leaves_the_editor_alone(window, workdir):
+    open_and_wait(window, workdir / "candy.flame", 0)
+    document = window.gradient_library.document
+    document.set_adjustments(Adjustments(hue=40))                   # applied to the fractal, pending in the sliders
+    document.select(2)
+    gradient = document.gradient
+    window.document.set_view(zoom=1.5)
+    window.document.undo()                                          # undoes the camera move only
+    assert document.gradient is gradient and document.selected_index == 2 and document.adjustments.hue == 40
+
+
+def test_following_while_showing_another_file_gives_a_loose_copy(window, workdir, monkeypatch):
+    open_and_wait(window, workdir / "candy.flame", 0)
+    window.gradient_library.files.show_entry(3)                     # browse to "pearl": applied to the fractal
+    document = window.gradient_library.document
+    assert document.source_index == 3
+    never_ask(monkeypatch)
+    window.document.undo()                                          # back to the fractal's own colours
+    assert document.source_path is None and editor_first_colour(window) == window.document.flame.palette[0]
 
 
 # --- gradient → fractal ----------------------------------------------------------

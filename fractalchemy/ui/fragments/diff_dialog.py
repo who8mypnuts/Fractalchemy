@@ -17,9 +17,7 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPlainTextEdit,
 
 from ...widgets.base_code_editor import BaseCodeEditor
 
-ADDED = QColor(46, 125, 50)
-REMOVED = QColor(198, 40, 40)
-HEADER = QColor(21, 101, 192)
+DIFF_ROLES = {"@@": "info", "---": "info", "+++": "info", "+": "success", "-": "error"}   # line prefix → theme role
 
 
 def unified_diff(original: str, current: str, original_name: str, current_name: str) -> list[str]:
@@ -34,17 +32,26 @@ class DiffView(BaseCodeEditor):
         super().__init__(parent)
         self.setReadOnly(True)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._lines: list[str] = []
+
+    def apply_theme(self) -> None:
+        """Recolour the editor, then the diff's lines (their colours are theme roles)."""
+        super().apply_theme()
+        if getattr(self, "_lines", None):
+            self.show_diff(self._lines)                 # the line colours are the theme's
 
     def show_diff(self, lines: list[str]) -> None:
+        """Show a unified diff, coloured: headers (info), added (success), removed (error)."""
+        self._lines = list(lines)
         self.set_text("\n".join(lines))
         cursor = QTextCursor(self.document())
         block = self.document().firstBlock()
         while block.isValid():
             text = block.text()
-            colour = HEADER if text.startswith(("@@", "---", "+++")) else ADDED if text.startswith("+") else REMOVED if text.startswith("-") else None
-            if colour is not None:
+            role = next((DIFF_ROLES[prefix] for prefix in DIFF_ROLES if text.startswith(prefix)), None)   # longest prefixes first
+            if role is not None:
                 fmt = QTextCharFormat()
-                fmt.setForeground(colour)
+                fmt.setForeground(QColor(self.theme[role]))
                 cursor.setPosition(block.position())
                 cursor.setPosition(block.position() + len(text), QTextCursor.MoveMode.KeepAnchor)
                 cursor.setCharFormat(fmt)

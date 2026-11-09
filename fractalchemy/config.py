@@ -27,6 +27,7 @@ STRIP_MIN_HEIGHT = 80
 NODE_BAR_HEIGHT = 26
 NODE_RADIUS = 6
 NODE_HIT_RADIUS = 9
+NODE_NUDGE_COARSE = 10          # Shift + ← / → moves the selected node this many index units (1 unit = 1/399)
 
 # --- Preview rendering --------------------------------------------------------
 PREVIEW_PASSES = 6              # progressive passes per viewport render
@@ -55,6 +56,12 @@ THUMBNAIL_SIZE = (120, 75)      # fractal library thumbnails
 THUMBNAIL_QUALITY = 3.0
 THUMBNAIL_PASSES = 1
 CPU_RENDER_THREADS = 0          # 0 = use every core
+
+# --- Mutate & Breed window ---------------------------------------------------------
+MUTATION_CELL_SIZE = (200, 150)   # the grid's render size per cell (pixels)
+MUTATION_QUALITY = 6.0            # samples per pixel of a grid render
+MUTATION_PASSES = 2               # progressive passes of a grid render (a rough picture first)
+MUTATION_CHILDREN = 8             # mutants / children around the parent
 
 # --- Fragments window -----------------------------------------------------------
 FRAG_INTERACTIVE_SCALE = INTERACTIVE_SCALE  # viewport scale while the fragment camera moves

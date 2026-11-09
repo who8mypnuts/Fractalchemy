@@ -33,7 +33,7 @@ class ValueRow:
     bold: bool = False
     decimals: int = 6
     integer: bool = False
-    color: QColor | None = None
+    color: QColor | None = None          # the text colour of the whole row (None: the palette's)
     background: QColor | None = None     # a row tint (the formula lists colour rows by origin)
 
 
@@ -139,11 +139,13 @@ class ValueTable(QTableWidget):
         if previous is None or previous.tooltip != row.tooltip:
             name_item.setToolTip(row.tooltip or row.name)
             value_item.setToolTip(row.tooltip or row.name)
-        if row.color is not None and (previous is None or previous.color != row.color):
-            name_item.setForeground(row.color)
-        if previous is None or previous.background != row.background:
+        if previous is None or previous.color != row.color or previous.background != row.background:
+            # A row's text colour goes on *every* cell: a tinted row whose value / info cells kept the palette's text
+            # colour was unreadable on dark themes (light text on a pale tint).
             for column in range(self.columnCount()):
-                self.item(i, column).setBackground(row.background if row.background is not None else QBrush())
+                cell = self.item(i, column)
+                cell.setForeground(row.color if row.color is not None else QBrush())
+                cell.setBackground(row.background if row.background is not None else QBrush())
         if previous is None or previous.value != row.value or previous.decimals != row.decimals:
             value_item.setText(format_value(row.value, row.decimals, row.integer))
         if self.columnCount() > 2 and (previous is None or previous.info != row.info):

@@ -3,6 +3,7 @@
 import multiprocessing
 import sys
 
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
 from fractalchemy.settings import configure_application
@@ -17,9 +18,11 @@ def main() -> int:
     from fractalchemy.ui.main_window import MainWindow   # lazy: spawned render workers re-import this module
 
     from fractalchemy.widgets.logo import logo_icon
+    from fractalchemy.widgets.theming import theme_manager
 
     app = QApplication(sys.argv)
     configure_application(app)
+    theme_manager().install(app, QSettings())   # the saved theme (System by default), before any window is built
     app.setWindowIcon(logo_icon())          # the flask: every window and the task bar
     window = MainWindow()
     window.show()

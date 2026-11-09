@@ -29,6 +29,7 @@ from .render_output_panel import OutputPanel
 from .render_progress import RenderProgressPanel
 from .render_quality_panel import QualityPanel
 from .render_size_panel import SizePanel
+from ..widgets.theming import colored_html
 
 WINDOW_TITLE = "Render Image"
 SETTINGS_KEY = "final_render/settings"
@@ -149,7 +150,7 @@ class RenderWindow(JobWindowBase):
         self.start_button.setEnabled(not problems and self.job is None)
         self.start_button.setToolTip("\n".join(problems))
         if problems and self.job is None:
-            self.plan_label.setText('<span style="color:#c0392b">' + "; ".join(problems) + "</span>")
+            self.plan_label.setText(colored_html("; ".join(problems), "error"))
             self.estimate_label.setText("")
             return
         kind = self._engine_kind(s)

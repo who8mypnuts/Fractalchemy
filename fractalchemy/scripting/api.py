@@ -2,7 +2,7 @@
 
 A script is plain Python. `ScriptContext.namespace()` builds its globals: the flame being edited plus helper
 objects (`transforms`, `transform`, `camera`, `gradient`, `xaos`, `coloring`) and functions covering everything
-the main window, the settings panel and the Gradient Library can edit — transforms and their variations,
+the main window, the Inspector and the Gradient Library can edit — transforms and their variations,
 parameters, colours, the chaos (xaos) matrix, the camera, the tone mapping — and a few conveniences
 (random numbers, prompts, `update()` to re-render while the script runs).
 
@@ -1040,10 +1040,10 @@ class ScriptContext:
 
     def add_random_transform(self, variations: Iterable[str] | None = None) -> Transform:
         """Append a transform with one of Apophysis's random affines and random variations."""
-        from ..fractal.random_flame import _random_xform   # the Random Batch recipe
+        from ..fractal.random_flame import random_xform   # the Random Batch recipe
         names = [_variation_name(n) for n in variations] if variations else [n for n in V.catalogue() if n != "pre_blur"]
         n = len(self.flame.xforms) + 1
-        xform = _random_xform(self.rng, n - 1, n, names)
+        xform = random_xform(self.rng, n - 1, n, names)
         xform.weight = 1.0 / n
         xform.color = self.rng.random()
         return self.add_transform(xform)

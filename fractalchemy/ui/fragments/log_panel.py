@@ -17,12 +17,18 @@ from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu, QWidget
 
 from ...fragments.source import Message
+from ...widgets.theming import on_theme_changed, theme_color
 
-LEVEL_COLORS = {"info": QColor(90, 90, 90), "warning": QColor(170, 100, 0), "critical": QColor(190, 40, 40), "script": QColor(40, 110, 170),
-                "error": QColor(190, 40, 40)}
+LEVEL_ROLES = {"info": "dim_text", "warning": "warning", "critical": "error", "script": "info", "error": "error"}   # theme roles
 MAX_ROWS = 2000
 ROLE_PATH = Qt.ItemDataRole.UserRole
 ROLE_LINE = Qt.ItemDataRole.UserRole + 1
+ROLE_LEVEL = Qt.ItemDataRole.UserRole + 2
+
+
+def level_color(level: str) -> QColor:
+    """A message level's colour in the current theme."""
+    return theme_color(LEVEL_ROLES.get(level, "dim_text"))
 
 
 class LogPanel(QListWidget):
@@ -44,6 +50,7 @@ class LogPanel(QListWidget):
         self.customContextMenuRequested.connect(self._menu)
         self.itemActivated.connect(self._activate)
         self.itemClicked.connect(self._activate)
+        on_theme_changed(self, lambda _theme: self._recolour())
 
     def add(self, level: str, text: str, path: Path | None = None, line: int = 0) -> None:
         """Append one row."""
@@ -52,7 +59,8 @@ class LogPanel(QListWidget):
         if level == "warning" and self._recently_logged(f"{prefix}{where}{text}"):
             return                                   # the same warning again (a preset re-applied): once is enough
         item = QListWidgetItem(f"{prefix}{where}{text}")
-        item.setForeground(LEVEL_COLORS.get(level, LEVEL_COLORS["info"]))
+        item.setData(ROLE_LEVEL, level)
+        item.setForeground(level_color(level))
         if path is not None and line:
             item.setData(ROLE_PATH, str(path))
             item.setData(ROLE_LINE, int(line))
@@ -65,6 +73,12 @@ class LogPanel(QListWidget):
             self.takeItem(0)
         self.scrollToBottom()
         self._mirror(level, item.text())
+
+    def _recolour(self) -> None:
+        """The theme changed: every row takes its level's new colour."""
+        for row in range(self.count()):
+            item = self.item(row)
+            item.setForeground(level_color(item.data(ROLE_LEVEL) or "info"))
 
     # --- log to file ------------------------------------------------------------------------------------------------------
     def set_log_file(self, path: Path | None, max_bytes: int = 1 << 20) -> None:

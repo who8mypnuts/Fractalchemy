@@ -78,3 +78,15 @@ def test_mouse_drag_past_other_nodes_keeps_them_in_place(qapp):
     assert [round(s.position, 3) for s in stops if s.color != (255, 0, 0)] == [0.0, 0.5, 0.75, 1.0]
     assert window.document.selected_index == 3  # selection followed the dragged node
     assert "Node 4/5" in window.statusBar().currentMessage()
+
+
+def test_bring_to_front_restores_a_minimised_window(qapp):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QMainWindow
+
+    from fractalchemy.widgets.windows import bring_to_front
+    window = QMainWindow()
+    window.setWindowState(Qt.WindowState.WindowMinimized)
+    bring_to_front(window)
+    assert window.isVisible() and not window.windowState() & Qt.WindowState.WindowMinimized
+    window.close()

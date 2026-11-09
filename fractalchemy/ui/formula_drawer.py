@@ -21,14 +21,10 @@ from ..formulas import completion as FC, verify
 from .background import run_in_background
 from .formula_browser import formula_description
 from .formula_session import FormulaSession
-from .script_drawer import STYLE, _Browser, guide_html
+from .script_drawer import _Browser, guide_html
 
 GUIDE_PATH = Path(__file__).resolve().parents[2] / "docs" / "formulas.md"
 TAB_REFERENCE, TAB_COMPILER, TAB_PROBE = "reference", "compiler", "probe"
-
-
-def _page(body: str) -> str:
-    return STYLE + "<body>" + body + "</body>"
 
 
 # --- reference -------------------------------------------------------------------------------------------------
@@ -84,11 +80,11 @@ class ReferencePanel(QWidget):
         """Rebuild the page for the mode and the search text."""
         query = self.search.text().strip().lower()
         if self.mode == "guide":
-            self.browser.setHtml(_page(self._guide(query)))
+            self.browser.show_page(self._guide(query))
         elif self.mode == "names":
-            self.browser.setHtml(_page(self._catalogue(query)))
+            self.browser.show_page(self._catalogue(query))
         else:
-            self.browser.setHtml(_page(self._formula()))
+            self.browser.show_page(self._formula())
 
     def _guide(self, query: str) -> str:
         if self._guide_html is None:

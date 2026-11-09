@@ -44,6 +44,7 @@ from ..fractal import triangles as T
 from ..fractal.triangle_drag import (MODE_MOVE, MODE_ROTATE, MODE_SCALE, DragState, DragSteps, begin_corner_drag,
                                      begin_triangle_drag, drag, edge_drag_mode)
 from ..fractal.triangles import CORNER_O, CORNER_X, CORNER_Y, Point, Triangle
+from .theming import theme_color
 
 PIVOT_LOCAL, PIVOT_WORLD = "local", "world"
 CORNER_RADIUS_PX = 5.0
@@ -55,13 +56,11 @@ MAX_PIXELS_PER_UNIT = 50000.0
 DEFAULT_PIXELS_PER_UNIT = 50.0 * 2.0     # Apophysis: 50 · GraphZoom, GraphZoom 2 at start
 FIT_MARGIN = 1.25
 
-BACKGROUND = QColor(12, 12, 12)
-GRID_MINOR = QColor(38, 38, 38)
-GRID_AXIS = QColor(96, 96, 96)
+# The ground, grid, axes and captions are the theme's canvas colours (always dark: the transform colours need it);
+# the greys below are drawn on that dark ground whatever the theme.
 REFERENCE_COLOR = QColor(127, 127, 127)
 HELPER_COLOR = QColor(128, 128, 128)
 PIVOT_COLOR = QColor(230, 230, 230)
-TEXT_COLOR = QColor(160, 160, 160)
 CORNER_HOVER = {CORNER_X: QColor(220, 60, 60), CORNER_O: QColor(200, 200, 200), CORNER_Y: QColor(70, 110, 240)}
 # Apophysis's TrgColors (BGR in the source; converted to RGB here)
 TRANSFORM_COLORS = [QColor(*rgb) for rgb in (
@@ -544,7 +543,7 @@ class TriangleView(QWidget):
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), BACKGROUND)
+        painter.fillRect(self.rect(), theme_color("canvas_bg"))
         self._paint_grid(painter)
         self._paint_variation_preview(painter)
         self._paint_reference(painter)
@@ -577,7 +576,7 @@ class TriangleView(QWidget):
             step *= 10
         x0, y0 = self.to_editor(QPointF(0, h))
         x1, y1 = self.to_editor(QPointF(w, 0))
-        painter.setPen(QPen(GRID_MINOR, 1))
+        painter.setPen(QPen(theme_color("canvas_grid"), 1))
         gx = math.floor(x0 / step) * step
         while gx <= x1:
             sx = self.to_screen((gx, 0)).x()
@@ -588,7 +587,7 @@ class TriangleView(QWidget):
             sy = self.to_screen((0, gy)).y()
             painter.drawLine(QPointF(0, sy), QPointF(w, sy))
             gy += step
-        painter.setPen(QPen(GRID_AXIS, 1))
+        painter.setPen(QPen(theme_color("canvas_axis"), 1))
         origin = self.to_screen((0.0, 0.0))
         painter.drawLine(QPointF(origin.x(), 0), QPointF(origin.x(), h))
         painter.drawLine(QPointF(0, origin.y()), QPointF(w, origin.y()))
@@ -655,7 +654,7 @@ class TriangleView(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPolygon(QPolygonF([a, b, c]))
         painter.setPen(QPen(color, 1))
-        painter.setBrush(QBrush(BACKGROUND))
+        painter.setBrush(QBrush(theme_color("canvas_bg")))
         r = CORNER_RADIUS_PX if selected else CORNER_RADIUS_PX - 1
         for p in (a, b, c):
             painter.drawEllipse(p, r, r)
@@ -731,7 +730,7 @@ class TriangleView(QWidget):
         painter.drawEllipse(p, r, r)
 
     def _paint_captions(self, painter: QPainter) -> None:
-        painter.setPen(TEXT_COLOR)
+        painter.setPen(theme_color("canvas_text"))
         font = QFont(painter.font())
         font.setBold(True)
         painter.setFont(font)

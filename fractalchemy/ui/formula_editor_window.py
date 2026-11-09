@@ -65,6 +65,8 @@ from .formula_list_panel import FormulaListPanel
 from .formula_session import ORIGIN_FILE, ORIGIN_NEW, ORIGIN_REGISTERED, FormulaNameTaken, FormulaSession
 from .fractal_document import FractalDocument
 from .live_preview import DEFAULT_QUALITY, LivePreview, quality_level
+from ..widgets.windows import bring_to_front
+from ..widgets.theming import set_themed_style
 
 WINDOW_TITLE = "Formula Editor"
 SETTINGS_GROUP = "formula_editor"
@@ -74,8 +76,8 @@ CODE_HEIGHT = 300
 RECENT_LIMIT = 12
 DEFAULT_GRADIENT = "Yellow · cyan · magenta"
 FORMULA_FILTER = "Formula sources (*.c);;All files (*)"
-OK_STYLE = "color: #2e7d32;"
-ERROR_STYLE = "color: #c62828;"
+OK_STYLE = "color: {success};"            # theme roles (see set_themed_style)
+ERROR_STYLE = "color: {error};"
 
 
 def default_gradient() -> Gradient:
@@ -379,10 +381,7 @@ class FormulaEditorWindow(QMainWindow):
     # --- window management ----------------------------------------------------------------------------------
     def bring_to_front(self) -> None:
         """Show the window (restoring it if minimised) and give the code editor the focus."""
-        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        bring_to_front(self)
         self.preview.request()
         self.code.setFocus()
 
@@ -805,17 +804,17 @@ class FormulaEditorWindow(QMainWindow):
         if session.error:
             where = f"  (line {session.error_line})" if session.error_line and f"line {session.error_line}" not in session.error else ""
             self.compile_label.setText(f"✗ {session.error}{where}")
-            self.compile_label.setStyleSheet(ERROR_STYLE)
+            set_themed_style(self.compile_label, ERROR_STYLE)
         elif session.variation is not None:
             var = session.variation
             facts = [session.kind_label] + [tag for flag, tag in ((var.z == V.Z_FORMULA, "3D"), (var.dc, "direct colour"), (var.random, "random")) if flag]
             count = len(var.params)
             remarks = f"; {len(session.warnings)} compiler remark{'s' if len(session.warnings) != 1 else ''}" if session.warnings else ""
             self.compile_label.setText(f"✓ {session.name} — {', '.join(facts)}; {count} variable{'s' if count != 1 else ''}{remarks}")
-            self.compile_label.setStyleSheet(OK_STYLE)
+            set_themed_style(self.compile_label, OK_STYLE)
         else:
             self.compile_label.setText("No formula — pick one from the list, or start a new one")
-            self.compile_label.setStyleSheet("")
+            set_themed_style(self.compile_label, "")
 
     def _refresh_title(self) -> None:
         session = self.session

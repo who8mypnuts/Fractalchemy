@@ -32,6 +32,8 @@ from ..job_window import JobWindowBase
 from ..render_progress import RenderProgressPanel
 from .document import FragDocument
 from .render_panels import AnimationPanel, FragOutputPanel, QualityPanel, TilesPanel, ViewPanel
+from ...widgets.theming import set_themed_style
+from ...widgets.theming import colored_html
 
 WINDOW_TITLE = "Render Fragment"
 SETTINGS_KEY = "fragments/render_settings"
@@ -167,7 +169,7 @@ class FragRenderWindow(JobWindowBase):
         else:
             self.statusBar().clearMessage()
         if problems and self.job is None:
-            self.plan_label.setText('<span style="color:#c0392b">' + "; ".join(problems) + "</span>")
+            self.plan_label.setText(colored_html("; ".join(problems), "error"))
             self.estimate_label.setText("")
             return
         self.plan_label.setText(s.describe_plan(clock.frames))
@@ -299,7 +301,8 @@ class ProblemBanner(QWidget):
         row.addStretch(1)
         row.addWidget(self.fix_button)
         layout.addLayout(row)
-        self.setStyleSheet("ProblemBanner { background: #fff3cd; border: 1px solid #e0b94a; border-radius: 4px; } QLabel { color: #5c4400; }")
+        set_themed_style(self, "ProblemBanner {{ background: {warning_soft}; border: 1px solid {warning}; border-radius: 4px; }} "
+                               "QLabel {{ color: {text}; }}")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.hide()
 

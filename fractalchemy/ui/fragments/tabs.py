@@ -14,6 +14,7 @@ from PySide6.QtCore import QEvent, QObject, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import QMenu, QMessageBox, QStackedWidget, QTabBar, QVBoxLayout, QWidget
 
+from ...fragments.editor_themes import FOLLOW
 from ...fragments.document_format import FragmentFormatError, FragmentMetadata, read_fragment
 from ...fragments.library_format import is_bundled_path
 from .code_editor import GlslCodeEditor
@@ -44,7 +45,7 @@ class TabManager(QObject):
     def __init__(self, parent: QWidget):
         super().__init__(parent)
         self.font_size = 0                      # the editors' font size in points (0 = system)
-        self.theme = "Default"                  # the editors' colour theme
+        self.theme = FOLLOW                     # the editors' colour theme (an *Editor theme* preference value)
         self.bar = QTabBar(parent)
         self.bar.setTabsClosable(True)
         self.bar.setMovable(True)
@@ -144,8 +145,7 @@ class TabManager(QObject):
         document = FragDocument(text, path, self, metadata)
         editor = GlslCodeEditor(self.stack)
         editor.set_font_size(self.font_size)
-        if self.theme != "Default":
-            editor.set_theme(self.theme)
+        editor.set_theme(self.theme)
         editor.set_text(text)
         editor.setReadOnly(read_only)
         tab = Tab(document, editor)

@@ -22,6 +22,8 @@ from ...solid.io.usd import usd_core_available
 from ...widgets.silent import blocked, updating
 from .document import Scene3DDocument
 from .panels import _Panel
+from ...widgets.theming import set_themed_style
+from ...widgets.theming import colored_html
 
 HISTOGRAM_HEIGHT = 72
 BAR = QColor(90, 150, 220)
@@ -456,7 +458,7 @@ class ExportPanel(_Panel):
         self.result_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         self.hint_label = QLabel(self)
         self.hint_label.setWordWrap(True)
-        self.hint_label.setStyleSheet("color: #808080;")
+        set_themed_style(self.hint_label, "color: {dim_text};")
         self._running = False
         self._build()
         self._connect()
@@ -616,7 +618,7 @@ class ExportPanel(_Panel):
         self.result_label.setText(line)
 
     def show_failure(self, message: str) -> None:
-        self.result_label.setText(f'<span style="color:#c0392b">{message}</span>')
+        self.result_label.setText(colored_html(message, "error"))
 
 
 __all__ = ["MeshPanel", "ExportPanel", "DensityHistogram"]

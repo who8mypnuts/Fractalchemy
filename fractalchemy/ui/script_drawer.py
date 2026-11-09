@@ -27,34 +27,35 @@ from ..fractal import variations as V
 from ..scripting import completion as C
 from ..scripting import docs as D
 from ..scripting.templates import Template
+from ..widgets.theming import current_theme, on_theme_changed
 from .formula_browser import KIND_LABELS, origin_group
 
 TEMPLATE_ROLE = Qt.ItemDataRole.UserRole
 STYLE = """
 <style>
-body { font-size: 10pt; }
-h2 { font-size: 12pt; color: #0d47a1; margin: 6px 0 4px 0; }
-h3 { font-size: 10.5pt; margin: 10px 0 3px 0; }
-.sig { font-family: monospace; background: #f1f3f6; padding: 4px 6px; border: 1px solid #d8dce2; }
-.cur { background: #ffe59a; font-weight: bold; }
-table { border-collapse: collapse; }
-td, th { padding: 2px 6px; vertical-align: top; border-bottom: 1px solid #e4e6ea; }
-th { text-align: left; color: #777; font-weight: normal; font-size: 8.5pt; }
-td.n { font-family: monospace; }
-td.t { color: #777; font-family: monospace; font-size: 9pt; }
-tr.hl td { background: #eef3ff; }
-tr.dim td { color: #aaa; }
-.hint { color: #777; font-style: italic; }
-.badge { color: #555; background: #eee; font-size: 8pt; padding: 0 4px; }
-pre { background: #f4f4f4; padding: 4px 6px; border: 1px solid #e0e0e0; }
-code { font-family: monospace; color: #7a4a00; }
-a { color: #1565c0; text-decoration: none; }
+body {{ font-size: 10pt; }}
+h2 {{ font-size: 12pt; color: {type}; margin: 6px 0 4px 0; }}
+h3 {{ font-size: 10.5pt; margin: 10px 0 3px 0; }}
+.sig {{ font-family: monospace; background: {alt_base}; padding: 4px 6px; border: 1px solid {border}; }}
+.cur {{ background: {match}; font-weight: bold; }}
+table {{ border-collapse: collapse; }}
+td, th {{ padding: 2px 6px; vertical-align: top; border-bottom: 1px solid {border}; }}
+th {{ text-align: left; color: {dim_text}; font-weight: normal; font-size: 8.5pt; }}
+td.n {{ font-family: monospace; }}
+td.t {{ color: {dim_text}; font-family: monospace; font-size: 9pt; }}
+tr.hl td {{ background: {current_line}; }}
+tr.dim td {{ color: {placeholder}; }}
+.hint {{ color: {dim_text}; font-style: italic; }}
+.badge {{ color: {dim_text}; background: {alt_base}; font-size: 8pt; padding: 0 4px; }}
+pre {{ background: {alt_base}; padding: 4px 6px; border: 1px solid {border}; }}
+code {{ font-family: monospace; color: {member}; }}
+a {{ color: {link}; text-decoration: none; }}
 </style>
-"""
+"""     # {role} fields are the current theme's colours (CSS braces doubled)
 
 
 def _html(body: str) -> str:
-    return STYLE + "<body>" + body + "</body>"
+    return STYLE.format_map(current_theme().colors) + "<body>" + body + "</body>"
 
 
 def entry_html(name: str, entry: D.Entry, arg_index: int | None = None, param_name: str | None = None, link: bool = False) -> str:
@@ -70,7 +71,7 @@ def entry_html(name: str, entry: D.Entry, arg_index: int | None = None, param_na
     else:
         sig = escape(entry.signature(name))
     if entry.returns and entry.returns != "":
-        sig += f" <span style='color: #777'>→ {escape(entry.returns)}</span>"
+        sig += f" <span class='hint'>→ {escape(entry.returns)}</span>"
     badges = ""
     if entry.readonly:
         badges += " <span class='badge'>read-only</span>"
@@ -180,7 +181,8 @@ def guide_html(markdown: str) -> str:
 # tabs
 # =====================================================================================================
 class _Browser(QTextBrowser):
-    """A QTextBrowser that reports link clicks instead of navigating."""
+    """A QTextBrowser that reports link clicks instead of navigating, and shows themed pages (`show_page`), re-rendered
+    with the new colours when the theme changes."""
     link_clicked = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
@@ -188,6 +190,19 @@ class _Browser(QTextBrowser):
         self.setOpenLinks(False)
         self.setOpenExternalLinks(False)
         self.anchorClicked.connect(lambda url: self.link_clicked.emit(url.toString()))
+        self._body = ""
+        on_theme_changed(self, lambda _theme: self._render())
+
+    def show_page(self, body: str) -> None:
+        """Show `body` (HTML) with the drawer's style in the current theme's colours."""
+        self._body = body
+        self._render()
+
+    def _render(self) -> None:
+        if self._body:
+            scroll = self.verticalScrollBar().value()
+            self.setHtml(_html(self._body))
+            self.verticalScrollBar().setValue(scroll)
 
 
 class ContextTab(QWidget):
@@ -278,7 +293,7 @@ class ContextTab(QWidget):
             items = [C.Item(n, loc.kind, loc.type, loc.desc, loc.sig) for n, loc in cx.locals.items()]
             html += "<h3>Defined in this script</h3>" + members_table(items)
         scroll = self.browser.verticalScrollBar().value() if cx.kind == self.kind else 0
-        self.browser.setHtml(_html(html))
+        self.browser.show_page(html)
         self.browser.verticalScrollBar().setValue(scroll)
 
 
@@ -341,11 +356,11 @@ class ReferenceTab(QWidget):
     def render(self) -> None:
         query = self.search.text().strip().lower()
         if self.mode == "guide":
-            self.browser.setHtml(_html(guide_html(D.GUIDE)))
+            self.browser.show_page(guide_html(D.GUIDE))
         elif self.mode == "variations":
-            self.browser.setHtml(_html(self._variations_html(query)))
+            self.browser.show_page(self._variations_html(query))
         else:
-            self.browser.setHtml(_html(self._api_html(query)))
+            self.browser.show_page(self._api_html(query))
 
     @staticmethod
     def _api_html(query: str) -> str:
@@ -407,7 +422,7 @@ class InfoTab(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.browser = QTextBrowser(self)
+        self.browser = _Browser(self)
         self.header_button = QPushButton("Insert metadata header", self)
         self.copy_button = QPushButton("Copy script", self)
         self.header_button.clicked.connect(self.header_requested)
@@ -429,7 +444,7 @@ class InfoTab(QWidget):
             for label, value in rows:
                 html += f"<tr><th>{escape(label)}</th><td>{value}</td></tr>"
             html += "</table>"
-        self.browser.setHtml(_html(html))
+        self.browser.show_page(html)
 
 
 class TemplatesTab(QWidget):
@@ -462,7 +477,7 @@ class TemplatesTab(QWidget):
         self.tree.setHeaderHidden(True)
         self.tree.setColumnCount(1)
         self.tree.setAlternatingRowColors(True)
-        self.description = QTextBrowser(self)
+        self.description = _Browser(self)
         self.description.setMaximumHeight(90)
         self.load_button = QPushButton("Load", self)
         self.insert_button = QPushButton("Insert", self)
@@ -593,11 +608,11 @@ class TemplatesTab(QWidget):
         for b in (self.overwrite_button, self.rename_button, self.delete_button):
             b.setEnabled(own)
         if template is None:
-            self.description.setHtml(_html("<p class='hint'>Pick a template: double-click loads it into the editor.</p>"))
+            self.description.show_page("<p class='hint'>Pick a template: double-click loads it into the editor.</p>")
         else:
             where = "built-in" if template.builtin else (str(template.path) if template.path else "")
-            self.description.setHtml(_html(f"<b>{escape(template.name)}</b> <span class='badge'>{escape(where)}</span>"
-                                           f"<p>{escape(template.description) or '<i>no description</i>'}</p>"))
+            self.description.show_page(f"<b>{escape(template.name)}</b> <span class='badge'>{escape(where)}</span>"
+                                       f"<p>{escape(template.description) or '<i>no description</i>'}</p>")
 
     def _emit(self, signal: Signal) -> None:
         template = self.current()

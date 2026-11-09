@@ -21,6 +21,7 @@ from ...widgets.silent import blocked, updating
 from ..image_panel import ColorButton
 from .document import MAX_LIGHTS, Scene3DDocument
 from .viewport import QUALITIES
+from ...widgets.theming import set_themed_style
 
 DEGREES = 57.29577951308232
 
@@ -202,7 +203,7 @@ class CameraPanel(_Panel):
         layout.addLayout(buttons)
         hint = QLabel("In the viewport: left-drag orbits, right-drag pans, the wheel zooms, Ctrl+wheel changes the perspective.", self)
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #808080;")
+        set_themed_style(hint, "color: {dim_text};")
         layout.addWidget(hint)
         layout.addStretch(1)
 
@@ -513,13 +514,13 @@ class EnvironmentPanel(_Panel):
                                  self._env_field("ambient"), "ambient")
         self.exposure = self._row("Exposure", 0.1, 4.0, 2, "Brightness multiplier on the shaded image", self._env_field("exposure"), "exposure")
         self.hdri_path = QLabel("none", self)
-        self.hdri_path.setStyleSheet("color: #808080;")
+        set_themed_style(self.hdri_path, "color: {dim_text};")
         self.hdri_path.setWordWrap(True)
         self.browse_button = QPushButton("Choose HDRI…", self)
         self.clear_button = QPushButton("Clear", self)
         self.thumbnail = QLabel(self)
         self.thumbnail.setFixedSize(240, 120)
-        self.thumbnail.setStyleSheet("background: #181818; color: #666;")
+        set_themed_style(self.thumbnail, "background: {canvas_bg}; color: {canvas_text};")
         self.thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.thumbnail.setText("No HDRI")
         self.rotation = self._row("Rotation", -180.0, 180.0, 1, "Turn the map about the vertical axis", self._env_field("hdri_rotation"), "hdri_rotation", "°")

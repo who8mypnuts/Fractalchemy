@@ -65,7 +65,10 @@ from .session_actions import SessionActions
 from .tabs import TabManager
 from .viewport import FragViewport
 from .walkthrough_panel import WalkthroughPanel
+from ...fragments.editor_themes import canonical
 from ..library_host import LibraryHost
+from ...widgets.windows import bring_to_front
+from ...widgets.theming import set_themed_style
 
 WINDOW_TITLE = "Fragments"
 SETTINGS_GROUP = "fragments"
@@ -440,7 +443,8 @@ class FragmentsWindow(QMainWindow):
                      if style == "orbit" else "Fly navigation: left-drag turns, right-drag pans, W A S D fly")
 
     def set_editor_theme(self, name: str) -> None:
-        """*Edit ▸ Editor theme*: the colour theme of every fragment editor (kept in the preferences)."""
+        """*Edit ▸ Editor theme*: follow the application theme, or pin one to every fragment editor (a preference)."""
+        name = canonical(name)
         self.prefs.editor_theme = name
         self.tabs.theme = name
         for tab in self.tabs.tabs:
@@ -508,8 +512,8 @@ class FragmentsWindow(QMainWindow):
         stale = document is not None and document.needs_build
         failed = stale and document.build_failed_last
         self.build_label.setText(" Build failed — see the log " if failed else " Build needed " if stale else "")
-        self.build_label.setStyleSheet("QLabel { color: #c62828; font-weight: bold; }" if failed
-                                       else "QLabel { color: #e65100; font-weight: bold; }" if stale else "")
+        set_themed_style(self.build_label, "QLabel {{ color: {error}; font-weight: bold; }}" if failed
+                         else "QLabel {{ color: {warning}; font-weight: bold; }}" if stale else "")
         self.build_label.setToolTip("The last build was rejected; the previous program (if any) keeps rendering" if failed
                                     else "The source, a lock or a build option changed since the shown program was built (F5)" if stale else "")
         self.actions.build.setEnabled(document is not None)
@@ -967,10 +971,7 @@ class FragmentsWindow(QMainWindow):
         self.status.emit(text)
 
     def bring_to_front(self) -> None:
-        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        bring_to_front(self)
 
     def confirm_quit(self) -> bool:
         """Before the application quits: a running render? unsaved tabs?"""

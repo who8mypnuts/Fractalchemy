@@ -37,7 +37,7 @@
         </item>
        </layout>
       </widget>
-      <widget class="SettingsPanel" name="settingsPanel" native="true"/>
+      <widget class="InspectorPanel" name="inspectorPanel" native="true"/>
      </widget>
     </item>
    </layout>
@@ -88,7 +88,7 @@
     <addaction name="actionToggleFractalLibrary"/>
     <addaction name="actionRefreshFractalLibrary"/>
     <addaction name="actionThumbnailView"/>
-    <addaction name="actionToggleSettings"/>
+    <addaction name="actionToggleInspector"/>
     <addaction name="separator"/>
     <addaction name="actionZoomFit"/>
     <addaction name="actionZoomActual"/>
@@ -104,6 +104,7 @@
     <addaction name="actionGradientLibrary"/>
     <addaction name="actionAnimation"/>
     <addaction name="actionRandomBatch"/>
+    <addaction name="actionMutate"/>
     <addaction name="actionScriptEditor"/>
     <addaction name="actionFormulaEditor"/>
     <addaction name="actionThreeDEditor"/>
@@ -161,6 +162,7 @@
    <addaction name="actionGradientLibrary"/>
    <addaction name="actionAnimation"/>
    <addaction name="actionRandomBatch"/>
+   <addaction name="actionMutate"/>
    <addaction name="actionScriptEditor"/>
    <addaction name="actionFormulaEditor"/>
    <addaction name="actionThreeDEditor"/>
@@ -228,6 +230,12 @@
    <property name="toolTip"><string>Replace the fractal with parameters from the clipboard: .fa, Apophysis &lt;flame&gt; XML or a Chaotica world (Ctrl+Shift+V)</string></property>
    <property name="shortcut"><string>Ctrl+Shift+V</string></property>
   </action>
+  <action name="actionMutate">
+   <property name="text"><string>Mutate &amp;&amp; Breed…</string></property>
+   <property name="toolTip"><string>Mutate &amp; Breed: eight mutants of the fractal, or children of two fractals; click one to make it the fractal (Ctrl+M)</string></property>
+   <property name="shortcut"><string>Ctrl+M</string></property>
+   <property name="statusTip"><string>Open the Mutate &amp; Breed window</string></property>
+  </action>
   <action name="actionScriptEditor">
    <property name="text"><string>Script Editor</string></property>
    <property name="toolTip"><string>Script Editor: edit the fractal with Python scripts — transforms, variations, colours, xaos, camera (F8)</string></property>
@@ -283,10 +291,11 @@
    <property name="text"><string>Thumbnails in Fractal Library</string></property>
    <property name="statusTip"><string>Show a rendered thumbnail next to every fractal</string></property>
   </action>
-  <action name="actionToggleSettings">
+  <action name="actionToggleInspector">
    <property name="checkable"><bool>true</bool></property>
    <property name="checked"><bool>true</bool></property>
-   <property name="text"><string>Show/Hide Settings Panel</string></property>
+   <property name="text"><string>Show/Hide Inspector</string></property>
+   <property name="statusTip"><string>Show or hide the Inspector: the Info and Image tabs right of the viewer</string></property>
    <property name="shortcut"><string>Ctrl+Shift+L</string></property>
   </action>
   <action name="actionZoomFit">
@@ -359,9 +368,9 @@
    <header>fractalchemy/ui/viewer_bar.h</header>
   </customwidget>
   <customwidget>
-   <class>SettingsPanel</class>
+   <class>InspectorPanel</class>
    <extends>QWidget</extends>
-   <header>fractalchemy/ui/settings_panel.h</header>
+   <header>fractalchemy/ui/inspector_panel.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>

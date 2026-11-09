@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QLineEdit, QListWidget, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from ...fragments.glsl_compat import MODES
-from ...fragments.editor_themes import theme_names
+from ...fragments.editor_themes import DEFAULT_THEME, theme_names
 from ...fragments.preferences import FragPreferences
 
 MODE_LABELS = {"modernise": "Modernise (translate legacy GLSL to 330+ core)", "patch": "FragM compatibility patch",
@@ -78,7 +78,7 @@ class PreferencesDialog(QDialog):
         self.editor_theme = QComboBox()
         for name in theme_names():
             self.editor_theme.addItem(name, name)
-        self.editor_theme.setToolTip("Syntax colours and background of the fragment editors (the host's other editors keep the default)")
+        self.editor_theme.setToolTip("Colours of the fragment editors: follow the application theme (View ▸ Theme of the main window) or pin one")
         form.addRow("Colour theme", self.editor_theme)
         self.jump_to_error = QCheckBox("Jump to the first error line after a failed build")
         form.addRow(self.jump_to_error)
@@ -204,7 +204,7 @@ class PreferencesDialog(QDialog):
         return FragPreferences(
             max_recent=self.max_recent.value(), loop_play=self.loop_play.isChecked(), draw_paths=self.draw_paths.isChecked(), occlude_paths=self.occlude_paths.isChecked(),
             traveling_wheel=self.traveling_wheel.isChecked(), log_max_rows=self.log_max_rows.value(), font_size=self.font_size.value(),
-            editor_theme=str(self.editor_theme.currentData() or "Default"),
+            editor_theme=str(self.editor_theme.currentData() or DEFAULT_THEME),
             parameter_layout=self.parameter_layout.currentData(), navigation=self.navigation.currentData(),
             jump_to_error=self.jump_to_error.isChecked(), autoload=self.autoload.isChecked(), autorun=self.autorun.isChecked(),
             auto_build=self.auto_build.isChecked(), move_main=self.move_main.isChecked(), use_defines=self.use_defines.isChecked(),

@@ -1,4 +1,4 @@
-"""The Info tab of the settings panel: facts about the loaded fractal."""
+"""The Info tab of the Inspector: facts about the loaded fractal."""
 
 from pathlib import Path
 
@@ -9,7 +9,7 @@ from fractalchemy.fractal import Flame, XForm
 from fractalchemy.fractal.formats import load_flames
 from fractalchemy.render.settings import RenderStats
 from fractalchemy.ui.info_panel import InfoPanel, formula_facts, formula_uses
-from fractalchemy.ui.settings_panel import TAB_KEY, SettingsPanel
+from fractalchemy.ui.inspector_panel import TAB_KEY, InspectorPanel
 from tests.conftest import spin, wait_until
 
 
@@ -108,15 +108,22 @@ def test_unavailable_formulas_are_flagged_and_double_click_emits_the_name(panel)
     assert seen == ["linear"]
 
 
-def test_settings_panel_has_info_first_and_remembers_the_tab(qapp, tmp_path):
+def test_inspector_panel_has_info_first_and_remembers_the_tab(qapp, tmp_path):
     settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
-    panel = SettingsPanel(settings=settings)
+    panel = InspectorPanel(settings=settings)
     assert [panel.tabs.tabText(i) for i in range(panel.tabs.count())] == ["Info", "Image"]
     assert panel.tabs.currentIndex() == 0 and panel.tabs.widget(0) is panel.info
     panel.tabs.setCurrentIndex(1)
     assert int(settings.value(TAB_KEY)) == 1
-    again = SettingsPanel(settings=settings)
+    again = InspectorPanel(settings=settings)
     assert again.tabs.currentIndex() == 1
+
+
+def test_inspector_reads_the_tab_saved_under_the_old_settings_panel_key(qapp, tmp_path):
+    from fractalchemy.ui.inspector_panel import LEGACY_TAB_KEY
+    settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
+    settings.setValue(LEGACY_TAB_KEY, 1)                 # what the "settings panel" saved before the rename
+    assert InspectorPanel(settings=settings).tabs.currentIndex() == 1
 
 
 def test_main_window_feeds_the_info_tab_and_links_to_the_formula_browser(qapp, tmp_path, samples):
@@ -128,7 +135,7 @@ def test_main_window_feeds_the_info_tab_and_links_to_the_formula_browser(qapp, t
     win = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key), prefer_gpu=False, settings=settings)
     win.show()
     try:
-        info = win.settingsPanel.info
+        info = win.inspectorPanel.info
         assert info.tree.topLevelItem(0).text(0) == "No fractal loaded"
         path = Path(samples) / "sample flames" / "candy.flame"
         win.open_path(path, 3)

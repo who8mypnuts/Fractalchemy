@@ -24,12 +24,14 @@ from ..widgets.collapsible_splitter import CollapsibleSplitter
 from ..widgets.fractal_preview import FractalPreview
 from ..widgets.gradient_browser import GradientBrowser
 from ..widgets.icons import gradient_icon
+from ..widgets.node_commands import NodeCommands
 from ..widgets.node_panel import NodePanel
 from ..widgets.whole_gradient_panel import WholeGradientPanel
 from .document import GradientDocument
 from .file_actions import FileActions
 from .gradient_batch import BatchImages
 from .loader import load_ui
+from ..widgets.windows import bring_to_front
 
 WINDOW_TITLE = "Gradient Library"
 SCANNING_MESSAGE = "Scanning library…"
@@ -60,9 +62,10 @@ class GradientLibraryWindow(QMainWindow):
         load_ui(self, UI_FILE, CUSTOM_WIDGETS)
         self.setWindowIcon(gradient_icon())
         self.document = GradientDocument(self)
-        self.gradientEditor.bind(self.document)
+        self.node_commands = NodeCommands(self.document, self)     # one set of node operations: panel, keys and menus
+        self.gradientEditor.bind(self.document, self.node_commands)
         self.wholeGradientPanel.bind(self.document)
-        self.nodePanel.bind(self.document)
+        self.nodePanel.bind(self.document, self.node_commands)
         self.files = FileActions(self.document, self)
         self.batch = BatchImages(self.files, self)
         self.library = LibraryController(self.libraryPanel.model, roots or LibraryRoots(parent=self), self)
@@ -93,6 +96,7 @@ class GradientLibraryWindow(QMainWindow):
         self.files.status.connect(self.statusBar().showMessage)
         self.batch.status.connect(self.statusBar().showMessage)
         self.wholeGradientPanel.status.connect(self.statusBar().showMessage)
+        self.node_commands.status.connect(self.statusBar().showMessage)
         self.files.file_written.connect(self.library.rescan_containing)
 
     def _connect_document(self) -> None:
@@ -129,10 +133,7 @@ class GradientLibraryWindow(QMainWindow):
 
     def bring_to_front(self) -> None:
         """Show the window (restoring it if minimised) and give it focus."""
-        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        bring_to_front(self)
 
     # --- library slots ------------------------------------------------------
     def open_item(self, item: LibraryItem) -> None:

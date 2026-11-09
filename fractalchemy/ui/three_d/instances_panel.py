@@ -22,6 +22,7 @@ from ...solid.io import MESH_READ_FILTER
 from ...widgets.silent import blocked, updating
 from .document import Scene3DDocument
 from .panels import _Panel
+from ...widgets.theming import set_themed_style
 
 COLUMNS = ("weight", "x", "y", "z", "rot x", "rot y", "rot z", "scale", "colour")
 COLUMN_KEYS = ("weight", "px", "py", "pz", "rx", "ry", "rz", "scale", "color")
@@ -73,7 +74,7 @@ class InstancesPanel(_Panel):
         self.asset_detail.setToolTip("Subdivision level of a primitive")
         self.asset_normalize = QCheckBox("Centre and scale to unit size", self)
         self.asset_info = QLabel(self)
-        self.asset_info.setStyleSheet("color: #808080;")
+        set_themed_style(self.asset_info, "color: {dim_text};")
         # instancers
         self.show_fractal_check = QCheckBox("Show the fractal itself", self)
         self.show_fractal_check.setToolTip("Off: only the instances are drawn (a pure holon scene)")

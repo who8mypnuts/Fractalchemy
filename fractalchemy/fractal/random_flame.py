@@ -72,7 +72,7 @@ def random_flame(rng: random.Random, options: RandomOptions) -> Flame:
     last: Flame | None = None
     for _attempt in range(MAX_ATTEMPTS):
         count = rng.randint(lo, hi)
-        flame = Flame("random", [_random_xform(rng, i, count, names) for i in range(count)])
+        flame = Flame("random", [random_xform(rng, i, count, names) for i in range(count)])
         flame.camera = Camera(width=int(options.width), height=int(options.height))
         _assign_weights(flame, rng)
         last = flame
@@ -84,7 +84,8 @@ def random_flame(rng: random.Random, options: RandomOptions) -> Flame:
 
 
 # --- transforms ------------------------------------------------------------------------------------------
-def _random_xform(rng: random.Random, i: int, count: int, names: list[str]) -> XForm:
+def random_xform(rng: random.Random, i: int, count: int, names: list[str]) -> XForm:
+    """One transform from Apophysis's recipes: affine (7/10 identity-based, 2/10 Chaos, 1/10 fully random), two of `names`."""
     recipe = rng.randrange(10)
     if recipe <= 6:
         coefs = _recipe_identity(rng, i)
@@ -181,26 +182,38 @@ def sample_points(flame: Flame, points: int = FRAME_POINTS, steps: int = FRAME_S
     return np.concatenate(xs), np.concatenate(ys)
 
 
-def frame_camera(flame: Flame, margin: float = FRAME_MARGIN) -> bool:
-    """Centre and scale the camera on the attractor; False if the system blows up or collapses."""
+def attractor_bounds(flame: Flame, points: int = FRAME_POINTS, steps: int = FRAME_STEPS) -> tuple[float, float, float, float] | None:
+    """(x0, x1, y0, y1): where 99 % of the attractor lies, after a short iteration; None when the system blows up, collapses
+    to a point or cannot run (Apophysis's `BlowsUp` test). Shared by framing, mutation and breeding."""
     try:
-        x, y = sample_points(flame)
+        with np.errstate(all="ignore"):            # systems that blow up overflow: that is what this test is for
+            x, y = sample_points(flame, points, steps)
     except Exception:  # noqa: BLE001 - a formula that cannot run: treat as a bad roll
-        return False
+        return None
     finite = np.isfinite(x) & np.isfinite(y)
     if finite.mean() < 0.9:
-        return False
+        return None
     x, y = x[finite], y[finite]
     x0, x1 = np.percentile(x, [0.5, 99.5])
     y0, y1 = np.percentile(y, [0.5, 99.5])
     w, h = float(x1 - x0), float(y1 - y0)
     if not (MIN_EXTENT < w < MAX_EXTENT and MIN_EXTENT < h < MAX_EXTENT):
+        return None
+    return float(x0), float(x1), float(y0), float(y1)
+
+
+def frame_camera(flame: Flame, margin: float = FRAME_MARGIN) -> bool:
+    """Centre and scale the camera on the attractor; False if the system blows up or collapses."""
+    bounds = attractor_bounds(flame)
+    if bounds is None:
         return False
+    x0, x1, y0, y1 = bounds
     cam = flame.camera
-    cam.center = (float((x0 + x1) / 2), float((y0 + y1) / 2))
+    cam.center = ((x0 + x1) / 2, (y0 + y1) / 2)
     cam.zoom = 0.0
-    cam.scale = min(cam.width / (w * margin), cam.height / (h * margin))
+    cam.scale = min(cam.width / ((x1 - x0) * margin), cam.height / ((y1 - y0) * margin))
     return True
 
 
-__all__ = ["RandomOptions", "random_batch", "random_flame", "random_variations", "random_gradient", "frame_camera", "sample_points"]
+__all__ = ["RandomOptions", "random_batch", "random_flame", "random_variations", "random_xform", "random_gradient", "frame_camera",
+           "attractor_bounds", "sample_points"]

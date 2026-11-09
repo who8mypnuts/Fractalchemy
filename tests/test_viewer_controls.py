@@ -10,9 +10,9 @@ from fractalchemy.fractal.formats import load_flame
 from fractalchemy.library.roots import LibraryRoots
 from fractalchemy.ui.fractal_viewport import MAX_ZOOM
 from fractalchemy.ui.main_window import MainWindow
-from fractalchemy.ui.settings_panel import PASSES_KEY, QUALITY_KEY
+from fractalchemy.ui.inspector_panel import PASSES_KEY, QUALITY_KEY
 from fractalchemy.ui.viewer_bar import RESOLUTIONS
-from tests.conftest import spin
+from tests.conftest import spin, wait_until
 
 
 @pytest.fixture
@@ -155,9 +155,9 @@ def test_zooming_in_renders_only_the_visible_region(window):
     assert camera.center == pytest.approx(centre)
 
 
-# --- settings panel ---------------------------------------------------------------------------
-def test_settings_panel_controls_passes_and_quality_and_persists(window, tmp_path):
-    panel, view = window.settingsPanel, window.viewport
+# --- inspector ---------------------------------------------------------------------------
+def test_inspector_panel_controls_passes_and_quality_and_persists(window, tmp_path):
+    panel, view = window.inspectorPanel, window.viewport
     assert panel.passes == view.settings.passes == 6 and panel.quality == view.settings.quality == 8.0
     generation = view.generation
     panel.set_values(3, 20.0)
@@ -165,16 +165,16 @@ def test_settings_panel_controls_passes_and_quality_and_persists(window, tmp_pat
     stored = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
     assert int(stored.value(PASSES_KEY)) == 3 and float(stored.value(QUALITY_KEY)) == 20.0
     assert [a.text() for a in window.menuView.actions()][:4] == [
-        "Show/Hide Fractal Library", "Refresh Fractal Library", "Thumbnails in Fractal Library", "Show/Hide Settings Panel"]
+        "Show/Hide Fractal Library", "Refresh Fractal Library", "Thumbnails in Fractal Library", "Show/Hide Inspector"]
 
 
-def test_settings_panel_collapses_like_the_library(window):
+def test_inspector_panel_collapses_like_the_library(window):
     assert window.splitter.has_last_pane() and not window.splitter.is_last_collapsed()
-    window.actionToggleSettings.setChecked(False)
+    window.actionToggleInspector.setChecked(False)
     assert window.splitter.is_last_collapsed() and window.splitter.sizes()[-1] == 0
     assert not window.splitter.is_collapsed()
     window.splitter.toggle_last()
-    assert not window.splitter.is_last_collapsed() and window.actionToggleSettings.isChecked()
+    assert not window.splitter.is_last_collapsed() and window.actionToggleInspector.isChecked()
 
 
 # --- status bar -------------------------------------------------------------------------------
@@ -183,8 +183,13 @@ def test_status_bar_widgets_never_overlap(window):
     from fractalchemy.render.settings import RenderStats
     status.set_engine("GPU (NVIDIA GeForce RTX 4090/PCIe/SSE2)")
     status.show_progress(RenderStats("GPU (NVIDIA GeForce RTX 4090/PCIe/SSE2)", 3, 6, 123_456_789, 0, 2.5, 1920, 1080))
-    spin(50)
     widgets = [status.fractal, status.render, status.passes, status.progress]
+
+    def laid_out() -> bool:              # the status bar lays out asynchronously: wait for it rather than a fixed sleep
+        rects = [w.geometry() for w in widgets]
+        return rects[0].right() < rects[1].left() < rects[2].left() < rects[3].left() \
+            and status.render.width() >= status.render.fontMetrics().horizontalAdvance(status.render.text())
+    wait_until(laid_out, timeout_ms=2000)
     rects = [w.geometry() for w in widgets]
     for i, a in enumerate(rects):
         for b in rects[i + 1:]:

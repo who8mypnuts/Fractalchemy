@@ -25,6 +25,7 @@ from ...solid.io import EXPORT_FORMATS
 from ...widgets.images import rgba_to_qimage
 from ...widgets.layouts import row
 from .mesh_job import DEExportJob, DEPreviewJob, MeshFromDEJob
+from ...widgets.theming import set_themed_style
 
 SETTINGS_GROUP = "fragments/mesh"
 PREVIEW_SIZE = (360, 300)
@@ -161,7 +162,7 @@ class MeshExportDialog(QDialog):
         self.preview = QLabel()
         self.preview.setMinimumSize(*PREVIEW_SIZE)
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview.setStyleSheet("QLabel { background: #3a3f48; }")
+        set_themed_style(self.preview, "QLabel {{ background: {canvas_bg}; color: {canvas_text}; }}")
         layout.addWidget(self.preview, 1)
         self.report = QLabel()
         self.report.setWordWrap(True)

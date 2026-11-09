@@ -39,6 +39,7 @@ from ..render_output_panel import OutputPanel
 from ..render_progress import RenderProgressPanel
 from ..render_size_panel import SizePanel
 from .document import Scene3DDocument
+from ...widgets.theming import colored_html
 
 WINDOW_TITLE = "Render 3D Image"
 SETTINGS_KEY = "three_d/render_settings"
@@ -412,7 +413,7 @@ class SolidRenderWindow(JobWindowBase):
         self.start_button.setEnabled(not problems and self.job is None)
         self.start_button.setToolTip("\n".join(problems))
         if problems and self.job is None:
-            self.plan_label.setText('<span style="color:#c0392b">' + "; ".join(problems) + "</span>")
+            self.plan_label.setText(colored_html("; ".join(problems), "error"))
             return
         s = self.render_settings()
         gpu = self.prefer_gpu and gpu_available()[0]

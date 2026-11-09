@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QRadioButton, QVBoxLayout, QWidget
 
 from ..fractal import variations as V
@@ -24,11 +23,10 @@ from ..fractal.xform_ops import chaos_row
 from ..widgets.silent import updating
 from ..widgets.value_table import ValueRow, ValueTable
 from .editor_context import EditorContext
+from ..widgets.theming import on_theme_changed, theme_color
 from .formula_origins import ORIGINS, origin_of
 
 KIND_TAGS = {V.PRE: "pre", V.POST: "post"}
-MISSING_COLOR = QColor(200, 60, 60)
-UNDECLARED_COLOR = QColor(150, 150, 150)
 
 
 def variation_tags(var: V.Variation | None) -> str:
@@ -68,7 +66,7 @@ def param_rows(xform: XForm, show_all: bool) -> list[ValueRow]:
                 if key.startswith(name + "_") and key not in seen:
                     seen.add(key)
                     rows.append(ValueRow(key, value, name, f"{key}: parameter of {name} (formula not available)", bold=used,
-                                         color=MISSING_COLOR))
+                                         color=theme_color("error")))
             continue
         for key, default in var.params.items():
             if key in seen:
@@ -80,7 +78,7 @@ def param_rows(xform: XForm, show_all: bool) -> list[ValueRow]:
     for key, value in xform.params.items():   # parameters no formula declares (kept for round-tripping)
         if key not in seen:
             seen.add(key)
-            rows.append(ValueRow(key, value, "", f"{key}: not declared by any loaded formula", color=UNDECLARED_COLOR))
+            rows.append(ValueRow(key, value, "", f"{key}: not declared by any loaded formula", color=theme_color("dim_text")))
     return rows
 
 
@@ -109,6 +107,7 @@ class TableTab(QWidget):
         self.layout_.addLayout(self.bottom)
         self.table.value_edited.connect(self._edited)
         self.table.name_double_clicked.connect(self._double_clicked)
+        on_theme_changed(self, lambda _theme: self.refresh())      # the row colours are the theme's
 
     @property
     def document(self):
@@ -176,7 +175,7 @@ class VariationsTab(TableTab):
             tip = f"{name}" + (f" — {var.summary()}" if var is not None else " — not available: no loaded formula has this name")
             origin = ORIGINS[origin_of(var)] if var is not None else None
             rows.append(ValueRow(name, weights.get(name, 0.0), variation_tags(var), tip, bold=name in weights,
-                                 color=MISSING_COLOR if var is None else origin.text_color,
+                                 color=theme_color("error") if var is None else origin.text_color,
                                  background=origin.background_color if origin is not None else None))
         return rows
 

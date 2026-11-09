@@ -1,6 +1,6 @@
 # TASK_STATE — Fractalchemy (editor, animation, review cycles)
 
-Branch: `master`, uncommitted working tree on top of `13a9126 baseline`.
+Branch: `master`; round 11 is committed phase by phase on top of `31cb317 baseline` (see Round 11 at the end).
 
 ## How to resume
 ```bash
@@ -214,7 +214,8 @@ black before.
     `viewer/guide_kinds`.
 
 14. The Image tab's **Y pitch** row is gone (it was Fractalchemy's own `cam_pitch_y`, of little visible use); the
-    `Camera.pitch_y` field, its file round-trip and the scripting API's `camera.pitch_y` stay.
+    `Camera.pitch_y` field, its file round-trip and the scripting API's `camera.pitch_y` stay (round 11 re-examined this and
+    kept it on request: the 3D Editor's *Camera ▸ Tilt* row still edits it).
 
 15. **Transform Editor** (Apophysis's editor; *Windows ▸ Transform Editor*, `F4`, toolbar). Model: `XForm.pre`
     (the third affine, applied before `coefs`; `has_pre`, `combined_coefs`, `compose_affine`; `.flame` attribute
@@ -579,3 +580,71 @@ from FragM*). User guide + language reference: `docs/fragments.md`; README secti
 * Fix: the Navigation toolbar's view actions (Front / Back / … ) raised `KeyError: False` — `QAction.triggered(bool)` was
   landing in the lambda's defaulted `side` parameter (`act()` connects `triggered`, unlike `QMenu.addAction(text, fn)`,
   which calls with no arguments); the lambda now takes `_checked` first. Covered by `test_view_actions_trigger_from_the_toolbar`.
+
+## Round 11: Mutate & Breed, program-wide themes, readable editors, the Inspector, gradient-editor gestures
+Plan: `plans/mutate-breed-themes-plan.md` (findings F1–F10, the decisions Q1–Q6, the phases and the progress log). One commit
+per phase on top of `31cb317 baseline`.
+
+* **Housekeeping / removals (Phase 1).** `ui/editor_preview.py` (dead, failed to import) and `render/report.py` (dead,
+  shadowed by the `render/report/` package) deleted; `widgets/windows.bring_to_front` replaces the eight hand-written copies
+  (and the main window's two show / raise / activate sequences). The stale *Detail* line left `docs/rendering.md` (no code
+  remained). **`pitch_y` stays (decision Q2)**: it is still rendered (preview, final, solid renderers, Blender export), editable
+  in the 3D Editor's *Camera ▸ Tilt* row and through the scripting API, written to `.flame` / `.fa`; the report is in the plan.
+* **Inspector (Phase 2).** `ui/settings_panel.py: SettingsPanel` → `ui/inspector_panel.py: InspectorPanel`, widget
+  `inspectorPanel`, *View ▸ Show/Hide Inspector* (`actionToggleInspector`), splitter tooltip; the tab key is `inspector/tab`
+  with the old `panel/tab` read as a fallback.
+* **The Gradient Library follows the fractal (Phase 3).** `GradientLink.follow_flame` on `flame_restored` (undo / redo / paste /
+  script / `replace_flame_parameters`), with `_palette_seen` change detection so camera-only undos leave the editor alone;
+  `GradientDocument.follow` keeps the entry link when the library showed the fractal's own entry, else a loose copy. **Switching
+  fractals no longer prompts (decision Q1)**; the library still asks for its own Open / library clicks / strip and on quit.
+* **Gradient editor gestures (Phase 4).** `model/node_ops.inserted_at / nudged_position`; `widgets/node_commands.NodeCommands`
+  (the node operations, their `QAction`s and the colour picker, shared by the panel, the keys and the menus); `NodeBar`
+  double-click, Delete / Backspace, ← / → (Shift ×10, `config.NODE_NUDGE_COARSE`), Enter, `menu_at`; `GradientStrip`
+  double-click, focus proxy, *Add node here*.
+* **Themes (Phase 5).** `themes/` (Qt-free): `model` (`Seed` → `derive` → `Theme`, `ROLES`, `CONTRAST_RULES` enforced with
+  `ensure_contrast`), `catalog` (System + 38: Nord and six variations, 23 more dark, 8 more light), `nord`.
+  `widgets/theming.py` (`ThemeManager`: Fusion + palette, System restore, `colorSchemeChanged`, persistence
+  `appearance/theme`; `theme_color`, `on_theme_changed` — lazy for hidden widgets —, `set_themed_style`, `colored_html`),
+  `widgets/theme_menu.py` (*View ▸ Theme*, `add_theme_groups`), `widgets/syntax.ThemedHighlighter` (the three highlighters),
+  `BaseCodeEditor.apply_theme / pin_theme` (one implementation for the Script, Formula and Fragments editors),
+  `icons.PaintedIconEngine` + `set_glyph_inks` (every painted icon repaints in the theme's ink). `fragments/editor_themes.py`
+  is an adapter (Follow application theme by default; old preference values map). **Readability fixes**: `ValueTable` applies
+  a row's text colour to every column (the Transform Editor's unreadable weights on dark desktops); origin tints, syntax,
+  completion popup, drawer CSS, log / diff / diagnostics colours, hints, banners, error spans and canvases come from theme roles.
+* **Mutate & Breed (Phases 6–7).** `fractal/blend.py` (moved out of `animation/interpolate.py`, re-exported there),
+  `random_flame.attractor_bounds` / public `random_xform`, `fractal/mutation.py` (eleven operators in `OPERATORS`,
+  `MutationOptions`, `mutants`, `settle`, `is_stable`), `fractal/breeding.py` (alternate / interpolate / union / mixed,
+  gradient and camera sources, `children`). UI: `widgets/flame_grid.FlameGrid`, `ui/grid_renderer.GridRenderer`,
+  `ui/mutation_panels` (`MutatePanel`, `BreedPanel`, `ParentSlot`), `ui/mutation_window.MutationWindow`; main window
+  `actionMutate` (`Ctrl+M`, toolbar glyph `mutate`), lazy `mutation_window`, `config.MUTATION_*`. Adopting a cell is one
+  `replace_flame_parameters` step (file link and name kept; decision Q4); the gradient editor follows without asking.
+* **Tests.** `test_themes.py` (catalogue, Nord, every theme's contrast rules), `test_theming.py` (palette / style / persistence /
+  menu / live editors / the ValueTable regression / icons / lazy recolouring), `test_mutation.py`, `test_mutation_window.py`
+  (incl. *adopting a new gradient never prompts*), `test_gradient_link.py` (follow, no prompts), `test_node_editor.py`
+  (gestures), `test_info_panel.py` (legacy tab key), `test_widgets.py` (`bring_to_front`); menu / toolbar lists updated.
+  `test_status_bar_widgets_never_overlap` now waits for the layout instead of sleeping 50 ms (it was flaky).
+* `tools/theme_snapshots.py`: screenshots of the windows in chosen themes, for reviewing readability.
+
+### Review (architecture 40 / DRY 30 / comments 20 / tests 10)
+| # | Critic | Finding | Correction |
+|---|---|---|---|
+| R1 | Architect | theme changes made every *hidden* window repopulate its 850-row lists (a test run slowed to a crawl with many windows alive) | `on_theme_changed(lazy=True)`: hidden owners recolour once, when next shown (test) |
+| R2 | Architect | `on_theme_changed` first disconnected by hand on `destroyed` (errors at teardown) | a `_ThemeListener` child object: Qt drops the connection with its owner |
+| R3 | Architect | assigning a highlighter forced a rehighlight inside subclass `__init__` (`CodeEditor._context_timer` missing) | the setter only sets the colours; a new highlighter highlights by itself |
+| D1 | DRY | `breeding.children` repeated the mutants' retry loop | `mutation.settle(attempt, check, references, fallback)` for both |
+| D2 | DRY | `GridRenderer.render` / `render_slot` built the settings twice; two theme-group menu builders | `render` calls `render_slot`; `theme_menu.add_theme_groups` |
+| D3 | DRY | eight `bring_to_front` copies; five `#c0392b` error spans; hand-rolled themed style sheets | `widgets.windows.bring_to_front`, `colored_html`, `set_themed_style` |
+| C1 | Comments | the Inspector's accessors and `DiffView.apply_theme` undocumented | docstrings (AST scan of every new module: none missing) |
+| T1 | Tester | the gradient operator's rotation branch was never reached by the tests (it passed a wrong keyword) | fixed (`Adjustments.rotation`), and `test_every_operator_runs_on_many_seeds_and_flames` drives every branch |
+
+Self-assessed: architecture 37 / 40, DRY 28 / 30, comments 18 / 20, tests 9 / 10 = **92**.
+
+### Verification (round 11)
+```
+python3 -m pyflakes fractalchemy tests main.py tools        # clean (the script templates' expected names aside)
+python3 -m pytest -q --ignore=tests/test_variations.py        # 684 passed, 1 skipped (baseline 586 passed, 1 skipped) — 29 min
+python3 -m pytest -q tests/test_mutation_window.py tests/test_mutation.py tests/test_fragments_window.py \
+    tests/test_fragments_ui_extras.py tests/test_theming.py tests/test_themes.py tests/test_animation.py   # 126 passed (after the review refactors)
+python3 -m pytest -q tests/test_variations.py                # 1707 passed
+python3 tools/theme_snapshots.py OUT "Nord" "Catppuccin Latte"   # screenshots reviewed; also System on a dark desktop palette
+```

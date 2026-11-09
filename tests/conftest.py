@@ -111,7 +111,7 @@ def main_window_factory(qapp, tmp_path):
         win.resize(*size)
         win.show()
         if cheap_renders:
-            win.settingsPanel.set_values(1, 1.0)
+            win.inspectorPanel.set_values(1, 1.0)
         if fractal_root is not None:
             wait_until(lambda: win.fractalLibraryPanel.model.rowCount() == 1 and not win.fractal_library._pending)
         windows.append(win)

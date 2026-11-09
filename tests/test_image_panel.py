@@ -189,8 +189,8 @@ def test_save_fractal_writes_the_adjusted_flame_back_into_its_entry(qapp, tmp_pa
         win.open_path(path, 7)
         wait_until(lambda: win.document.flame is not None and win.document.flame.name == "3d musk sphere")
         assert win.actionSaveFractal.isEnabled() and win.windowTitle() == "Fractalchemy — 3d musk sphere"
-        assert win.document.flame.camera.is_3d() and win.settingsPanel.image.pitch.value() == pytest.approx(60.9, abs=0.05)
-        panel = win.settingsPanel.image
+        assert win.document.flame.camera.is_3d() and win.inspectorPanel.image.pitch.value() == pytest.approx(60.9, abs=0.05)
+        panel = win.inspectorPanel.image
         panel.pitch.spin.setValue(30.0)
         panel.brightness.spin.setValue(12.0)
         panel.background.picker.set_color((5, 6, 7), as_original=True)
@@ -212,10 +212,10 @@ def test_save_fractal_writes_the_adjusted_flame_back_into_its_entry(qapp, tmp_pa
 
 
 def test_preview_options_persist_and_reach_the_viewport(qapp, tmp_path):
-    from fractalchemy.ui.settings_panel import FILTER_KEY, OVERSAMPLE_KEY, REFINE_KEY, SettingsPanel
+    from fractalchemy.ui.inspector_panel import FILTER_KEY, OVERSAMPLE_KEY, REFINE_KEY, InspectorPanel
 
     settings = QSettings(str(tmp_path / "s.ini"), QSettings.Format.IniFormat)
-    panel = SettingsPanel(settings=settings)
+    panel = InspectorPanel(settings=settings)
     seen = []
     panel.render_options_changed.connect(lambda o, f, r: seen.append((o, f, r)))
     assert (panel.oversample, panel.filter_radius) == (2, 0.5) and panel.refine_to == 0.0   # tests run with refining off
@@ -227,7 +227,7 @@ def test_preview_options_persist_and_reach_the_viewport(qapp, tmp_path):
     assert float(settings.value(FILTER_KEY)) == 1.0 and float(settings.value(REFINE_KEY)) == 300.0
     panel.image.refine_check.setChecked(False)
     assert panel.refine_to == 0.0 and not panel.image.refine_box.isEnabled() and float(settings.value(REFINE_KEY)) == 0.0
-    again = SettingsPanel(settings=settings)
+    again = InspectorPanel(settings=settings)
     assert (again.oversample, again.filter_radius, again.refine_to) == (3, 1.0, 0.0)
     again.set_options(2, 0.5, 200.0)
     assert again.image.refine_check.isChecked() and again.refine_to == 200.0
@@ -242,7 +242,7 @@ def test_main_window_applies_preview_options_to_the_viewport(qapp, tmp_path):
     win = MainWindow(LibraryRoots(settings), LibraryRoots(settings, key=FRACTAL_CATALOG.roots_key), prefer_gpu=False, settings=settings)
     try:
         assert (win.viewport.settings.oversample, win.viewport.settings.filter_radius, win.viewport.settings.refine_to) == (2, 0.5, 0.0)
-        win.settingsPanel.set_options(1, 0.2, 150.0)
+        win.inspectorPanel.set_options(1, 0.2, 150.0)
         assert (win.viewport.settings.oversample, win.viewport.settings.filter_radius, win.viewport.settings.refine_to) == (1, 0.2, 150.0)
     finally:
         win.gradient_library.document.modified = False
@@ -393,8 +393,8 @@ def test_main_window_toolbar_undo_copy_paste_and_save_flows(qapp, tmp_path, samp
     try:
         names = [a.text() for a in win.toolBar.actions() if a.text()]
         assert names == ["Open Fractal…", "Save Fractal", "Save Fractal As", "Undo", "Redo", "Copy Parameters", "Paste Parameters",
-                         "Transform Editor", "Gradient Library", "Animation", "Random Batch…", "Script Editor",
-                         "Formula Editor", "3D Editor", "Fragments", "Render Image…"]
+                         "Transform Editor", "Gradient Library", "Animation", "Random Batch…", "Mutate && Breed…",
+                         "Script Editor", "Formula Editor", "3D Editor", "Fragments", "Render Image…"]
         assert [a.text() for a in win.menuSaveAs.actions()] == ["As New Entry in This File…", "As New File…", "Into Existing File…"]
         assert [a.text() for a in win.menuEdit.actions() if a.text()] == ["Undo", "Redo", "Copy Parameters", "Paste Parameters", "Edit Fractal Library…"]
         assert not win.actionUndo.isEnabled() and not win.actionCopyParameters.isEnabled() and not win.actionSaveFractal.isEnabled()
@@ -403,7 +403,7 @@ def test_main_window_toolbar_undo_copy_paste_and_save_flows(qapp, tmp_path, samp
         assert win.actionSaveFractal.isEnabled() and win.actionSaveAs.isEnabled() and win.actionCopyParameters.isEnabled()
         # an edit: undo / redo through the actions, nothing written by itself
         before = path.read_bytes()
-        win.settingsPanel.image.brightness.spin.setValue(12.0)
+        win.inspectorPanel.image.brightness.spin.setValue(12.0)
         assert win.actionUndo.isEnabled() and win.windowTitle().endswith("*")
         win.actionUndo.trigger()
         assert win.document.flame.coloring.brightness == 4.0 and win.actionRedo.isEnabled()
@@ -427,7 +427,7 @@ def test_main_window_toolbar_undo_copy_paste_and_save_flows(qapp, tmp_path, samp
         assert load_flames(path)[2].coloring.brightness == 12.0 and len(load_flames(path)) == 5
         # Save As ▸ new entry in this file (name prompt)
         monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("rotated copy", True)))
-        win.settingsPanel.image.gamma.spin.setValue(2.0)
+        win.inspectorPanel.image.gamma.spin.setValue(2.0)
         win.actionSaveAsNewEntry.trigger()
         wait_until(lambda: win.document.source_index == 5)
         entries = load_flames(path)

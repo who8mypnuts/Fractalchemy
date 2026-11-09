@@ -11,6 +11,11 @@ indentation rules) goes into a subclass; the hooks are:
   the cursor (or opens the list when several names match), **Ctrl+Space** opens it anywhere, and the list opens by
   itself while typing when `auto_complete_trigger(before, prefix)` says so; Enter / Tab accept, Esc closes.
 
+Colours come from the theme (`apply_theme`): the editor background, text, selection, gutter, current and error line,
+and the highlighter's syntax roles. An editor follows the application theme (recolouring live) unless a theme is
+pinned to it (`pin_theme`, the Fragments window's *Editor theme* preference). A subclass just assigns
+`self.highlighter`; the current theme is applied to it on assignment.
+
 Keys: Tab / Shift+Tab indent or outdent a selection, Backspace eats a level of indentation, Ctrl+/ toggles
 comments, Ctrl+D duplicates the line, Ctrl+Shift+K deletes it, Alt+Up / Alt+Down move it, Ctrl+] / Ctrl+[
 indent / outdent, Home goes to the first non-blank character first, Ctrl+F / Ctrl+H (or Ctrl+Shift+F) / Ctrl+G / Ctrl+S
@@ -23,18 +28,19 @@ import re
 from typing import Callable
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFontDatabase, QKeyEvent, QPainter, QPaintEvent, QResizeEvent, QTextCursor, QTextDocument, QTextFormat
+from PySide6.QtGui import QColor, QFontDatabase, QKeyEvent, QPainter, QPaintEvent, QPalette, QResizeEvent, QTextCursor, QTextDocument, QTextFormat
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QWidget
 
 from ..scripting.completion import Completion, Item
+from ..themes import Theme, catalog
 from .completion_popup import POPUP_ROWS, CompletionPopup
+from .syntax import ThemedHighlighter
+from .theming import current_theme, on_theme_changed
 
 INDENT = "    "
 TAB_TRIGGER = re.compile(r"[\w.'\"]$")
 Completer = Callable[[str, int, bool], Completion]
 LINE_NUMBER_PADDING = 10
-ERROR_LINE_COLOR = QColor("#c62828")
-NUMBER_COLOR = QColor("#8a8a8a")
 
 
 class LineNumberArea(QWidget):
@@ -72,9 +78,9 @@ class BaseCodeEditor(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self._numbers = LineNumberArea(self)
         self._error_line: int | None = None
+        self._pinned_theme: str | None = None
+        self._highlighter: ThemedHighlighter | None = None
         self.completer: Completer | None = None
-        self.gutter_colors: tuple[QColor | None, QColor] = (None, NUMBER_COLOR)     # (background or None = the window colour, numbers)
-        self.current_line_color: QColor | None = None                              # None = a faint tint of the base colour
         self.popup = CompletionPopup(self)
         self._completion: Completion | None = None
         self._typing = False
@@ -83,6 +89,56 @@ class BaseCodeEditor(QPlainTextEdit):
         self.cursorPositionChanged.connect(self._on_cursor_moved)
         self.textChanged.connect(self._on_text_changed)
         self._update_margins()
+        self.apply_theme()
+        on_theme_changed(self, self._on_application_theme)
+
+    # --- theme -------------------------------------------------------------------------------------------------
+    @property
+    def highlighter(self) -> ThemedHighlighter | None:
+        """The language's highlighter; assigning one gives it the editor's theme."""
+        return self._highlighter
+
+    @highlighter.setter
+    def highlighter(self, highlighter: ThemedHighlighter | None) -> None:
+        self._highlighter = highlighter
+        if highlighter is not None:       # a new highlighter highlights the document by itself: just give it the colours
+            highlighter.set_theme(self.theme, rehighlight=False)
+
+    @property
+    def theme(self) -> Theme:
+        """The theme the editor paints with: the pinned one, else the application's."""
+        return catalog.theme(self._pinned_theme) if self._pinned_theme else current_theme()
+
+    @property
+    def pinned_theme(self) -> str | None:
+        """The theme pinned to this editor (None: it follows the application)."""
+        return self._pinned_theme
+
+    def pin_theme(self, name: str | None) -> None:
+        """Paint with catalogue theme `name` whatever the application uses; None (or System / an unknown name) follows
+        the application again."""
+        self._pinned_theme = name if name in catalog.SEEDS else None
+        self.apply_theme()
+
+    def _on_application_theme(self, _theme: Theme) -> None:
+        if self._pinned_theme is None:            # a pinned theme ignores the application's
+            self.apply_theme()
+
+    def apply_theme(self) -> None:
+        """Recolour the editor from its theme: background, text, selection, gutter, current / error line, syntax."""
+        theme = self.theme
+        palette = QPalette(self.palette())
+        roles = {QPalette.ColorRole.Base: "editor_bg", QPalette.ColorRole.Text: "editor_fg",
+                 QPalette.ColorRole.Highlight: "selection", QPalette.ColorRole.HighlightedText: "selection_fg",
+                 QPalette.ColorRole.PlaceholderText: "comment"}
+        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+            for role, name in roles.items():
+                palette.setColor(group, role, QColor(theme[name]))
+        self.setPalette(palette)
+        self.viewport().setPalette(palette)
+        if self._highlighter is not None:
+            self._highlighter.set_theme(theme)
+        self._numbers.update()
         self._highlight_lines()
 
     # --- language hooks ------------------------------------------------------------------------------------
@@ -130,9 +186,10 @@ class BaseCodeEditor(QPlainTextEdit):
         self._numbers.setGeometry(QRect(rect.left(), rect.top(), self.line_number_width(), rect.height()))
 
     def paint_line_numbers(self, event: QPaintEvent) -> None:
-        """Paint the gutter: the current line in the text colour, the error line in red, the rest grey."""
+        """Paint the gutter: the current line in the text colour, the error line in the error colour, the rest dimmed."""
+        theme = self.theme
         painter = QPainter(self._numbers)
-        painter.fillRect(event.rect(), self.gutter_colors[0] or self.palette().window().color())
+        painter.fillRect(event.rect(), QColor(theme["gutter"]))
         block = self.firstVisibleBlock()
         number = block.blockNumber()
         top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
@@ -143,11 +200,11 @@ class BaseCodeEditor(QPlainTextEdit):
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
                 if number + 1 == self._error_line:
-                    painter.setPen(ERROR_LINE_COLOR)
+                    painter.setPen(QColor(theme["error"]))
                 elif number == current:
-                    painter.setPen(self.palette().text().color())
+                    painter.setPen(QColor(theme["editor_fg"]))
                 else:
-                    painter.setPen(self.gutter_colors[1])
+                    painter.setPen(QColor(theme["gutter_fg"]))
                 painter.drawText(0, top, width, height, Qt.AlignmentFlag.AlignRight, str(number + 1))
             block = block.next()
             top = bottom
@@ -199,15 +256,15 @@ class BaseCodeEditor(QPlainTextEdit):
     def _highlight_lines(self) -> None:
         selections = []
         current = QTextEdit.ExtraSelection()
-        current.format.setBackground(self.current_line_color if self.current_line_color is not None
-                                     else QColor(0, 0, 0, 12) if self.palette().base().color().lightness() > 128 else QColor(255, 255, 255, 14))
+        theme = self.theme
+        current.format.setBackground(QColor(theme["current_line"]))
         current.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
         current.cursor = self.textCursor()
         current.cursor.clearSelection()
         selections.append(current)
         if self._error_line is not None:
             error = QTextEdit.ExtraSelection()
-            error.format.setBackground(QColor(255, 80, 80, 50))
+            error.format.setBackground(QColor(theme["error_line"]))
             error.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
             error.cursor = QTextCursor(self.document().findBlockByNumber(self._error_line - 1))
             selections.append(error)

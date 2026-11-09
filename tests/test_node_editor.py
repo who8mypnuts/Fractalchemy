@@ -164,3 +164,122 @@ def test_picker_retargets_when_selection_changes(window):
     assert doc.gradient.stops[2].color == (128, 128, 128) and doc.gradient.stops[1].color == (255, 0, 0)
     doc.select(-1)
     assert not panel.picker.isVisible()
+
+
+# --- gestures: double-click, keys, right-click (the shared NodeCommands) ------------------------------------------
+from PySide6.QtCore import QPoint, Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
+
+from fractalchemy.model.node_ops import inserted_at, nudged_position  # noqa: E402
+
+
+def max_channel_difference(a: Gradient, b: Gradient, samples: int = 400) -> int:
+    return max(abs(p - q) for x, y in zip(a.sample(samples), b.sample(samples)) for p, q in zip(x, y))
+
+
+def test_inserted_at_adds_a_handle_without_changing_the_colours():
+    g = Gradient("g", [s for s in Gradient.from_colors("g", RGB3).stops])
+    g.stops[0].position, g.stops[-1].position = 0.1, 0.8                 # leave room for the wrap-around span
+    for position in (0.3, 0.62, 0.95, 0.02):                             # inside spans and in the wrap region
+        stops, index = inserted_at(g, position)
+        assert len(stops) == 4 and stops[index].position == position
+        assert max_channel_difference(g, Gradient("g", stops)) <= 1
+
+
+def test_nudged_position_uses_the_index_grid_and_clamps():
+    assert nudged_position(200 / 399, 1, 399) == 201 / 399
+    assert nudged_position(200 / 399, -10, 399) == 190 / 399
+    assert nudged_position(0.0005, -1, 399) == 0.0 and nudged_position(0.999, 10, 399) == 1.0
+
+
+def strip_point(window, position: float) -> QPoint:
+    strip = window.gradientEditor.strip
+    return QPoint(round(strip.mapper().to_x(position)), strip.height() // 2)
+
+
+def test_double_click_on_the_strip_adds_a_selected_node_in_the_colour_already_there(window):
+    before = window.document.gradient.copy()
+    QTest.mouseDClick(window.gradientEditor.strip, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, strip_point(window, 0.25))
+    doc = window.document
+    assert len(doc.gradient) == 4 and doc.selected_index == 1
+    assert abs(doc.gradient.stops[1].position - 0.25) < 0.01
+    assert max_channel_difference(before, doc.gradient) <= 1 and doc.modified
+    assert "Added node 2" in window.statusBar().currentMessage()
+
+
+def test_double_click_on_empty_node_bar_adds_but_on_a_node_only_selects(window):
+    nodes = window.gradientEditor.nodes
+    QTest.mouseDClick(nodes, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(round(nodes.mapper().to_x(0.75)), 8))
+    assert len(window.document.gradient) == 4 and window.document.selected_index == 2
+    QTest.mouseDClick(nodes, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, nodes.node_center(0).toPoint())
+    assert len(window.document.gradient) == 4 and window.document.selected_index == 0
+    strip = window.gradientEditor.strip                                   # on the strip, right over a node: selects it
+    QTest.mouseDClick(strip, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, strip_point(window, 0.5))
+    assert len(window.document.gradient) == 4 and window.document.selected_index == 1
+
+
+def test_delete_and_backspace_remove_the_selected_node_but_never_below_two(window):
+    nodes, doc = window.gradientEditor.nodes, window.document
+    doc.select(1)
+    QTest.keyClick(nodes, Qt.Key.Key_Delete)
+    assert len(doc.gradient) == 2 and [s.color for s in doc.gradient.stops] == [(0, 0, 0), (255, 255, 255)]
+    doc.select(0)
+    QTest.keyClick(nodes, Qt.Key.Key_Backspace)
+    assert len(doc.gradient) == MIN_NODES and "at least 2 nodes" in window.statusBar().currentMessage()
+
+
+def test_arrow_keys_nudge_by_one_index_unit_and_shift_by_ten(window):
+    nodes, doc = window.gradientEditor.nodes, window.document
+    doc.select(1)                                                         # at 0.5 → index 200 (rounded)
+    QTest.keyClick(nodes, Qt.Key.Key_Right)
+    assert round(doc.gradient.stops[1].position * 399) == 201 and window.nodePanel.position.value() == 201
+    QTest.keyClick(nodes, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
+    assert round(doc.gradient.stops[1].position * 399) == 191
+    doc.select(2)
+    QTest.keyClick(nodes, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)  # already at the end: clamped
+    assert doc.gradient.stops[2].position == 1.0
+    doc.select(0)
+    for _ in range(25):                                                   # past the neighbour at 191: the selection follows
+        QTest.keyClick(nodes, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+    assert doc.selected_index == 1 and doc.gradient.stops[1].color == (0, 0, 0)
+
+
+def test_enter_opens_the_colour_picker_on_the_selected_node(window):
+    window.document.select(1)
+    QTest.keyClick(window.gradientEditor.nodes, Qt.Key.Key_Return)
+    picker = window.nodePanel.picker
+    assert picker is window.node_commands.picker and picker.isVisible() and picker.color() == (255, 0, 0)
+    picker.reject()
+
+
+def test_clicking_the_strip_gives_the_node_keys_focus(window):
+    strip, nodes = window.gradientEditor.strip, window.gradientEditor.nodes
+    assert strip.focusProxy() is nodes and nodes.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+
+def test_right_click_on_a_node_offers_the_panel_operations(window):
+    nodes, commands = window.gradientEditor.nodes, window.node_commands
+
+    def texts(menu):
+        return [a.text() for a in menu.actions() if not a.isSeparator()]
+    menu = nodes.menu_at(nodes.node_center(2))
+    assert window.document.selected_index == 2
+    assert texts(menu) == ["Add node", "Add random node", "Randomize node", "Pick colour…", "Delete node"]
+    assert commands.delete_action in menu.actions() and commands.delete_action.shortcut().toString() == "Del"
+    commands.delete_action.trigger()
+    assert len(window.document.gradient) == 2 and not commands.delete_action.isEnabled()
+    here = nodes.menu_at(QPointF(nodes.mapper().to_x(0.3), 8))            # empty space: "Add node here"
+    assert texts(here) == ["Add node here"]
+    here.actions()[0].trigger()
+    assert len(window.document.gradient) == 3 and window.document.selected_index == 1
+    assert texts(window.gradientEditor.strip.menu_at(strip_point(window, 0.8).x())) == ["Add node here"]
+
+
+def test_panel_buttons_and_menu_actions_are_the_same_operations(window):
+    doc, commands = window.document, window.node_commands
+    doc.select(0)
+    commands.add_action.trigger()
+    assert len(doc.gradient) == 4 and doc.selected_index == 1
+    window.nodePanel.add_button.click()
+    assert len(doc.gradient) == 5
+    assert window.nodePanel.commands is commands and window.gradientEditor.nodes.commands is commands

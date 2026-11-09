@@ -1,4 +1,4 @@
-"""The editable gradient: colour strip on top, draggable nodes beneath."""
+"""The editable gradient: colour strip on top, draggable nodes beneath (gestures: see `node_bar`)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from .. import config
 from ..ui.document import GradientDocument
 from .gradient_strip import GradientStrip
 from .node_bar import NodeBar
+from .node_commands import NodeCommands
 
 
 class GradientEditor(QWidget):
@@ -26,8 +27,8 @@ class GradientEditor(QWidget):
         """The bound document, or None before `bind()`."""
         return self._document
 
-    def bind(self, document: GradientDocument) -> None:
-        """Attach the document and create the strip and node bar.
+    def bind(self, document: GradientDocument, commands: NodeCommands | None = None) -> None:
+        """Attach the document and create the strip and node bar (sharing `commands`, the node operations).
 
         Raises:
             RuntimeError: If called twice.
@@ -36,6 +37,7 @@ class GradientEditor(QWidget):
             raise RuntimeError("GradientEditor is already bound to a document")
         self._document = document
         self.strip = GradientStrip(document, config.EDITOR_MARGIN, self)
-        self.nodes = NodeBar(document, config.EDITOR_MARGIN, self)
+        self.nodes = NodeBar(document, config.EDITOR_MARGIN, self, commands)
+        self.strip.attach_nodes(self.nodes)
         self._layout.addWidget(self.strip, 1)
         self._layout.addWidget(self.nodes, 0)
