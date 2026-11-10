@@ -14,33 +14,47 @@ from .items import Kind, LibraryItem
 
 class LibraryContextMenu:
     """Builds and shows the right-click menu for library rows."""
-    def __init__(self, controller: LibraryController, open_item: Callable[[LibraryItem], None], parent: QWidget):
+    def __init__(self, controller: LibraryController, open_item: Callable[[LibraryItem], None], parent: QWidget,
+                 extra_actions: list[tuple[str, Callable[[LibraryItem], None]]] | None = None):
         """Args:
             controller: Executes the chosen operations.
             open_item: Called with the item when 'Open' is chosen.
             parent: Widget that owns the menu and any prompts.
+            extra_actions: (text, handler) pairs offered after *Open* for rows that open an entry — what a window adds
+                for its own library (the Fractal Library's *Breed with Current Fractal*).
         """
         self._controller = controller
         self._open_item = open_item
         self._parent = parent
+        self._extra = list(extra_actions or [])
 
     def show(self, item: LibraryItem | None, selection: list[LibraryItem], pos: QPoint) -> None:
         """Show the menu for `item` at global `pos`; `selection` feeds multi-item actions."""
+        self.build(item, selection).exec(pos)
+
+    def build(self, item: LibraryItem | None, selection: list[LibraryItem]) -> QMenu:
+        """The menu for `item` (not shown)."""
         menu = QMenu(self._parent)
         if item is None:
             self._add(menu, "Refresh", self._controller.rescan_all)
         elif item.virtual:   # generated, not on disk: open it, then save it from the main window
             if item.opens_entry:
-                self._add(menu, "Open", lambda: self._open_item(item))
+                self._add_opening(menu, item)
         else:
             self._populate(menu, item, selection if item in selection else [item])
-        menu.exec(pos)
+        return menu
 
     # --- menu composition ---------------------------------------------------
+    def _add_opening(self, menu: QMenu, item: LibraryItem) -> None:
+        """*Open* and the window's own entry actions."""
+        self._add(menu, "Open", lambda: self._open_item(item))
+        for text, handler in self._extra:
+            self._add(menu, text, lambda _checked=False, h=handler: h(item))
+
     def _populate(self, menu: QMenu, item: LibraryItem, selection: list[LibraryItem]) -> None:
         ctl = self._controller
         if item.opens_entry:
-            self._add(menu, "Open", lambda: self._open_item(item))
+            self._add_opening(menu, item)
             menu.addSeparator()
         if item.kind in (Kind.FILE, Kind.ENTRY):
             self._add(menu, "Copy", lambda: ctl.copy_to_clipboard(selection))

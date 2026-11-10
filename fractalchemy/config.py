@@ -62,6 +62,10 @@ MUTATION_CELL_SIZE = (200, 150)   # the grid's render size per cell (pixels)
 MUTATION_QUALITY = 6.0            # samples per pixel of a grid render
 MUTATION_PASSES = 2               # progressive passes of a grid render (a rough picture first)
 MUTATION_CHILDREN = 8             # mutants / children around the parent
+MUTATION_ATTEMPTS = 8             # rolls per mutant / child before settling for a gentler one (then a copy)
+MUTATION_SCALE_LIMIT = 25.0       # an offspring's extent may differ from its parent's by at most this factor
+MUTATION_CHECK_POINTS = 600       # the blow-up check's iteration: points …
+MUTATION_CHECK_STEPS = 24         # … and steps (small: some compiled formulas are slow on the CPU)
 
 # --- Fragments window -----------------------------------------------------------
 FRAG_INTERACTIVE_SCALE = INTERACTIVE_SCALE  # viewport scale while the fragment camera moves

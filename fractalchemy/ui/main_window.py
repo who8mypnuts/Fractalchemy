@@ -88,7 +88,8 @@ class MainWindow(QMainWindow):
         self.viewport.bind(self.document, self.render_service)
         self.fractal_library = LibraryController(
             self.fractalLibraryPanel.model, fractal_roots or LibraryRoots(parent=self, key=FRACTAL_CATALOG.roots_key), self)
-        self.fractal_menu = LibraryContextMenu(self.fractal_library, self.open_item, self)
+        self.fractal_menu = LibraryContextMenu(self.fractal_library, self.open_item, self,
+                                               extra_actions=[("Breed with Current Fractal", self.breed_with_item)])
         self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
         self._formula_browser = None
         self._random_window = None
@@ -325,6 +326,17 @@ class MainWindow(QMainWindow):
     def show_mutation(self) -> None:
         """Open (or raise) the Mutate & Breed window on the fractal shown here."""
         self.mutation_window.bring_to_front()
+
+    def breed_with_item(self, item: LibraryItem) -> None:
+        """Fractal Library ▸ *Breed with Current Fractal*: the row becomes parent B of the Mutate & Breed window's Breed tab."""
+        window = self.mutation_window
+        window.show_breeding()
+        if item.virtual:                                   # a generated fractal: it lives in memory
+            if 0 <= item.index < len(self._batch):
+                window.set_parent_b(self._batch[item.index], "Randomly Generated")
+        else:
+            window.load_parent_b(item.path, item.index)
+        window.bring_to_front()
 
     # --- script editor ------------------------------------------------------
     @property
@@ -612,7 +624,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         if self._script_editor is not None:
-            if self._script_editor.runner.running:
+            if self._script_editor.running:
                 self._script_editor.stop()
             self._script_editor.save_state()
             self._script_editor.hide()

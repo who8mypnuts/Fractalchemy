@@ -7,6 +7,7 @@ import math
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QConicalGradient, QMouseEvent, QPainter, QPen, QRadialGradient
 from PySide6.QtWidgets import QWidget
+from .theming import theme_color
 
 HUE_STEPS = 24
 
@@ -64,7 +65,7 @@ class HueSatWheel(QWidget):
         whiteness.setColorAt(1.0, QColor(255, 255, 255, 0))
         painter.setBrush(whiteness)
         painter.drawEllipse(disc)
-        painter.setPen(QPen(QColor(60, 60, 60), 1))
+        painter.setPen(QPen(theme_color("border"), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(disc)
         handle = self._handle()

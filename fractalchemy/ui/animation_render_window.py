@@ -54,6 +54,7 @@ class AnimationRenderWindow(JobWindowBase):
         self._rate_hint = rate_hint
         self._estimate = RenderEstimate()
         self.job: AnimationRenderJob | None = None
+        self._encoding = False                 # the job is in its ffmpeg phase (see _can_pause_now)
         self.last_outcome: AnimationOutcome | None = None
         self.size_panel = SizePanel(self)
         self.size_panel.preview_label = "Keyframe size"
@@ -216,6 +217,7 @@ class AnimationRenderWindow(JobWindowBase):
             if answer != QMessageBox.StandardButton.Yes:
                 return
         self._persist()
+        self._encoding = False
         self._launch(AnimationRenderJob(anim, s, self), AnimationProgress(phase="Starting the engine", count=len(frames)))
 
     def _on_progress(self, progress: AnimationProgress) -> None:
@@ -223,8 +225,14 @@ class AnimationRenderWindow(JobWindowBase):
         if fp is not None and fp.phase in (PHASE_DONE, PHASE_CANCELLED):
             self._estimate.record(fp.engine_kind, fp.rate)
         self.progress_panel.show_progress(progress)
-        if progress.phase == PHASE_ENCODE:
-            self.pause_button.setEnabled(False)     # ffmpeg cannot be paused
+        encoding = progress.phase == PHASE_ENCODE
+        if encoding != self._encoding:
+            self._encoding = encoding
+            self._refresh_controls()
+
+    def _can_pause_now(self) -> bool:
+        """ffmpeg cannot be paused: no Pause while the video is being encoded."""
+        return not self._encoding
 
     def _on_succeeded(self, outcome: AnimationOutcome) -> None:
         self.last_outcome = outcome

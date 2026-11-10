@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QObject, QSize, Signal
-from PySide6.QtGui import QColor, QIcon, QImage, QPixmap
+from PySide6.QtGui import QIcon, QImage, QPixmap
 
 from .. import config
 from ..fractal.formats import load_flame
@@ -21,6 +21,7 @@ from ..library.model import LibraryModel
 from ..render.service import PRIORITY_THUMBNAIL, RenderService
 from ..render.settings import RenderSettings
 from .background import run_in_background
+from ..widgets.theming import on_theme_changed, theme_color
 
 CACHE_LIMIT = 2000
 THUMBNAIL_POINTS = 8192
@@ -43,6 +44,7 @@ class ThumbnailProvider(QObject):
         self._enabled = False
         self._size = QSize(*config.THUMBNAIL_SIZE)
         self._placeholder = _placeholder(self._size)
+        on_theme_changed(self, lambda _theme: self._restyle_placeholder(), lazy=False)
         self._virtual: dict[Path, tuple[int, list]] = {}   # path of in-memory entries -> (batch id, flames)
         self._virtual_id = 0
         service.pass_done.connect(self._on_pass)
@@ -92,6 +94,9 @@ class ThumbnailProvider(QObject):
                                   on_error=lambda exc, k=key: self._pending.pop(k, None))
         return self._placeholder
 
+    def _restyle_placeholder(self) -> None:
+        self._placeholder = _placeholder(self._size)
+
     def cached(self, item: LibraryItem) -> QIcon | None:
         key = self._key(item)
         return self._cache.get(key) if key else None
@@ -136,8 +141,9 @@ class ThumbnailProvider(QObject):
 
 
 def _placeholder(size: QSize) -> QIcon:
+    """The icon of a row whose thumbnail is still rendering: an empty canvas."""
     pixmap = QPixmap(size)
-    pixmap.fill(QColor(40, 40, 40))
+    pixmap.fill(theme_color("canvas_bg"))
     return QIcon(pixmap)
 
 

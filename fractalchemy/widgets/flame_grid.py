@@ -2,7 +2,7 @@
 
 Each cell shows an image (letterboxed), a caption and its number (1–9, in reading order). The centre cell can be marked
 as the *parent*: it is drawn with an accent frame and does not count as a choice. Clicking a cell, or pressing its number,
-emits `chosen`; right-clicking emits `menu_requested`. The grid only displays; what the cells hold is the window's
+emits `chosen`; right-clicking emits `menu_requested`; **Space** asks for new offspring (`regenerate_requested`). The grid only displays; what the cells hold is the window's
 business. Colours come from the theme: the ground is a canvas (dark on every theme), frames and captions use the
 canvas roles.
 """
@@ -41,9 +41,11 @@ class FlameGrid(QWidget):
     Signals:
         chosen(int): A cell (not the parent) was clicked or its number pressed.
         menu_requested(int, QPoint): Right-click on a cell (global position).
+        regenerate_requested(): Space.
     """
     chosen = Signal(int)
     menu_requested = Signal(int, QPoint)
+    regenerate_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -150,6 +152,8 @@ class FlameGrid(QWidget):
         key = event.key()
         if Qt.Key.Key_1 <= key <= Qt.Key.Key_9 and self._choosable(key - Qt.Key.Key_1):
             self.chosen.emit(key - Qt.Key.Key_1)
+        elif key == Qt.Key.Key_Space:
+            self.regenerate_requested.emit()
         else:
             super().keyPressEvent(event)
 

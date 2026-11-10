@@ -178,3 +178,54 @@ def test_the_grid_renderer_ignores_passes_of_an_older_generation(win):
     win.render_service.pass_done.emit(stale, image, RenderStats("CPU", 1, 1, 0, 0, 0.0, 40, 30))
     win.render_service.pass_done.emit(("grid", id(renderer), renderer.generation, 5), image, RenderStats("CPU", 1, 1, 0, 0, 0.0, 40, 30))
     assert got == [5]
+
+
+def test_space_in_the_grid_makes_new_offspring(win, workdir):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    open_flame_and_wait(win, workdir / "candy.flame", 0)
+    win.show_mutation()
+    window = win.mutation_window
+    offspring_ready(window)
+    generation = window.generation
+    QTest.keyClick(window.grid, Qt.Key.Key_Space)
+    assert window.generation == generation + 1
+    assert "Space" in window.mutate_panel.regenerate_button.toolTip()
+
+
+def test_the_fractal_library_offers_breed_with_current_fractal(main_window_factory, workdir):
+    from fractalchemy.library.items import Kind, LibraryItem
+    win = main_window_factory(cheap_renders=True)
+    open_flame_and_wait(win, workdir / "candy.flame", 0)
+    row = LibraryItem(Kind.ENTRY, workdir / "stuff.flame", 2, "a stuff entry")
+    menu = win.fractal_menu.build(row, [row])
+    action = next(a for a in menu.actions() if a.text() == "Breed with Current Fractal")
+    assert [a.text() for a in menu.actions()][:2] == ["Open", "Breed with Current Fractal"]
+    action.trigger()
+    window = win.mutation_window
+    assert window.breeding and window.isVisible()
+    wait_until(lambda: window.breed_panel.parent_b is not None)
+    assert window.breed_panel.parent_b.name == load_flame(workdir / "stuff.flame", 2).name
+    offspring_ready(window)
+
+
+def test_the_grid_states_are_named_and_shown(win, workdir):
+    from fractalchemy.machines import OffspringState
+    win.show_mutation()
+    window = win.mutation_window
+    wait_until(lambda: window.state is OffspringState.EMPTY)
+    assert window.state_label.text() == "No fractal" and "no fractal" in window.state_label.toolTip()
+    open_flame_and_wait(win, workdir / "candy.flame", 0)
+    offspring_ready(window)
+    assert window.state is OffspringState.READY and window.state_label.text() == "Ready"
+    window.show_breeding()                                   # the Breed tab without a parent B
+    wait_until(lambda: window.state is OffspringState.NEEDS_PARENT)
+    assert window.state_label.text() == "Needs parent B" and "second parent" in window.grid.message
+    window.use_current_as_parent_b()
+    assert window.state is OffspringState.GENERATING
+    offspring_ready(window)
+    window.hide()
+    win.document.set_view(zoom=0.5)                          # an edit while hidden: noted, nothing made
+    assert window.state is OffspringState.STALE and not window.ready
+    events = [step.event for step in window.offspring_state.history]
+    assert events[:3] == ["no_fractal", "changed", "generate"] and events[-1] == "changed"

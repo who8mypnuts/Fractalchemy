@@ -53,7 +53,7 @@ class MutatePanel(QWidget):
         self.trend.setToolTip("A variation the mutations favour when they swap or add one (Apophysis's Trend)")
         self.keep_count.setToolTip("Never add or remove transforms (drift stays within the parent's transforms)")
         self.keep_symmetry.setToolTip("Leave symmetry transforms alone (colour speed 0 — Apophysis's symmetry = 1)")
-        self.regenerate_button.setToolTip("Make a new set of mutants of the current fractal (Space)")
+        self.regenerate_button.setToolTip("Make a new set of mutants of the current fractal (Space in the grid, or F5)")
         strength_row = QHBoxLayout()
         strength_row.addWidget(self.strength, 1)
         strength_row.addWidget(self.strength_label)
@@ -217,7 +217,7 @@ class BreedPanel(QWidget):
         self.parent_name.setWordWrap(True)
         self.use_current_button.setToolTip("Take the fractal shown in the main window as parent B (then show another one as A)")
         self.open_button.setToolTip("Load parent B from a fractal file (the first fractal in it)")
-        self.regenerate_button.setToolTip("Make a new set of children of the current fractal (A) and parent B (Space)")
+        self.regenerate_button.setToolTip("Make a new set of children of the current fractal (A) and parent B (Space in the grid, or F5)")
         for combo, values, labels, tip in ((self.mode, B.MODES, B.MODE_LABELS, "How the parents' transforms combine"),
                                            (self.gradient, B.GRADIENT_SOURCES, B.SOURCE_LABELS, "Where the children's gradient comes from"),
                                            (self.camera, B.CAMERA_SOURCES, B.SOURCE_LABELS, "Where the children's camera and colouring come from")):

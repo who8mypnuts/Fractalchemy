@@ -40,10 +40,13 @@ from ..widgets.icons import action_icon, script_icon
 from .fractal_document import FractalDocument
 from .script_drawer import ScriptDrawer
 from .script_runner import REQUEST_CONFIRM, REQUEST_INPUT, ScriptRunner
+from ..machines import SCRIPT_RUN, ScriptState
 from ..widgets.windows import bring_to_front
 from ..widgets.theming import colored_html, current_theme
 
 WINDOW_TITLE = "Script Editor"
+RUN_STATE_LABELS = {ScriptState.IDLE: "", ScriptState.RUNNING: "Running…",
+                    ScriptState.WAITING: "Running — waiting for the viewport…", ScriptState.STOPPING: "Stopping…"}
 DRAWER_WIDTH = 400
 OUTPUT_HEIGHT = 150
 MAX_OUTPUT_BLOCKS = 3000
@@ -161,7 +164,8 @@ class ScriptEditorWindow(QMainWindow):
         self._load()
         self._wait_timer = QTimer(self, singleShot=True)
         self._wait_timer.timeout.connect(self._render_waited)
-        self._waiting = False
+        self.run_state = SCRIPT_RUN.new(WINDOW_TITLE)     # idle → running ⇄ waiting → stopping → idle (machines.SCRIPT_RUN)
+        self.run_state.on_change(lambda _step: self._show_run_state())
         self.refresh_templates()
         self.refresh_info()
         self._refresh_context()
@@ -349,7 +353,7 @@ class ScriptEditorWindow(QMainWindow):
         self.editor.setFocus()
 
     def closeEvent(self, event) -> None:
-        if self.runner.running and QMessageBox.question(self, WINDOW_TITLE, "A script is running. Stop it and close the editor?") != QMessageBox.StandardButton.Yes:
+        if self.running and QMessageBox.question(self, WINDOW_TITLE, "A script is running. Stop it and close the editor?") != QMessageBox.StandardButton.Yes:
             event.ignore()
             return
         self.stop()
@@ -440,7 +444,7 @@ class ScriptEditorWindow(QMainWindow):
             script_rows.append(("From template", escape(template.name) + (" (built-in)" if template.builtin else " (yours)")))
         run_rows: list[tuple[str, str]] = []
         info = self._last_run_info
-        if self.runner.running:
+        if self.running:
             run_rows.append(("Result", colored_html("running…", "warning")))
         elif info:
             outcome = info.get("outcome", "")
@@ -510,8 +514,9 @@ class ScriptEditorWindow(QMainWindow):
 
     # --- running -----------------------------------------------------------------------------------------------------
     def run(self) -> None:
-        """Run the editor's script on the main window's fractal."""
-        if self.runner.running:
+        """Run the editor's script on the main window's fractal (only when no run is in progress — the previous run's
+        result included, which arrives a moment after its thread has ended)."""
+        if not self.run_state.can("run"):
             return
         code = self.editor.text()
         self.editor.set_error_line(None)
@@ -530,25 +535,34 @@ class ScriptEditorWindow(QMainWindow):
         self._run_started = time.monotonic()
         self._last_run_info = {"started": time.strftime("%H:%M:%S"), "before": len(flame.xforms) if flame else 0}
         self.output.append_note(f"▶ Running {self.script_name}…", "info")
-        self._set_running(True)
+        self.run_state.fire("run")
         self.refresh_info()
         self.runner.run(code, flame)
 
+    @property
+    def running(self) -> bool:
+        """True from Run until the run's result has been processed (stopping and waiting for the viewport included)."""
+        return self.run_state.state != ScriptState.IDLE
+
     def stop(self) -> None:
-        if self.runner.running:
+        """Ask the running script to stop (it ends at its next line, or at once when it waits)."""
+        if self.run_state.can("stop"):
             self.runner.stop()
             self._wait_timer.stop()
-            self._waiting = False
-            self.statusBar().showMessage("Stopping…", 2000)
+            self.run_state.fire("stop")
 
-    def _set_running(self, running: bool) -> None:
-        self.actionRun.setEnabled(not running)
-        self.actionStop.setEnabled(running)
-        self.state_label.setText("Running…" if running else "")
-        self.progress_bar.setVisible(running)
-        self.progress_bar.setValue(0)
-        if running:
-            self.progress_bar.setRange(0, 0)
+    def _show_run_state(self) -> None:
+        """Actions, the state label and the progress bar from the run's state."""
+        state = self.run_state.state
+        running = state != ScriptState.IDLE
+        self.actionRun.setEnabled(self.run_state.can("run"))
+        self.actionStop.setEnabled(self.run_state.can("stop"))
+        self.state_label.setText(RUN_STATE_LABELS[state])
+        if running != self.progress_bar.isVisible():
+            self.progress_bar.setVisible(running)
+            self.progress_bar.setValue(0)
+            if running:
+                self.progress_bar.setRange(0, 0)
 
     def _script_progress(self, fraction: float) -> None:
         self.progress_bar.setRange(0, 100)
@@ -573,8 +587,7 @@ class ScriptEditorWindow(QMainWindow):
         self.document.apply_script(flame, self._run)
         self._run_updated = True
         self.actionRevert.setEnabled(True)
-        if wait and self.viewport is not None:
-            self._waiting = True
+        if wait and self.viewport is not None and self.run_state.fire_if("wait"):    # not while stopping: reply at once
             self._wait_timer.start(RENDER_WAIT_MS)
             return
         self.runner.reply(None)
@@ -585,12 +598,12 @@ class ScriptEditorWindow(QMainWindow):
         viewport.render_progress.connect(self._on_render_pass)
 
     def _on_render_pass(self, _stats) -> None:
-        if self._waiting:
+        if self.run_state.state == ScriptState.WAITING:
             self._render_waited()
 
     def _render_waited(self) -> None:
-        if self._waiting:
-            self._waiting = False
+        """The viewport rendered the intermediate fractal (or the wait timed out): let the script go on."""
+        if self.run_state.fire_if("rendered"):
             self._wait_timer.stop()
             self.runner.reply(None)
 
@@ -621,7 +634,7 @@ class ScriptEditorWindow(QMainWindow):
                 self.document.apply_script(self._snapshot, self._run)   # undo the intermediate updates
             info.update(outcome=str(error), after=info.get("before"))
             self.statusBar().showMessage("Script failed — see the output panel", 5000)
-        self._set_running(False)
+        self.run_state.fire("finished")
         self.refresh_info()
 
     def revert_flame(self) -> None:

@@ -21,6 +21,7 @@ from ..widgets.theming import colored_html
 
 PREVIEW_MIN = QSize(320, 200)
 PROGRESS_STEPS = 10000
+STATE_NOTES = ("paused", "stopping")     # the job states the phase line can carry
 
 
 class PreviewLabel(QLabel):
@@ -123,8 +124,14 @@ class RenderProgressPanel(QWidget):
 
     def show_paused(self, paused: bool) -> None:
         """Reflect a pause in the phase line."""
-        text = self.phase.text().replace(" (paused)", "")
-        self.phase.setText(text + (" (paused)" if paused else ""))
+        self.show_note("paused" if paused else "")
+
+    def show_note(self, note: str) -> None:
+        """A state note after the phase line — `paused`, `stopping` — replacing the previous one ("" clears it)."""
+        text = self.phase.text()
+        for old in STATE_NOTES:
+            text = text.replace(f" ({old})", "")
+        self.phase.setText(text + (f" ({note})" if note else ""))
 
     def show_outcome(self, outcome: FinalOutcome) -> None:
         """Describe a finished render, with links to the file and its folder."""

@@ -16,6 +16,7 @@ from .color_dialog import ColorPickerDialog
 from .node_commands import INDEX_UNITS, NodeCommands
 from .qt_colors import contrasting_pen_color
 from .silent import set_value_silently
+from .theming import theme_color
 
 PANEL_WIDTH = 210
 POSITION_MAX = INDEX_UNITS          # 0..399, Ultra Fractal's native gradient index units
@@ -140,7 +141,7 @@ class NodePanel(QGroupBox):
     def _paint_swatch(self, color: RGB) -> None:
         text = contrasting_pen_color(color).name()
         self.swatch.setText("#" + rgb_to_hex(color))
-        self.swatch.setStyleSheet(f"background-color: {QColor(*color).name()}; color: {text}; border: 1px solid #555;")
+        self.swatch.setStyleSheet(f"background-color: {QColor(*color).name()}; color: {text}; border: 1px solid {theme_color('border').name()};")
 
     # --- helpers ------------------------------------------------------------
     def _selected(self) -> int:

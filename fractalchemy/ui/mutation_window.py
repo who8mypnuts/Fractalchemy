@@ -28,7 +28,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QPoint, QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QShowEvent
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMenu, QScrollArea, QSplitter, QStatusBar, QTabWidget, QWidget
+from PySide6.QtWidgets import QFileDialog, QLabel, QMainWindow, QMenu, QScrollArea, QSplitter, QStatusBar, QTabWidget, QWidget
 
 from .. import config
 from ..fractal import breeding as B
@@ -36,6 +36,7 @@ from ..fractal import mutation as M
 from ..fractal.formats import flame_to_text, load_flame, open_dialog_filter
 from ..fractal.mutation import Offspring
 from ..fractal.scene import Flame
+from ..machines import OFFSPRING, OffspringState
 from ..render.service import RenderService
 from ..widgets.actions import make_action, populate
 from ..widgets.flame_grid import CELLS, CENTRE, FlameGrid
@@ -51,6 +52,9 @@ MUTATE_TAB, BREED_TAB = 0, 1
 OFFSPRING_CELLS = tuple(i for i in range(CELLS) if i != CENTRE)
 SIDE_WIDTH = 300
 NO_FRACTAL = "Open a fractal in the main window to mutate it"
+OFFSPRING_LABELS = {OffspringState.STALE: "Out of date", OffspringState.EMPTY: "No fractal",
+                    OffspringState.NEEDS_PARENT: "Needs parent B", OffspringState.GENERATING: "Making offspring…",
+                    OffspringState.READY: "Ready", OffspringState.FAILED: "Failed"}
 NO_PARENT_B = ("Choose a second parent (B) on the right: use the current fractal and then show another one, open a file, "
                "or drop a fractal from the Fractal Library")
 
@@ -85,7 +89,9 @@ class MutationWindow(QMainWindow):
         self.breed_panel = BreedPanel(self)
         self.offspring: dict[int, Offspring] = {}          # grid cell → the mutant / child shown there
         self._generation = 0
-        self._stale = True
+        self.offspring_state = OFFSPRING.new(WINDOW_TITLE)   # stale / empty / needs_parent / generating / ready / failed
+        self.offspring_state.on_change(lambda _step: self._show_offspring_state())
+        self.state_label = QLabel(self)
         self._adopting = False
         self._follow = QTimer(self, singleShot=True, interval=config.EDIT_RENDER_DELAY_MS)
         self._follow.timeout.connect(self._follow_parent)
@@ -110,8 +116,10 @@ class MutationWindow(QMainWindow):
         self.splitter.setStretchFactor(1, 0)
         self.setCentralWidget(self.splitter)
         self.setStatusBar(QStatusBar(self))
+        self.statusBar().addPermanentWidget(self.state_label)
+        self._show_offspring_state()
         self.regenerate_action = make_action(self, "New offspring", "reload", self.regenerate, "F5",
-                                             "Make a new set of mutants / children of the current fractal")
+                                             "Make a new set of mutants / children of the current fractal (Space in the grid)")
         self.undo_action = make_action(self, "Undo", action_icon("undo"), self.document.undo, "Ctrl+Z", "Undo the last change of the fractal")
         self.redo_action = make_action(self, "Redo", action_icon("redo"), self.document.redo, "Ctrl+Shift+Z", "Redo")
         toolbar = self.addToolBar("Mutate & Breed")
@@ -122,6 +130,7 @@ class MutationWindow(QMainWindow):
     def _connect(self) -> None:
         self.grid.chosen.connect(self.adopt)
         self.grid.menu_requested.connect(self._cell_menu)
+        self.grid.regenerate_requested.connect(self.regenerate)
         self.renderer.image_ready.connect(self.grid.set_image)
         self.parent_renderer.image_ready.connect(lambda _slot, image: self.breed_panel.show_parent_image(image))
         self.tabs.currentChanged.connect(lambda _index: self._options_changed())
@@ -156,14 +165,22 @@ class MutationWindow(QMainWindow):
 
     @property
     def ready(self) -> bool:
-        """Whether the offspring of the latest regeneration have arrived."""
-        return bool(self.offspring) and not self._stale
+        """Whether the offspring of the latest regeneration have arrived (and nothing has changed since)."""
+        return self.offspring_state.state == OffspringState.READY
+
+    @property
+    def state(self) -> OffspringState:
+        """What the grid shows (see `machines.OFFSPRING`)."""
+        return self.offspring_state.state
+
+    def _show_offspring_state(self) -> None:
+        self.state_label.setText(OFFSPRING_LABELS[self.offspring_state.state])
+        self.state_label.setToolTip(OFFSPRING.meanings[self.offspring_state.state])
 
     # --- making offspring -------------------------------------------------------------------------------------------
     def regenerate(self) -> None:
         """Make a new set of offspring of the current fractal (on the thread pool) and render the grid."""
         self._follow.stop()
-        self._stale = False
         self._generation += 1
         generation = self._generation
         self.offspring = {}
@@ -171,6 +188,7 @@ class MutationWindow(QMainWindow):
         if parent is None:
             self.renderer.cancel()
             self.grid.clear(NO_FRACTAL)
+            self.offspring_state.fire("no_fractal")
             return
         parent_b = self.breed_panel.parent_b
         self.grid.clear(NO_PARENT_B if self.breeding and parent_b is None else "")
@@ -178,11 +196,13 @@ class MutationWindow(QMainWindow):
                            f"{parent.name} — the fractal shown in the main window")
         self.renderer.render({CENTRE: parent})
         if self.breeding and parent_b is None:
+            self.offspring_state.fire("no_second_parent")
             return
+        self.offspring_state.fire("generate")
         for cell in OFFSPRING_CELLS:
             self.grid.set_cell(cell, "…", busy=True)
         seed = self._rng.getrandbits(32)
-        count = len(OFFSPRING_CELLS)
+        count = min(len(OFFSPRING_CELLS), config.MUTATION_CHILDREN)
         if self.breeding:
             job = (B.children, parent.copy(), parent_b.copy(), count, seed, self.breed_panel.options())
             self.statusBar().showMessage(f"Breeding {parent.name} with {parent_b.name}…")
@@ -199,12 +219,14 @@ class MutationWindow(QMainWindow):
         for cell, child in self.offspring.items():
             self.grid.set_cell(cell, caption(child), tooltip(child))
             self.renderer.render_slot(cell, child.flame)
+        self.offspring_state.fire("made")                  # from *stale* too: shown until the regeneration replaces them
         what = "children" if self.breeding else "mutants"
         self.statusBar().showMessage(f"{len(offspring)} {what}: click one (or press its number) to make it the fractal; "
                                      "right-click for more", 8000)
 
     def _failed(self, generation: int, exc: Exception) -> None:
         if generation == self._generation:
+            self.offspring_state.fire("failed")
             self.grid.set_message(f"Could not make offspring: {exc}")
             self.statusBar().showMessage(f"Could not make offspring: {exc}")
 
@@ -242,6 +264,10 @@ class MutationWindow(QMainWindow):
         menu.addAction("Copy parameters", lambda: QGuiApplication.clipboard().setText(flame_to_text(flame)))
         return menu
 
+    def show_breeding(self) -> None:
+        """Switch to the Breed tab."""
+        self.tabs.setCurrentIndex(BREED_TAB)
+
     # --- the second parent --------------------------------------------------------------------------------------------
     def set_parent_b(self, flame: Flame, where: str = "") -> None:
         """Use `flame` as parent B (and regenerate when the Breed tab is showing)."""
@@ -271,7 +297,7 @@ class MutationWindow(QMainWindow):
     # --- following the main window ------------------------------------------------------------------------------------
     def _parent_replaced(self) -> None:
         """A different fractal in the main window: new offspring at once (when visible)."""
-        self._stale = True
+        self.offspring_state.fire("changed")
         if self.isVisible():
             self.regenerate()
 
@@ -279,17 +305,17 @@ class MutationWindow(QMainWindow):
         """The fractal was edited elsewhere: regenerate once the edits pause (our own adoptions excepted)."""
         if self._adopting:
             return
-        self._stale = True
+        self.offspring_state.fire("changed")
         if self.isVisible():
             self._follow.start()
 
     def _follow_parent(self) -> None:
-        if self.isVisible() and self._stale:
+        if self.isVisible() and self.offspring_state.state == OffspringState.STALE:
             self.regenerate()
 
     def _options_changed(self) -> None:
         self._save_options()
-        self._stale = True
+        self.offspring_state.fire("changed")
         if self.isVisible():
             self._follow.start()
 
@@ -305,7 +331,7 @@ class MutationWindow(QMainWindow):
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
-        if self._stale:
+        if self.offspring_state.state == OffspringState.STALE:
             QTimer.singleShot(0, self.regenerate)
 
     def closeEvent(self, event: QCloseEvent) -> None:

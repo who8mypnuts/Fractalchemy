@@ -249,10 +249,21 @@ def test_render_queue_runs_jobs_in_turn(window, tmp_path):
     queue = window.render_queue
     assert len(queue.entries) == 2 and queue.isVisible()
     queue.start()
+    assert queue.state == "running" and not queue.start_button.isEnabled() and queue.stop_button.isEnabled()
     wait_until(lambda: not queue.running, 180000)
     assert [e.state for e in queue.entries] == ["done", "done"] and (tmp_path / "q1.png").is_file() and (tmp_path / "q2.png").is_file()
+    assert queue.state == "idle" and [s.event for s in queue.machine.history] == ["start", "emptied"]
     queue.clear_finished()
     assert queue.entries == []
+    for name in ("q3.png", "q4.png"):                          # Stop: the running entry is cancelled, the rest wait
+        rw.output_panel.set_path(str(tmp_path / name))
+        rw.output_panel._on_path_edited()
+        window.queue_current_render()
+    queue.start()
+    queue.stop()
+    assert queue.state == "stopping" and not queue.stop_button.isEnabled() and "stopping" in queue.summary.text()
+    wait_until(lambda: queue.state == "idle", 60000)
+    assert queue.entries[0].state in ("stopped", "done") and queue.entries[1].state == "waiting"
 
 
 # --- graph editor ---------------------------------------------------------------------------------------------------------------

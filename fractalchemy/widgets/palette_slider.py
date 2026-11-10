@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from .images import palette_pixmap
+from .theming import theme_color
 
 
 class PaletteSlider(QWidget):
@@ -48,7 +49,7 @@ class PaletteSlider(QWidget):
             if self._pixmap is None or self._pixmap.width() != w - 2:
                 self._pixmap = palette_pixmap(self._palette, max(1, w - 2), h - 8)
             painter.drawPixmap(1, 1, self._pixmap)
-        painter.setPen(QPen(QColor(90, 90, 90), 1))
+        painter.setPen(QPen(theme_color("border"), 1))
         painter.drawRect(0, 0, w - 1, h - 7)
         x = 1 + self._value * (w - 3)
         painter.setPen(QPen(QColor(20, 20, 20), 1))

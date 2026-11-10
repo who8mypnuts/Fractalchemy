@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QPushButton, QTa
 
 from ...fragments.gl.final_job import FragOutcome, FragRenderInput, FragRenderJob
 from ...render.final_engine import FinalProgress
+from ...machines import RENDER_QUEUE, QueueState
 from ..render_progress import RenderProgressPanel
 
 WAITING, RENDERING, DONE, FAILED, STOPPED = "waiting", "rendering", "done", "failed", "stopped"
@@ -53,7 +54,7 @@ class RenderQueueWindow(QMainWindow):
         self.entries: list[QueueEntry] = []
         self.job: FragRenderJob | None = None
         self._current: QueueEntry | None = None
-        self._running = False
+        self.machine = RENDER_QUEUE.new("render queue")     # idle → running → stopping → idle (machines.RENDER_QUEUE)
         self.table = QTableWidget(0, len(COLUMNS), self)
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -96,7 +97,7 @@ class RenderQueueWindow(QMainWindow):
         entry = QueueEntry(inputs)
         self.entries.append(entry)
         self._refresh()
-        if self._running and self.job is None:
+        if self.machine.state == QueueState.RUNNING and self.job is None:
             self._next()
         return entry
 
@@ -117,27 +118,39 @@ class RenderQueueWindow(QMainWindow):
 
     # --- running --------------------------------------------------------------------------------------------------------
     @property
+    def state(self) -> QueueState:
+        """`idle`, `running` or `stopping`."""
+        return self.machine.state
+
+    @property
     def running(self) -> bool:
-        return self._running or self.job is not None
+        """True while the queue runs or winds down after Stop."""
+        return self.machine.state != QueueState.IDLE
 
     def start(self) -> None:
-        """Run the waiting entries in order."""
-        self._running = True
+        """Run the waiting entries in order (also after Stop, while the cancelled entry winds down)."""
+        self.machine.fire("start")
         self._refresh()
         if self.job is None:
             self._next()
 
     def stop(self) -> None:
-        """Stop after the running job (which is cancelled); the rest stay waiting."""
-        self._running = False
+        """Cancel the running entry; the rest stay waiting."""
+        if not self.machine.can("stop"):
+            return
+        self.machine.fire("stop")
         if self.job is not None:
             self.job.cancel()
+        else:
+            self.machine.fire("drained")
         self._refresh()
 
     def _next(self) -> None:
         waiting = self.waiting
-        if not self._running or not waiting:
-            self._running = False
+        if self.machine.state == QueueState.STOPPING:
+            self.machine.fire("drained")                     # the cancelled entry's thread has ended
+        if self.machine.state != QueueState.RUNNING or not waiting:
+            self.machine.fire_if("emptied")
             self._refresh()
             return
         entry = waiting[0]
@@ -196,9 +209,9 @@ class RenderQueueWindow(QMainWindow):
                     item.setToolTip("\n".join(entry.notes) if entry.notes else state)
                 self.table.setItem(row, column, item)
         waiting, done = len(self.waiting), sum(1 for e in self.entries if e.state == DONE)
-        self.summary.setText(f"{len(self.entries)} entries · {waiting} waiting · {done} done" + (" · running" if self.running else ""))
-        self.start_button.setEnabled(bool(waiting) and not self._running)
-        self.stop_button.setEnabled(self.running)
+        self.summary.setText(f"{len(self.entries)} entries · {waiting} waiting · {done} done" + (f" · {self.machine.state}" if self.running else ""))
+        self.start_button.setEnabled(bool(waiting) and self.machine.state != QueueState.RUNNING)
+        self.stop_button.setEnabled(self.machine.can("stop"))
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
         if self.parent() is not None:

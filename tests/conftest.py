@@ -9,6 +9,10 @@ from fractalchemy import config  # noqa: E402
 
 config.PREVIEW_REFINE_TO = 0.0   # windows built by the tests stop at their configured passes (render tests opt in)
 
+from fractalchemy.machines import set_strict  # noqa: E402
+
+set_strict(True)                 # an illegal state-machine event fails the test that caused it (the app logs and refuses)
+
 SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 NOT_SAMPLES = ("aposource", "apophysis-7x", "fragmentarium")  # reference source code kept under samples/, not gradient files
 

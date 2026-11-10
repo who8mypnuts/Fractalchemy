@@ -8,7 +8,7 @@ after clicking either.
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QContextMenuEvent, QMouseEvent, QPainter, QPaintEvent, QPen
+from PySide6.QtGui import QContextMenuEvent, QMouseEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QMenu, QWidget
 
 from .. import config
@@ -70,7 +70,7 @@ class GradientStrip(QWidget):
             painter.fillRect(rect, to_qgradient(gradient, rect.left(), rect.right()))
         else:
             self._paint_empty(painter, rect)
-        painter.setPen(QPen(QColor(70, 70, 70)))
+        painter.setPen(QPen(theme_color("border")))
         painter.drawRect(rect.adjusted(0, 0, -1, -1))
 
     def _paint_empty(self, painter: QPainter, rect: QRectF) -> None:

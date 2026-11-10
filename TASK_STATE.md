@@ -648,3 +648,31 @@ python3 -m pytest -q tests/test_mutation_window.py tests/test_mutation.py tests/
 python3 -m pytest -q tests/test_variations.py                # 1707 passed
 python3 tools/theme_snapshots.py OUT "Nord" "Catppuccin Latte"   # screenshots reviewed; also System on a dark desktop palette
 ```
+
+## Round 12: completing the plan; explicit state machines
+**Completing the plan** (`plans/mutate-breed-themes-plan.md` §12 lists the eight items): Space regenerates in the Mutate &
+Breed grid (the tooltips promised it); the Fractal Library's *Breed with Current Fractal* (`LibraryContextMenu(extra_actions=…)`,
+`build()`); the remaining painted widgets on theme roles; the "every gesture reaches the fractal" test; the mutation tunables in
+`config.py`; `FileActions` on `FileActionsBase`; `ColorPickerDialog._configure_fields` removed.
+
+**State machines.** Every module was searched for implicit lifecycles (state flags, nullable job references, state / mode
+fields, generation counters, load tickets) and each hit read; `docs/state-machines.md` is the result — the explicit machines
+(generated) and an inventory of everything else with the decision and its reason.
+* New Qt-free package `fractalchemy/machines/`: `core.py` (`MachineSpec` — states as a `StrEnum`, declared
+  `(state, event) → state` steps, meanings, self-validation; `Machine` — `can`, `fire`, `fire_if`, `allowed`, `on_change`,
+  `history`, `describe`; illegal events refused with a warning in the application, raising `IllegalTransition` under
+  `set_strict(True)`, which `tests/conftest.py` turns on) and `specs.py` (all six machines, `ALL`).
+* Converted (owners derive their buttons / labels / public properties from the machine; public APIs unchanged):
+  `JobWindowBase` (`JOB`: the four render windows — **fixed: Stop → Pause hung the render thread**; `RenderControl.pause` now
+  ignores a cancelled job too; ffmpeg's phase is the `_can_pause_now` hook; the phase line shows *(stopping)* —
+  `RenderProgressPanel.show_note`), `ScriptEditorWindow` (`SCRIPT_RUN` — **fixed: a second Run could start before the first
+  result was processed**; *Running… / waiting for the viewport… / Stopping…* labels), `MutationWindow` (`OFFSPRING`, a permanent
+  status label), `FragDocument` (`BUILD`: `needs_build` / `build_failed_last` derived), `Playback` (`PLAYBACK`), `RenderQueueWindow`
+  (`RENDER_QUEUE`: *stopping* is a state; Stop is disabled while it lasts).
+* `tools/state_machines.py` writes the generated half of the document (`--check` for the tests).
+* Tests: `test_machines.py` (primitive, every spec complete and reachable, no dead ends, the document current, the render
+  control regression), `test_render_window.py` (Stop → Pause cannot hang), `test_scripting.py` (the early-Run race; `finish()`
+  now waits for the window's state instead of sleeping), `test_mutation_window.py` (states and label), queue and playback
+  assertions; the whole suite runs strict.
+* Noted, not changed: `tests/test_fractal_files.py` (excluded by `pytest.ini`) targets an older architecture;
+  `FractalFileActions` still duplicates `FileActionsBase` (different `file_written` signal).

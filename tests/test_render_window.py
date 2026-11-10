@@ -152,6 +152,27 @@ def test_pause_resume_and_stop_keep_a_partial_render(render_window, tmp_path):
     assert out.exists() and "Stopped early" in window.progress_panel.result.text()
 
 
+def test_stop_then_pause_cannot_hang_the_render(render_window, tmp_path):
+    """The implicit-state bug: Pause stayed enabled after Stop, and pausing the cancelled job hung its thread."""
+    from fractalchemy.machines import JobState
+    window, document, _ = render_window
+    document.replace(sierpinski())
+    _quick(window, tmp_path / "stopped.png", quality="200", width=320, height=240)
+    assert window.job_state is JobState.IDLE and not window.pause_button.isEnabled()
+    window.start(ask_overwrite=False)
+    assert window.job_state is JobState.RUNNING and window.pause_button.isEnabled() and window.stop_button.isEnabled()
+    window.toggle_pause()
+    assert window.job_state is JobState.PAUSED
+    window.stop()                                             # stop while paused
+    assert window.job_state is JobState.STOPPING and "(stopping)" in window.progress_panel.phase.text()
+    assert not window.pause_button.isEnabled() and not window.stop_button.isEnabled() and not window.start_button.isEnabled()
+    window.toggle_pause()                                     # what the old window allowed: now nothing happens
+    assert window.job_state is JobState.STOPPING and not window.job.paused
+    wait_until(lambda: window.job_state is JobState.IDLE, timeout_ms=30000)
+    assert window.start_button.isEnabled() and not window.pause_button.isEnabled() and window.pause_button.text() == "Pause"
+    assert [step.event for step in window.machine.history] == ["start", "pause", "stop", "finished"]
+
+
 def test_settings_persist_between_windows(render_window, tmp_path):
     window, document, settings = render_window
     window.quality_panel.density.setEditText("777")

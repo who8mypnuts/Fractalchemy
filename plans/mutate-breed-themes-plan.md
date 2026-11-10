@@ -562,7 +562,7 @@ others: closing hides it, and its layout and options persist.
   * theme screenshots reviewed for readability in Nord, Nord Snow Storm, Dracula, Solarized Light, High Contrast Dark
     and System (light and dark palettes).
 
-## 11. Phase 9 — Housekeeping (approved; done in Phase 1)
+## 11. Phase 9 — Housekeeping (approved; the first two in Phase 1, the last two in the completion pass)
 * Delete `ui/editor_preview.py` (dead and failing to import) and `render/report.py` (dead, shadowed by `render/report/`).
 * `widgets/windows.py: bring_to_front(window)`, used by the new window; migrating the 8 existing copies is optional.
 * `ui/file_actions.FileActions` subclasses `FileActionsBase` (it duplicates `confirm_discard` / `_run_write` /
@@ -638,3 +638,22 @@ developed together (the window is built on both) and landed as one commit.
 * **Phase 8.** README (menus, toolbar, *Themes*, *Mutate & Breed window*, gradient gestures, the library following the
   fractal, Inspector, layout), `docs/fragments.md`, `docs/rendering.md`, TASK_STATE round 11 with the review table
   (R1–R3, D1–D3, C1, T1). Verification results are recorded in TASK_STATE.
+* **Completion pass** (auditing every section against the code found eight open items, now closed):
+  1. *Space* regenerated nothing, although the plan and both panels' tooltips promised it → `FlameGrid.regenerate_requested`
+     (Space), tooltips say "Space in the grid, or F5" (+ test).
+  2. §9.2's optional *Breed with Current Fractal* → `LibraryContextMenu(extra_actions=…)` (a generic hook, plus `build()`
+     so menus are testable without `exec`), `MainWindow.breed_with_item` (generated rows come from memory) (+ test).
+  3. §7.4's remaining painted widgets → the curve editor (canvas roles), palette slider, hue wheel, gradient strip and
+     node swatch borders (`border`), the library thumbnail placeholders and the gradient-strip thumbnails (canvas / border).
+  4. §6's "every gesture recolours the linked fractal" → `test_every_node_gesture_recolours_the_fractal_through_the_link`
+     (double-click, Shift+→, randomize, add random, delete; all undoable in the fractal).
+  5. §8.2's tunables → `config.MUTATION_ATTEMPTS / SCALE_LIMIT / CHECK_POINTS / CHECK_STEPS` (and `MUTATION_CHILDREN` is
+     now used).
+  6. §11: `ui/file_actions.FileActions` now subclasses `FileActionsBase` (prompt, writes, recent-write bookkeeping, failures,
+     load tickets, name prompt); the base had no production user before. Two tests now patch the Qt dialogs where they live.
+  7. §11: `ColorPickerDialog._configure_fields` removed.
+  8. The §11 heading claimed all four housekeeping items were done in Phase 1; corrected.
+  Noted, not changed: `tests/test_fractal_files.py` is excluded by `pytest.ini` and targets an older architecture
+  (`FractalDocument.undo_stack`); `FractalFileActions` still duplicates what `FileActionsBase` offers (its `file_written`
+  signal differs, so moving it is a separate step).
+

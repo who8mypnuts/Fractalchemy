@@ -5,6 +5,10 @@ panel on the right, the four buttons below), the job's life cycle (launch, pause
 the elapsed-time clock, tidy-up when the thread exits) and the window behaviour (closing hides a
 child window while its job carries on; quitting asks first). Subclasses supply the panels, build
 the job and show its progress and outcome.
+
+The life cycle is the explicit `machines.JOB` machine — *idle → running ⇄ paused → stopping → idle* — in
+`self.machine`; the buttons and the option panels are derived from its state (`_refresh_controls`), so they can
+never offer what the state does not allow (pausing a job that is stopping used to hang its thread).
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import time
 from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSplitter, QVBoxLayout, QWidget
 
+from ..machines import JOB, JobState, Transition
 from ..widgets.windows import bring_to_front
 
 OPTIONS_MIN_WIDTH = 520
@@ -39,6 +44,8 @@ class JobWindowBase(QMainWindow):
         self.setWindowTitle(self.title)
         self._settings = settings if settings is not None else QSettings()
         self.job = None
+        self.machine = JOB.new(self.title)
+        self.machine.on_change(self._on_state_changed)
         self.last_outcome = None
         self._showing_result = False
         self._job_started = 0.0
@@ -97,9 +104,14 @@ class JobWindowBase(QMainWindow):
 
     # --- the job --------------------------------------------------------------------------------------------------
     @property
+    def job_state(self) -> JobState:
+        """Where the job's life cycle is (`idle`, `running`, `paused`, `stopping`)."""
+        return self.machine.state
+
+    @property
     def rendering(self) -> bool:
-        """True while a job runs."""
-        return self.job is not None
+        """True while a job runs (paused or stopping included)."""
+        return self.machine.state != JobState.IDLE
 
     def start(self, ask_overwrite: bool = True) -> None:
         """Validate, snapshot and launch a job (subclasses decide what to ask; `_launch` does the rest)."""
@@ -113,7 +125,8 @@ class JobWindowBase(QMainWindow):
         job.succeeded.connect(self._on_succeeded)
         job.failed.connect(self._on_failed)
         job.finished.connect(self._on_thread_finished)
-        self._set_running(True)
+        job.progressed.connect(lambda _progress: self._show_state_note())   # after the subclass's own display
+        self.machine.fire("start")
         self._showing_result = False
         self.progress_panel.clear_result()
         self.progress_panel.show_progress(first_progress)
@@ -122,21 +135,23 @@ class JobWindowBase(QMainWindow):
         job.start()
 
     def toggle_pause(self) -> None:
-        """Pause / resume the running job."""
-        if self.job is None:
-            return
-        if self.job.paused:
-            self.job.resume()
-        else:
+        """Pause the running job, or resume the paused one (nothing in the other states)."""
+        if self.machine.can("pause") and self._can_pause_now():
             self.job.pause()
-        self.pause_button.setText("Resume" if self.job.paused else "Pause")
-        self.progress_panel.show_paused(self.job.paused)
+            self.machine.fire("pause")
+        elif self.machine.can("resume"):
+            self.job.resume()
+            self.machine.fire("resume")
 
     def stop(self) -> None:
-        """Stop the running job (what it keeps is up to the job's settings)."""
-        if self.job is not None:
+        """Stop the running or paused job (what it keeps is up to the job's settings)."""
+        if self.machine.can("stop"):
             self.job.cancel()
-            self.stop_button.setEnabled(False)
+            self.machine.fire("stop")
+
+    def _can_pause_now(self) -> bool:
+        """Whether the running job can be paused at this moment (a subclass may say no: ffmpeg cannot be paused)."""
+        return True
 
     def wait_for_job(self, timeout_ms: int = 60000) -> None:
         """Block until the job's thread has exited (used on quit and by tests)."""
@@ -148,13 +163,24 @@ class JobWindowBase(QMainWindow):
         if self.job is not None and not self.job.paused:
             self.progress_panel.show_elapsed(time.perf_counter() - self._job_started - self.job.control.paused_seconds)
 
-    def _set_running(self, running: bool) -> None:
+    def _on_state_changed(self, _step: Transition) -> None:
+        self._refresh_controls()
+        self._show_state_note()
+
+    def _refresh_controls(self) -> None:
+        """Buttons and option panels from the job's state (and `_can_pause_now`)."""
+        idle = self.machine.state == JobState.IDLE
         for panel in self._option_panels():
-            panel.setEnabled(not running)
-        self.start_button.setEnabled(not running)
-        self.pause_button.setEnabled(running)
-        self.pause_button.setText("Pause")
-        self.stop_button.setEnabled(running)
+            panel.setEnabled(idle)
+        self.start_button.setEnabled(idle)
+        self.pause_button.setEnabled(self.machine.can("resume") or (self.machine.can("pause") and self._can_pause_now()))
+        self.pause_button.setText("Resume" if self.machine.state == JobState.PAUSED else "Pause")
+        self.stop_button.setEnabled(self.machine.can("stop"))
+
+    def _show_state_note(self) -> None:
+        """*(paused)* / *(stopping)* after the progress panel's phase line."""
+        state = self.machine.state
+        self.progress_panel.show_note("paused" if state == JobState.PAUSED else "stopping" if state == JobState.STOPPING else "")
 
     def _on_progress(self, progress) -> None:
         raise NotImplementedError
@@ -172,7 +198,7 @@ class JobWindowBase(QMainWindow):
         self._clock.stop()
         if job is not None:
             job.deleteLater()
-        self._set_running(False)
+        self.machine.fire("finished")
         self._on_options_changed()
 
     def _on_options_changed(self, *_args) -> None:
@@ -186,13 +212,13 @@ class JobWindowBase(QMainWindow):
 
     def confirm_quit(self) -> bool:
         """Ask before quitting with a job running; stops it if the user agrees. False = keep running."""
-        if self.job is None:
+        if not self.rendering:
             return True
         answer = QMessageBox.question(self, self.title, self.quit_question,
                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if answer != QMessageBox.StandardButton.Yes:
             return False
-        self.job.cancel()
+        self.stop()
         self.wait_for_job()
         return True
 
@@ -202,8 +228,8 @@ class JobWindowBase(QMainWindow):
             event.ignore()
             self.hide()
             return
-        if self.job is not None:
-            self.job.cancel()
+        if self.rendering:
+            self.stop()
             self.wait_for_job()
         super().closeEvent(event)
 

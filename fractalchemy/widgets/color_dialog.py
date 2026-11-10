@@ -103,16 +103,6 @@ class ColorPickerDialog(QDialog):
         layout.addLayout(top)
         layout.addWidget(buttons)
 
-    def _configure_fields(self) -> None:
-        for spin in (self.red, self.green, self.blue):
-            spin.setRange(0, 255)
-            spin.setFixedWidth(64)
-        self.hex.setMaxLength(7)
-        self.hex.setFixedWidth(80)
-        for frame in (self.before, self.after):
-            frame.setFixedSize(44, 28)
-            frame.setFrameShape(QFrame.Shape.Box)
-
     def _connect(self) -> None:
         self.wheel.changed.connect(lambda h, s: self._set_hsl(h, s, self._l))
         self.hue.value_changed.connect(lambda v: self._set_hsl(v / 360.0, self._s, self._l))

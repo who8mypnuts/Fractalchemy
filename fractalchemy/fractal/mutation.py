@@ -33,6 +33,7 @@ import random
 from dataclasses import dataclass, field, replace
 from typing import Callable
 
+from .. import config
 from ..model.adjust import ROTATION_RANGE, Adjustments, apply_adjustments
 from ..model.operations import randomize_colors
 from . import variations as V
@@ -64,9 +65,9 @@ KIND_TIPS = {
 ORDER = (AFFINE, VARIATIONS, VARIATION_WEIGHTS, PARAMETERS, WEIGHTS, COLORS, GRADIENT, XAOS, STRUCTURE, FINAL, DRIFT)
 DEFAULT_KINDS = frozenset({AFFINE, VARIATIONS, VARIATION_WEIGHTS, PARAMETERS, WEIGHTS, COLORS, GRADIENT, DRIFT})
 DEFAULT_STRENGTH = 0.35
-ATTEMPTS = 8                 # rolls per mutant before settling for a gentler one
-SCALE_LIMIT = 25.0           # a mutant's extent may differ from the parent's by at most this factor
-CHECK_POINTS, CHECK_STEPS = 600, 24     # the sanity check's iteration (small: some compiled formulas are slow on the CPU)
+ATTEMPTS = config.MUTATION_ATTEMPTS          # the tunables live in config.py
+SCALE_LIMIT = config.MUTATION_SCALE_LIMIT
+CHECK_POINTS, CHECK_STEPS = config.MUTATION_CHECK_POINTS, config.MUTATION_CHECK_STEPS
 TREND_CHANCE = 0.6           # how often a swap / addition takes the trend variation when one is set
 
 

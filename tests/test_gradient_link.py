@@ -7,6 +7,7 @@ from PySide6.QtCore import QSettings, QSize
 from PySide6.QtGui import QImage, QColor
 from PySide6.QtWidgets import QMessageBox
 
+from fractalchemy import config
 from fractalchemy.formats import entry_names, format_for, load_gradients, save_gradient
 from fractalchemy.fractal.formats import fa, load_flame, load_flames
 from fractalchemy.library.catalog import FRACTAL_CATALOG
@@ -241,3 +242,32 @@ def test_fa_files_are_gradient_sources_too(workdir):
     new = workdir / "new.fa"
     save_gradient(gradient, new)
     assert entry_names(new) == ["solid"] and load_flame(new).renderable()
+
+
+# --- the gradient editor's gestures reach the fractal ------------------------------------------------------------
+def test_every_node_gesture_recolours_the_fractal_through_the_link(window, workdir):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    open_and_wait(window, workdir / "candy.flame", 0)
+    library = window.gradient_library
+    editor, commands, doc = library.gradientEditor, library.node_commands, library.document
+    library.show()
+
+    def palette():
+        return list(window.document.flame.palette)
+    before = palette()
+    strip = editor.strip
+    QTest.mouseDClick(strip, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                      QPoint(round(strip.mapper().to_x(0.37)), strip.height() // 2))
+    added = palette()          # a new handle; the first edit applies the editor's simplified gradient (import tolerance)
+    assert max(abs(a - b) for x, y in zip(before, added) for a, b in zip(x, y)) <= config.IMPORT_SIMPLIFY_TOLERANCE + 2
+    steps = [(lambda: QTest.keyClick(editor.nodes, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)), commands.randomize,
+             commands.add_random, commands.delete]
+    for step in steps:
+        previous = palette()
+        step()
+        assert palette() != previous and doc.modified
+    assert window.document.can_undo
+    while window.document.can_undo:
+        window.document.undo()
+    assert palette() == before

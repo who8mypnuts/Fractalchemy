@@ -12,6 +12,7 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from ..machines import PLAYBACK, PlaybackState
 from .animation_document import AnimationDocument
 
 TICK_MS = 15
@@ -32,17 +33,22 @@ class Playback(QObject):
         self._timer.timeout.connect(self._tick)
         self._started = 0.0
         self._from = 0
-        self._session = False
+        self.machine = PLAYBACK.new("animation playback")    # stopped → playing ⇄ paused (machines.PLAYBACK)
+
+    @property
+    def state(self) -> PlaybackState:
+        """`stopped`, `playing` or `paused`."""
+        return self.machine.state
 
     @property
     def playing(self) -> bool:
         """True while the playhead advances."""
-        return self._timer.isActive()
+        return self.machine.state == PlaybackState.PLAYING
 
     @property
     def in_session(self) -> bool:
         """True from Play until Stop (paused included)."""
-        return self._session
+        return self.machine.state != PlaybackState.STOPPED
 
     def play(self) -> bool:
         """Start (or resume) from the playhead — from the start when it sits at the end; False without keyframes."""
@@ -52,17 +58,18 @@ class Playback(QObject):
             return False
         if self.document.frame >= anim.last_frame and not anim.loop:
             self.document.set_frame(0)
-        if not self._session:
+        if not self.in_session:
             self._from = self.document.frame
-            self._session = True
         self._started = time.monotonic() - (self.document.frame - self._from) / max(1, anim.fps)
+        self.machine.fire("play")
         self._timer.start()
         self.state_changed.emit()
         return True
 
     def pause(self) -> None:
-        """Hold the playhead where it is."""
+        """Hold the playhead where it is (nothing to hold when not playing)."""
         self._timer.stop()
+        self.machine.fire_if("pause")
         self.state_changed.emit()
 
     def toggle(self) -> None:
@@ -75,9 +82,9 @@ class Playback(QObject):
     def stop(self, rewind: bool = True) -> None:
         """End the session; by default the playhead returns to where playback started."""
         self._timer.stop()
-        if self._session and rewind:
+        if self.in_session and rewind:
             self.document.set_frame(self._from)
-        self._session = False
+        self.machine.fire("stop")
         self.state_changed.emit()
 
     def _tick(self) -> None:
@@ -86,7 +93,7 @@ class Playback(QObject):
         if frame >= anim.total_frames:
             if not anim.loop:
                 self._timer.stop()
-                self._session = False
+                self.machine.fire("ended")
                 self.document.set_frame(anim.last_frame)
                 self.state_changed.emit()
                 return

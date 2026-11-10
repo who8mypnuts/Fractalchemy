@@ -16,6 +16,7 @@ from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPainter, QPainterPath, Q
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
 from ..fractal.curves import CHANNELS, DEFAULT_POINTS, Curves, monotone_cubic
+from .theming import theme_color
 
 CHANNEL_LABELS = {"overall": "All", "red": "R", "green": "G", "blue": "B", "alpha": "A"}
 CHANNEL_COLORS = {"overall": QColor(230, 230, 230), "red": QColor(235, 80, 80), "green": QColor(80, 200, 90),
@@ -93,20 +94,20 @@ class CurveCanvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         a = self._area()
-        painter.fillRect(a, QColor(28, 28, 30))
-        painter.setPen(QPen(QColor(60, 60, 64), 1))
+        painter.fillRect(a, theme_color("canvas_bg"))                # a canvas: dark on every theme
+        painter.setPen(QPen(theme_color("canvas_grid"), 1))
         for i in range(1, 4):
             x = a.left() + a.width() * i / 4
             y = a.top() + a.height() * i / 4
             painter.drawLine(QPointF(x, a.top()), QPointF(x, a.bottom()))
             painter.drawLine(QPointF(a.left(), y), QPointF(a.right(), y))
-        painter.setPen(QPen(QColor(80, 80, 84), 1, Qt.PenStyle.DashLine))
+        painter.setPen(QPen(theme_color("canvas_axis"), 1, Qt.PenStyle.DashLine))
         painter.drawLine(self._to_screen(0, 0), self._to_screen(1, 1))
         for channel in CHANNELS:
             if channel != self._channel and not self._curves.is_default(channel):
                 self._draw_curve(painter, channel, faint=True)
         self._draw_curve(painter, self._channel, faint=False)
-        painter.setPen(QPen(QColor(90, 90, 94), 1))
+        painter.setPen(QPen(theme_color("canvas_axis"), 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(a)
         painter.end()

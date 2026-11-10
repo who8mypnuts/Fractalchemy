@@ -417,13 +417,14 @@ def test_timeline_scrubs_drags_keyframes_and_playback_runs(animation):
     # playback advances the playhead at the frame rate
     doc.set_frame(0)
     aw.playback.play()
-    assert aw.playback.playing and aw.play_button.text() == "Pause"
+    assert aw.playback.playing and aw.play_button.text() == "Pause" and aw.playback.state == "playing"
     wait_until(lambda: doc.frame >= 5, 5000)
     aw.playback.pause()
     frame = doc.frame
     spin(100)
-    assert doc.frame == frame and not aw.playback.playing
+    assert doc.frame == frame and not aw.playback.playing and aw.playback.state == "paused" and aw.playback.in_session
     aw.playback.stop()
+    assert aw.playback.state == "stopped" and not aw.playback.in_session
     assert doc.frame == 0
     aw.playback.play()
     wait_until(lambda: not aw.playback.playing, 15000)                 # 150 frames at 30 fps: ends after 5 s

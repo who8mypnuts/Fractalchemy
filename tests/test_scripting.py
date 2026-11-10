@@ -388,8 +388,8 @@ def main(qapp, tmp_path, samples):
 
 
 def finish(editor) -> None:
-    wait_until(lambda: not editor.runner.running, 15000)
-    spin(150)
+    """Wait until the run is over *for the window* (its result processed), not merely until its thread has ended."""
+    wait_until(lambda: not editor.running, 15000)
 
 
 def test_script_editor_opens_from_the_windows_menu_and_the_toolbar_and_hides_on_close(main):
@@ -464,6 +464,30 @@ def test_stop_button_ends_an_endless_loop(main):
     editor.actionStop.trigger()
     finish(editor)
     assert not editor.runner.running and "Stopped" in editor.output.toPlainText() and editor.actionRun.isEnabled()
+
+
+def test_a_second_run_waits_for_the_first_ones_result_and_the_state_is_shown(main):
+    """The implicit-state race: the thread ends a moment before its result reaches the window; a Run in between used to
+    start a second script while the first one's result was still on its way."""
+    from fractalchemy.machines import ScriptState
+    editor = main.script_editor
+    editor.bring_to_front()
+    editor.editor.set_text("transform.weight = 0.25\n")
+    editor.run()
+    assert editor.run_state.state is ScriptState.RUNNING and editor.state_label.text() == "Running…"
+    assert editor.runner.wait(10)                              # the thread is over; its result is still queued
+    assert not editor.runner.running and editor.running
+    editor.run()                                              # refused: the first run is not finished for the window
+    assert [step.event for step in editor.run_state.history] == ["run"]
+    finish(editor)
+    assert editor.run_state.state is ScriptState.IDLE and editor.state_label.text() == "" and editor.actionRun.isEnabled()
+    editor.editor.set_text("n = 0\nwhile True:\n    n += 1\n")
+    editor.run()
+    editor.stop()
+    assert editor.run_state.state is ScriptState.STOPPING and editor.state_label.text() == "Stopping…"
+    assert not editor.actionStop.isEnabled() and not editor.actionRun.isEnabled()
+    finish(editor)
+    assert "Stopped" in editor.output.toPlainText()
 
 
 def test_prompts_use_dialogs_and_update_waits_for_the_viewport(main, monkeypatch):

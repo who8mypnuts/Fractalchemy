@@ -28,9 +28,10 @@ class RenderControl:
         self._resume.set()
 
     def pause(self) -> None:
-        """Hold the render between chunks until `resume`."""
+        """Hold the render between chunks until `resume`. Ignored once cancelled: a cancelled render must be free to end
+        (pausing it after Stop used to leave its thread waiting for a resume that never came)."""
         with self._lock:
-            if self._resume.is_set():
+            if self._resume.is_set() and not self._cancel.is_set():
                 self._resume.clear()
                 self._paused_since = time.perf_counter()
 

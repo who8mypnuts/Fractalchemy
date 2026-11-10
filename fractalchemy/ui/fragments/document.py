@@ -29,6 +29,7 @@ from ...fragments.preprocessor import Preprocessor
 from ...fragments.source import CRITICAL, FragmentSource, Message
 from ...fragments.state import ParameterState
 from ...fragments.textures import texture_specs
+from ...machines import BUILD, BuildState
 
 UNDO_LIMIT = 200
 RE_BARE_UNIFORM = re.compile(r"^\s*uniform\s+(\S+)\s+(\S+)\s*;\s*$")
@@ -93,8 +94,7 @@ class FragDocument(QObject):
         self.path = path
         self.metadata = metadata if metadata is not None else FragmentMetadata()   # the .fafrag block (render / animation / library)
         self._modified = False
-        self._needs_build = True
-        self.build_failed_last = False           # the last build attempt was rejected (preprocessor, translator or driver)
+        self.build_state = BUILD.new("fragment build")   # stale → built / failed (machines.BUILD)
         self.source: FragmentSource | None = None
         self.modern: ModernSource | None = None
         self.buffer_modern: ModernSource | None = None
@@ -152,12 +152,25 @@ class FragDocument(QObject):
 
     @property
     def needs_build(self) -> bool:
-        return self._needs_build
+        """Whether the shown program is stale or failed (*Build needed* / *Build failed*)."""
+        return self.build_state.state != BuildState.BUILT
+
+    @property
+    def build_failed_last(self) -> bool:
+        """Whether the last build attempt was rejected (preprocessor, translator or driver)."""
+        return self.build_state.state == BuildState.FAILED
 
     def set_needs_build(self, needed: bool) -> None:
-        if needed != self._needs_build:
-            self._needs_build = needed
-            self.needs_build_changed.emit(needed)
+        """Mark the program stale (a source, lock or option edit; True) or current (False)."""
+        self._build_event("edit" if needed else "built")
+
+    def _build_event(self, event: str) -> None:
+        """Move the build state; `needs_build_changed` when *needs build* flips — and always on a rejection, so the
+        label shows *Build failed* even when the program was already stale."""
+        before = self.needs_build
+        self.build_state.fire(event)
+        if self.needs_build != before or event == "rejected":
+            self.needs_build_changed.emit(self.needs_build)
 
     # --- building -----------------------------------------------------------------------------------------------------
     def build(self, options: BuildOptions) -> bool:
@@ -181,16 +194,13 @@ class FragDocument(QObject):
             self._fail([Message(CRITICAL, str(exc), self.path)])
             return False
         self.facts = None
-        self.build_failed_last = False
-        self.set_needs_build(False)
+        self._build_event("built")
         self.built.emit(source)
         return True
 
     def _fail(self, diagnostics: list) -> None:
-        self.build_failed_last = True
-        self.set_needs_build(True)
+        self._build_event("rejected")
         self.build_failed.emit(list(diagnostics))
-        self.needs_build_changed.emit(True)      # the label shows *Build failed* even when it was already stale
 
     def _apply_default_preset(self) -> None:
         """FragM applies the `Default` preset when a fragment is first built."""
