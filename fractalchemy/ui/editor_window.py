@@ -38,6 +38,7 @@ from .editor_panels import ColorsTab, TransformTab, TriangleTab
 from .editor_value_tabs import VariablesTab, VariationsTab, XaosTab
 from .live_preview import DEFAULT_QUALITY, LivePreview, quality_level
 from .fractal_document import FractalDocument
+from .undo_labels import show_undo_state
 from ..widgets.windows import bring_to_front
 
 WINDOW_TITLE = "Transform Editor"
@@ -221,6 +222,7 @@ class EditorWindow(QMainWindow):
 
     def _connect(self) -> None:
         doc, view, ops = self.document, self.view, self.operations
+        self.variables_tab.table.note.connect(lambda text: self.statusBar().showMessage(text, 5000))
         doc.flame_replaced.connect(self._on_flame_replaced)
         doc.flame_restored.connect(self.rebuild)
         doc.transforms_changed.connect(self.rebuild)
@@ -266,7 +268,7 @@ class EditorWindow(QMainWindow):
         try:
             self.preview.level = quality_level(s.value(f"{SETTINGS_GROUP}/preview_quality", DEFAULT_QUALITY.name))
             for action, key, default in ((a.xform_colors, "transform_colors", "false"), (a.ghosts, "ghosts", "true"),
-                                         (a.helpers, "helpers", "true"), (a.var_preview, "var_preview", "false")):
+                                         (a.helpers, "helpers", "true"), (a.var_preview, "var_preview", "false"), (a.grips, "grips", "true")):
                 action.setChecked(s.value(f"{SETTINGS_GROUP}/{key}", default) in ("true", True))
             self.colors_tab.set_var_preview_settings(int(s.value(f"{SETTINGS_GROUP}/var_preview_range", 2)),
                                                      int(s.value(f"{SETTINGS_GROUP}/var_preview_depth", 1)),
@@ -293,7 +295,8 @@ class EditorWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         s, a = self._settings, self.actions
         s.setValue(f"{SETTINGS_GROUP}/geometry", self.saveGeometry())
-        for action, key in ((a.xform_colors, "transform_colors"), (a.ghosts, "ghosts"), (a.helpers, "helpers"), (a.var_preview, "var_preview")):
+        for action, key in ((a.xform_colors, "transform_colors"), (a.ghosts, "ghosts"), (a.helpers, "helpers"), (a.var_preview, "var_preview"),
+                            (a.grips, "grips")):
             s.setValue(f"{SETTINGS_GROUP}/{key}", action.isChecked())
         super().closeEvent(event)
 
@@ -334,6 +337,11 @@ class EditorWindow(QMainWindow):
     def set_ghosts(self, on: bool) -> None:
         """Show the transform's other affines dotted behind the one being edited."""
         self.view.show_ghosts = on
+        self.view.update()
+
+    def set_grips(self, on: bool) -> None:
+        """Show the rotate / scale grips around the selected triangle."""
+        self.view.show_grips = on
         self.view.update()
 
     def set_helpers(self, on: bool) -> None:
@@ -437,8 +445,7 @@ class EditorWindow(QMainWindow):
         self.preview.request()
 
     def _on_undo_changed(self, can_undo: bool, can_redo: bool) -> None:
-        self.actions.undo.setEnabled(can_undo)
-        self.actions.redo.setEnabled(can_redo)
+        show_undo_state(self.document, self.actions.undo, self.actions.redo)
 
     def _on_selection_changed(self, key: object) -> None:
         self.view.select(key)

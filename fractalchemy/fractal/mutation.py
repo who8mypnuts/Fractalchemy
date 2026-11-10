@@ -188,24 +188,13 @@ def mutated_parameter(key: str, value: float, rng: random.Random, strength: floa
     """`value` of parameter `key` nudged: bounded parameters stay within their range (cyclic ones wrap), integer parameters
     (declared `VAR_INTEGER`: counts, modes, powers) stay integers and are never pushed to zero, the rest move in proportion
     to their size."""
-    owner = V.parameter_owner(key)
-    info = V.REGISTRY[owner].param_info.get(key) if owner in V.REGISTRY else None
+    info = V.param_info(key)
     lo, hi = (info.min, info.max) if info is not None else (None, None)
-    integer = info is not None and info.type == "int"
     if lo is not None and hi is not None and hi > lo:
         new = value + rng.gauss(0.0, 0.25 * strength * (hi - lo))
-        new = lo + (new - lo) % (hi - lo) if info.cyclic else min(hi, max(lo, new))
     else:
         new = value + rng.gauss(0.0, strength * (0.5 * abs(value) + 0.5))
-        new = max(lo, new) if lo is not None else new
-        new = min(hi, new) if hi is not None else new
-    if integer:
-        new = float(round(new))
-        if new == 0.0 and value != 0.0:          # a power or a count is never pushed to zero
-            new = math.copysign(1.0, value)
-    if info is not None and info.nonzero and new == 0.0:
-        new = value
-    return new
+    return V.constrain_param(key, new, previous=value, keep_counts=True)[0]   # the editors' rules (a count never reaches 0)
 
 
 def _parameters(flame: Flame, rng: random.Random, strength: float, options: MutationOptions) -> str | None:

@@ -1,15 +1,21 @@
 """Flame → Chaotica `.chaos` world text (the inverse of `chaos_world`'s reader).
 
 Chaotica has no `zoom`, so it is folded into `sensor_width`; the final xform becomes the
-camera's viewing transform; xaos rows become per-iterator "weights into this iterator".
+camera's viewing transform; xaos rows become per-iterator "weights into this iterator"; the
+pre affine is folded into the affine before the variations. Tone curves that differ from the
+identity are written to `<imaging><curves>` under Chaotica's channel names (`overall`, `0`,
+`5`, `10` = red, green, blue); the alpha curve and `filter_radius` have no Chaotica equivalent.
+A variation's parameters are those its formula declares (JuliaRandomN's `JRN_*`), not only
+the ones named after it.
 """
 
 from __future__ import annotations
 
 import math
 
+from .. import variations as V
 from ..scene import Flame, XForm
-from .chaos_world import BRIGHTNESS_SCALE
+from .chaos_world import BRIGHTNESS_SCALE, CURVE_CHANNELS
 from .xml_text import attr_text, number_text
 
 
@@ -56,7 +62,31 @@ def _imaging_lines(flame: Flame, indent: str) -> list[str]:
             f'{indent}\t<bool name="flam3_use_highlight_power">false</bool>',
             f'{indent}\t<real name="flam3_highlight_power">0.01</real>',
             f'{indent}\t<real name="flam3_gamma_linear_threshold">{number_text(col.gamma_threshold)}</real>',
+            *_curve_lines(flame, indent + "\t"),
             f"{indent}</imaging>"]
+
+
+def _curve_lines(flame: Flame, indent: str) -> list[str]:
+    """`<curves>` with every non-identity channel Chaotica can name (nothing when all are the identity)."""
+    curves = flame.coloring.curves
+    names = [(name, channel) for name, channel in CURVE_CHANNELS.items() if not curves.is_default(channel)]
+    if not names:
+        return []
+    lines = [f"{indent}<curves>"]
+    for name, channel in names:
+        points = curves.points[channel]
+        lines += [f'{indent}\t<curve name="{name}">',
+                  f"{indent}\t\t<table>", f"{indent}\t\t\t<values>{' '.join(number_text(x) for x, _y in points)}</values>", f"{indent}\t\t</table>",
+                  f"{indent}\t\t<table>", f"{indent}\t\t\t<values>{' '.join(number_text(y) for _x, y in points)}</values>", f"{indent}\t\t</table>",
+                  f"{indent}\t</curve>"]
+    return lines + [f"{indent}</curves>"]
+
+
+def _variation_params(xform: XForm, name: str) -> dict[str, float]:
+    """The parameters of variation `name` on `xform`: its formula's declared keys and any key named after it."""
+    declared = V.REGISTRY[name].params if name in V.REGISTRY else {}
+    return {key: value for key, value in xform.params.items()
+            if key in declared or key.startswith(name + "_") or V.parameter_owner(key) == name}
 
 
 def _palette_lines(flame: Flame, indent: str) -> list[str]:
@@ -67,7 +97,8 @@ def _palette_lines(flame: Flame, indent: str) -> list[str]:
 
 def _iterator_lines(flame: Flame, index: int, xform: XForm, indent: str) -> list[str]:
     """One iterator: transform, shader and selection weights (xaos as weights *into* this iterator)."""
-    lines = [f'{indent}<iterator name="Iterator {index}">', f'{indent}\t<flam3_transform name="flam3_xform {index}">']
+    label = attr_text(xform.name) if xform.name else f"Iterator {index}"
+    lines = [f'{indent}<iterator name="{label}">', f'{indent}\t<flam3_transform name="flam3_xform {index}">']
     lines += _transform_body(xform, indent + "\t\t")
     lines += [f"{indent}\t</flam3_transform>", f'{indent}\t<flam3_shader name="flam3 shader">',
               f'{indent}\t\t<real name="palette_index">{number_text(xform.color)}</real>',
@@ -102,9 +133,8 @@ def _transform_body(xform: XForm, indent: str) -> list[str]:
         lines.append(f'{indent}\t\t<string name="type_name">{name}</string>')
         lines.append(f"{indent}\t\t<params>")
         lines.append(f'{indent}\t\t\t<real name="{name}">{number_text(variations[name])}</real>')
-        for key, value in xform.params.items():
-            if key.startswith(name + "_"):
-                lines.append(f'{indent}\t\t\t<real name="{key}">{number_text(value)}</real>')
+        for key, value in _variation_params(xform, name).items():
+            lines.append(f'{indent}\t\t\t<real name="{key}">{number_text(value)}</real>')
         lines += [f"{indent}\t\t</params>", f"{indent}\t</transform>"]
     lines.append(f"{indent}</node>")
     return lines

@@ -197,7 +197,8 @@ def test_flame_level_functions(tmp_path, samples):
     with pytest.raises(ScriptError):
         ctx.load_flame(tmp_path / "missing.flame")
     with pytest.raises(ScriptError):
-        ctx.save_flame(tmp_path / "x.chaos")
+        ctx.save_flame(tmp_path / "x.txt")
+    assert ctx.save_flame(tmp_path / "x.chaos") == 0            # Chaotica worlds take new entries too
     assert ctx.validate() == []
     ctx.clear_transforms()
     assert ctx.validate() == ["no transform with a positive weight"]
@@ -324,15 +325,15 @@ def test_builtin_templates_have_metadata_and_all_run(samples, tmp_path):
     assert len(templates) >= 30 and {t.category for t in templates} == {"Transforms", "Colours", "Xaos", "Camera", "Flame"}
     assert all(t.builtin and t.description and t.name for t in templates)
     assert any(t.name == "Random rotate all transforms" for t in templates)
+    files = {"Gradient from a file": {"File": str(samples / "sample gradients" / "ag6.ugr")},
+             "Save rotated variants to a file": {"File": str(tmp_path / "variants.flame")}}
     for template in templates:
-        answers = {"Gradient file": str(samples / "sample gradients" / "ag6.ugr"), "which": str(tmp_path / "variants.flame")}
-
-        class H(RecordingHost):
-            def input_text(self, prompt, default):
-                return next((v for k, v in answers.items() if k.lower() in prompt.lower()), default)
-
-        result = run_script(template.code, flame, H(), threading.Event())
+        result = run_script(template.code, flame, RecordingHost(), threading.Event(), parameters=files.get(template.name))
         assert result.ok, f"{template.name}: {result.error}"
+        assert not result.stopped or template.name == "Gradient from a file" or result.stop_reason
+    assert (tmp_path / "variants.flame").exists()
+    live = [t.name for t in templates if "param(" in t.code]
+    assert len(live) >= 11 and "Live kaleidoscope" in live
 
 
 def test_user_templates_are_files_with_metadata(tmp_path):
@@ -398,7 +399,7 @@ def test_script_editor_opens_from_the_windows_menu_and_the_toolbar_and_hides_on_
     main.actionScriptEditor.trigger()
     editor = main.script_editor
     assert editor.isVisible() and editor.parent() is main and editor.isWindow() and editor.windowTitle().startswith("Script Editor")
-    assert [editor.drawer.tabText(i) for i in range(editor.drawer.count())] == ["Context", "Reference", "Info", "Templates"]
+    assert [editor.drawer.tabText(i) for i in range(editor.drawer.count())] == ["Context", "Reference", "Info", "Templates", "Parameters"]
     assert [a.text() for a in editor.menuBar().actions()] == ["File", "Edit", "Script", "View"]
     toolbar = [a.text() for a in editor.toolBar.actions() if a.text()]
     assert toolbar[:6] == ["New Script", "Open Script…", "Save Script", "Save Script As…", "Run", "Stop"]

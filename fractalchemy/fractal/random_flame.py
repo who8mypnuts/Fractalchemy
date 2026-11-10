@@ -21,6 +21,7 @@ from ..model import Gradient
 from ..model.operations import reroll
 from . import variations as V
 from .scene import Camera, Flame, XForm
+from .symmetry import add_symmetry, symmetry_order
 
 MAX_ATTEMPTS = 25
 FRAME_POINTS = 3000
@@ -40,6 +41,8 @@ class RandomOptions:
         min_transforms, max_transforms: Transform count range (Apophysis: 2..5).
         width, height: Image size of the generated flames.
         name_prefix: Flame names are `prefix-<n>`.
+        symmetry: `none`, `random` (flam3's distribution), `bilateral`, `rotational` or `dihedral` (`fractal.symmetry`).
+        symmetry_orders: The order range for rotational / dihedral symmetry.
     """
     variations: list[str] = field(default_factory=lambda: ["linear"])
     min_transforms: int = 2
@@ -47,6 +50,8 @@ class RandomOptions:
     width: int = 1024
     height: int = 768
     name_prefix: str = ""
+    symmetry: str = "none"
+    symmetry_orders: tuple[int, int] = (2, 6)
 
 
 def random_batch(count: int, options: RandomOptions, seed: int | None = None, progress=None) -> list[Flame]:
@@ -75,6 +80,9 @@ def random_flame(rng: random.Random, options: RandomOptions) -> Flame:
         flame = Flame("random", [random_xform(rng, i, count, names) for i in range(count)])
         flame.camera = Camera(width=int(options.width), height=int(options.height))
         _assign_weights(flame, rng)
+        order = symmetry_order(options.symmetry, rng, options.symmetry_orders)   # "none" draws nothing: batches stay as they were
+        if order:
+            add_symmetry(flame, order)
         last = flame
         if frame_camera(flame):
             break

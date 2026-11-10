@@ -102,7 +102,7 @@ class GradientLink(QObject):
         """Recolour the fractal from the gradient being edited (re-renders if anything changed)."""
         if self._fractal.flame is None or not self._window.document.gradient.stops:
             return
-        self._fractal.set_gradient(self._window.document.gradient)
+        self._fractal.set_gradient(self._window.document.gradient, hint=self._window.document.last_hint)
         self._palette_seen = list(self._fractal.flame.palette)
 
     # --- helpers ----------------------------------------------------------------

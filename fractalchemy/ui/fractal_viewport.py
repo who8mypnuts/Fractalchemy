@@ -21,6 +21,12 @@ image (not just the visible part), as Apophysis's guidelines do.
 Transform edits (the Transform Editor) are debounced: the running render is cancelled at once, and a
 fresh full render starts `EDIT_RENDER_DELAY_MS` after the last change, so a drag in the editor does not
 keep the engine churning — the editor's own small preview follows the drag instead.
+
+Colouring edits (brightness, gamma, threshold, vibrancy, contrast, background, curves — and undoing one) do not
+render again at all: the render's histogram is kept (`RenderService.submit(retain=True)`) and only tone-mapped again
+(`RenderService.retone`), so the picture changes at once at the quality it had already reached, and refining carries
+on. That applies while everything else that shapes the picture is what the current render was made of (compared
+through `_render_signature`); otherwise — and when the service has no job left to re-colour — a normal render starts.
 """
 
 from __future__ import annotations
@@ -33,7 +39,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from .. import config
 from ..fractal.scene import Camera
-from ..render.service import PRIORITY_VIEWPORT, RenderService
+from ..render.service import PRIORITY_EDITOR, PRIORITY_VIEWPORT, RenderService
 from ..render.settings import RenderSettings, RenderStats
 from .fractal_document import FractalDocument
 from ..widgets.theming import theme_color
@@ -94,6 +100,15 @@ class FractalViewport(QWidget):
         self._edit_timer = QTimer(self, singleShot=True, interval=config.EDIT_RENDER_DELAY_MS)
         self._edit_timer.timeout.connect(self._render_full)
         self.settings = RenderSettings()
+        self._submitted_signature = None       # what the current render was made of, bar the colouring (re-colouring)
+        self._compare: tuple[str, object] | None = None    # (label, signature) while the before / after view is on
+        self._compare_image: QImage | None = None
+        self._compare_signature = None
+        self._compare_key: object = None
+        self._compare_generation = 0
+        self.compare_renders = 0               # comparison renders asked for (tests)
+        self.submits = 0                        # renders asked for (tests)
+        self.retones = 0                        # re-colourings asked for instead (tests)
         self._guides_shown = False
         self._guide_kinds: tuple[str, ...] = ("thirds",)
 
@@ -105,13 +120,14 @@ class FractalViewport(QWidget):
         document.flame_replaced.connect(self._on_flame_replaced)
         document.camera_changed.connect(self._render_interactive)
         document.palette_changed.connect(self._render_interactive)
-        document.coloring_changed.connect(self._render_interactive)
+        document.coloring_changed.connect(self._on_coloring_changed)
         document.image_size_changed.connect(self._on_image_size_changed)
         document.xform_changed.connect(self._render_after_edit)
         document.transforms_changed.connect(self._render_after_edit)
         document.flame_restored.connect(self._on_flame_restored)
         service.pass_done.connect(self._on_pass)
         service.job_failed.connect(self._on_failed)
+        service.retone_missed.connect(self._on_retone_missed)
 
     def set_guides(self, shown: bool, kinds=None) -> None:
         """Show / hide the composition guides and choose which (`thirds`, `golden`, `center`); repaints only."""
@@ -264,9 +280,10 @@ class FractalViewport(QWidget):
         p = self.screen_to_image(pos)
         return camera.unproject(p.x(), p.y(), camera.width, camera.height)
 
-    def render_camera(self) -> tuple[Camera, int, int] | None:
-        """Camera and size that render exactly the visible part of the image at screen density."""
-        camera = self.image_camera()
+    def render_camera(self, flame=None) -> tuple[Camera, int, int] | None:
+        """Camera and size that render exactly the visible part of the image at screen density (of `flame`'s camera when
+        given — the before / after comparison — else the document's)."""
+        camera = self.image_camera() if flame is None else flame.camera.at_size(*self.image_size)
         if camera is None or self._image_rect.isEmpty():
             return None
         z = self.zoom()
@@ -288,11 +305,18 @@ class FractalViewport(QWidget):
         self._render_full()
 
     def _on_flame_restored(self) -> None:
-        """Undo / redo / paste / a script: anything may have changed, the framing included; the old picture stays until the new one lands."""
+        """Undo / redo / paste / a script: anything may have changed, the framing included; the old picture stays until the new one lands.
+        A live parameter tick (`document.live_edit`) renders at interactive resolution, the full one following once they pause;
+        a change of the colouring alone (undoing a gamma drag) only re-colours the current render."""
         self._layout()
         self.view_changed.emit(self.zoom(), self.fit_zoom())
         self.update()
-        self._render_full()
+        if self._try_retone():
+            return
+        if self._document is not None and self._document.live_edit:
+            self._render_interactive()
+        else:
+            self._render_full()
 
     def _on_image_size_changed(self) -> None:
         self._clear_image()   # a new framing: the old picture would mislead
@@ -307,6 +331,78 @@ class FractalViewport(QWidget):
         self._stats = None
         self._image_region = QRectF()
         self.image_changed.emit(None)
+
+    # --- before / after -------------------------------------------------------------------------------------------
+    def set_compare(self, flame, label: str = "Before") -> None:
+        """Show `flame` in place of the fractal (rendered once with the same view, then kept while nothing changes), with
+        `label` in the corner; None shows the fractal again. A comparison, not an edit: the document is untouched."""
+        if flame is None:
+            self._compare = None
+            self.update()
+            return
+        signature = (repr(flame.to_dict()), self._image_rect.getRect(), round(self.zoom(), 9), (self._offset.x(), self._offset.y()))
+        self._compare = (label, signature)
+        if self._compare_image is not None and self._compare_signature == signature:
+            self.update()
+            return
+        target = self.render_camera(flame)
+        if target is None or self._service is None:
+            return
+        camera, width, height = target
+        self._compare_image, self._compare_signature = None, signature
+        self._compare_generation += 1
+        self._compare_key = ("compare", self._compare_generation)
+        render = flame.copy()
+        render.camera = camera
+        settings = self.settings.with_size(width, height).for_zoom(flame.camera.zoom).within_bucket_limit().with_refine(0.0)
+        self.compare_renders += 1
+        self._service.submit(self._compare_key, render, settings, PRIORITY_EDITOR)     # a quick look goes before the viewport
+        self.update()
+
+    @property
+    def comparing(self) -> bool:
+        return self._compare is not None
+
+    def _paint_compare_label(self, painter: QPainter) -> None:
+        label = self._compare[0] + ("" if self._compare_image is not None else " — rendering…")
+        font = painter.font()
+        font.setBold(True)
+        painter.setFont(font)
+        box = painter.fontMetrics().boundingRect(label).adjusted(-8, -4, 8, 4)
+        box.moveTopLeft(self._image_rect.topLeft() + QPoint(8, 8))
+        background = theme_color("window")
+        background.setAlpha(200)
+        painter.fillRect(box, background)
+        painter.setPen(theme_color("window_text"))
+        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
+
+    # --- re-colouring ---------------------------------------------------------------------------------------------
+    def _render_signature(self):
+        """Everything about the flame and the view that shapes the render except its colouring."""
+        flame = self._document.flame if self._document is not None else None
+        if flame is None:
+            return None
+        data = flame.to_dict()
+        data.pop("coloring", None)
+        data.pop("name", None)
+        return (repr(data), self._image_rect.getRect(), round(self.zoom(), 9), (self._offset.x(), self._offset.y()))
+
+    def _try_retone(self) -> bool:
+        """Re-colour the current render if only the colouring changed since it was asked for; True if so."""
+        if (self._service is None or self._current_key is None or self._document is None or self._document.flame is None
+                or self._submitted_signature is None or self._render_signature() != self._submitted_signature):
+            return False
+        self._service.retone(self._current_key, self._document.flame.coloring)
+        self.retones += 1
+        return True
+
+    def _on_coloring_changed(self) -> None:
+        if not self._try_retone():
+            self._render_interactive()
+
+    def _on_retone_missed(self, key: object) -> None:
+        if key == self._current_key:
+            self._render_full()
 
     def _render_full(self) -> None:
         self._settle.stop()
@@ -350,9 +446,15 @@ class FractalViewport(QWidget):
                     .for_zoom(self._document.flame.camera.zoom).within_bucket_limit())
         if scale < 1.0:
             settings = settings.with_refine(0.0)   # the transient low-resolution render: the full one follows
-        self._service.submit(self._current_key, flame, settings, PRIORITY_VIEWPORT)
+        self._submitted_signature = self._render_signature()
+        self.submits += 1
+        self._service.submit(self._current_key, flame, settings, PRIORITY_VIEWPORT, retain=True)
 
     def _on_pass(self, key: object, image: np.ndarray, stats: RenderStats) -> None:
+        if key == self._compare_key:
+            self._compare_image = _to_qimage(image)
+            self.update()
+            return
         if key != self._current_key:
             return  # a superseded request finishing a pass we no longer want
         self._image = _to_qimage(image)
@@ -370,7 +472,12 @@ class FractalViewport(QWidget):
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.fillRect(self.rect(), theme_color("canvas_bg"))
-        if self._image is not None and not self._image_region.isEmpty():
+        comparing = self._compare is not None and self._compare_image is not None
+        if comparing:
+            painter.setClipRect(self._image_rect)
+            painter.drawImage(QRectF(self._image_rect), self._compare_image)
+            painter.setClipping(False)
+        elif self._image is not None and not self._image_region.isEmpty():
             # draw the picture where its part of the image sits under the *current* view, so panning and
             # zooming feel immediate; the re-render replaces it when it lands
             z, region = self.zoom(), self._image_region
@@ -384,6 +491,8 @@ class FractalViewport(QWidget):
             painter.setPen(QPen(FRAME_COLOR, 1))
             painter.drawRect(self._image_rect.adjusted(0, 0, -1, -1))
         self._paint_guides(painter)
+        if self._compare is not None:
+            self._paint_compare_label(painter)
         painter.end()
 
     def _paint_guides(self, painter: QPainter) -> None:
@@ -424,11 +533,11 @@ class FractalViewport(QWidget):
         anchor = self.fractal_point_at(pos)
         if anchor is None:
             return
-        camera = self._document.flame.camera
+        camera = self._document.flame.camera.copy()          # worked out on a copy: the document makes the edit (one undo step)
         camera.zoom += delta_zoom
-        moved = self.fractal_point_at(pos)
+        moved = self.fractal_point_at(pos, camera.at_size(*self.image_size))
         cx, cy = camera.center
-        self._document.set_view(center=(cx + anchor[0] - moved[0], cy + anchor[1] - moved[1]))
+        self._document.set_view(center=(cx + anchor[0] - moved[0], cy + anchor[1] - moved[1]), zoom=camera.zoom)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton or self._document is None or self._document.flame is None:

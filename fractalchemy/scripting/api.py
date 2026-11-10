@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import math
 import random as _random
+import sys
 import time
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, MutableMapping
 
 from .. import config
+from .parameters import ParameterError, ParamSpec, coerce, make_spec
 from ..fractal import variations as V
 from ..fractal.random_flame import RandomOptions, frame_camera, random_flame as _random_flame, random_gradient
 from ..fractal.scene import Affine, Camera, Coloring, Flame, XForm, identity_affine
@@ -47,6 +49,16 @@ class ScriptStopped(BaseException):
     def __init__(self, reason: str = ""):
         super().__init__(reason or "Script stopped")
         self.reason = reason
+
+
+class LiveRefused(ScriptStopped):
+    """Raised *instead of* a side effect (a prompt, a message, `update()`, `sleep()`, writing a file) when the script runs
+    restricted — a live parameter re-run, a batch over many fractals, the explorer grid. The effect never happens."""
+
+
+EFFECT_VERBS = {"prompt": "asks a question", "message": "shows a message", "update": "pushes pictures while it runs",
+                "sleep": "pauses", "write": "writes files"}
+RESTRICTED_EFFECTS = frozenset(EFFECT_VERBS)       # `read` (load_flame, gradient.load) is allowed everywhere
 
 
 class ScriptHost:
@@ -129,6 +141,14 @@ def _assign_flame(target: Flame, source: Flame) -> None:
     target.source_version = copy.source_version
     target.oversample = copy.oversample
     target.filter_radius = copy.filter_radius
+
+
+def _curve_channel(channel) -> str:
+    """A tone-curve channel name, checked."""
+    from ..fractal.curves import CHANNELS
+    if channel not in CHANNELS:
+        raise ScriptError(f"unknown curve channel {channel!r} (use one of: {', '.join(CHANNELS)})")
+    return channel
 
 
 def _fmt(value) -> str:
@@ -350,6 +370,16 @@ class Transform:
     def post(self, value) -> None:
         self._x.post = _affine(value)
 
+    @property
+    def pre(self) -> Affine6:
+        """The pre affine, applied to the incoming point before the normal triangle (a..f, `coefs`, `reset()`)."""
+        x = self._x
+        return Affine6(lambda: x.pre, lambda v: setattr(x, "pre", v))
+
+    @pre.setter
+    def pre(self, value) -> None:
+        self._x.pre = _affine(value)
+
     def set_affine(self, a: float, b: float, c: float, d: float, e: float, f: float) -> "Transform":
         """Set all six coefficients: x′ = a·x + c·y + e, y′ = b·x + d·y + f."""
         self._x.coefs = _affine((a, b, c, d, e, f))
@@ -362,6 +392,11 @@ class Transform:
 
     def reset_post(self) -> "Transform":
         self._x.post = identity_affine()
+        return self
+
+    def reset_pre(self) -> "Transform":
+        """Identity pre affine."""
+        self._x.pre = identity_affine()
         return self
 
     def rotate(self, degrees: float) -> "Transform":
@@ -532,7 +567,7 @@ class Transform:
     def to_dict(self) -> dict:
         x = self._x
         return {"weight": x.weight, "color": x.color, "color_speed": x.color_speed, "opacity": x.opacity, "coefs": list(x.coefs),
-                "post": list(x.post), "variations": dict(x.variations), "params": dict(x.params), "chaos": x.chaos, "name": x.name}
+                "pre": list(x.pre), "post": list(x.post), "variations": dict(x.variations), "params": dict(x.params), "chaos": x.chaos, "name": x.name}
 
 
 class TransformList:
@@ -697,7 +732,20 @@ class ColoringHelper:
 
     def reset_curves(self, channel: str | None = None) -> "ColoringHelper":
         """Straighten the tone curves (one channel — overall / red / green / blue / alpha — or all)."""
-        self._col.curves.reset(channel)
+        self._col.curves.reset(_curve_channel(channel) if channel is not None else None)
+        return self
+
+    def curve(self, channel: str = "overall") -> list[tuple[float, float]]:
+        """One tone curve's control points, `[(x, y), …]` from (0, 0) to (1, 1)."""
+        return [tuple(p) for p in self._col.curves.points[_curve_channel(channel)]]
+
+    def set_curve(self, channel: str, points) -> "ColoringHelper":
+        """Replace one tone curve's control points (x and y 0..1; sorted by x, the ends kept at 0 and 1)."""
+        try:
+            pairs = [(float(x), float(y)) for x, y in points]
+        except (TypeError, ValueError) as exc:
+            raise ScriptError("set_curve needs a list of (x, y) pairs") from exc
+        self._col.curves.set_points(_curve_channel(channel), pairs)
         return self
 
     def __repr__(self) -> str:
@@ -844,12 +892,36 @@ class GradientHelper:
 
     def load(self, path, index: int = 0) -> "GradientHelper":
         """Load a gradient from any file the Gradient Library reads (.ugr, .map, .flame, .chaos, .fa, images …)."""
+        self._ctx._effect("read", "gradient.load()")
         from ..formats.registry import load_gradient
         try:
             gradient = load_gradient(Path(path).expanduser(), int(index))
         except Exception as exc:  # noqa: BLE001 - any reader error becomes a script error
             raise ScriptError(f"cannot load gradient from {path}: {exc}") from exc
         self._flame.set_gradient(gradient)
+        return self
+
+    def adjust_stops(self, hue: float = 0.0, saturation: float = 0.0, luminance: float = 0.0) -> "GradientHelper":
+        """The Gradient Library's sliders exactly as it applies them: the palette's nodes (`stops`) are shifted, then
+        re-sampled (hue in degrees, saturation / luminance in percent)."""
+        from ..model.adjust import Adjustments, apply_adjustments
+        adjusted = apply_adjustments(self.stops, Adjustments(0, int(round(hue)), int(round(saturation)), int(round(luminance))))
+        self._flame.set_gradient(adjusted)
+        return self
+
+    def rotate_stops(self, amount: float) -> "GradientHelper":
+        """The Gradient Library's *Position* slider: the nodes move by `amount` of the gradient (wrapping around)."""
+        from ..model.adjust import ROTATION_STEPS, Adjustments, apply_adjustments
+        adjusted = apply_adjustments(self.stops, Adjustments(int(round(float(amount) * ROTATION_STEPS)), 0, 0, 0))
+        self._flame.set_gradient(adjusted)
+        return self
+
+    def preset(self, name: str) -> "GradientHelper":
+        """Use one of the named gradients (`list_gradient_presets()`)."""
+        from ..model.presets import GRADIENT_PRESETS, preset_gradient
+        if name not in GRADIENT_PRESETS:
+            raise ScriptError(f"no gradient preset '{name}' (there are: {', '.join(GRADIENT_PRESETS)})")
+        self._flame.set_gradient(preset_gradient(name))
         return self
 
     def __repr__(self) -> str:
@@ -961,9 +1033,24 @@ class XaosHelper:
 class ScriptContext:
     """Builds the global namespace for one script run and holds its state (the flame, the active transform)."""
 
-    def __init__(self, flame: Flame | None, host: ScriptHost | None = None, active: int = 0, seed: int | None = None):
+    def __init__(self, flame: Flame | None, host: ScriptHost | None = None, active: int = 0, seed: int | None = None,
+                 parameters: dict | None = None, restricted: str | None = None):
+        """Args:
+            flame: The flame the script edits (copied).
+            host: Output, prompts and updates (a silent default).
+            active: The index `transform` starts at.
+            seed: Seed of the script's random numbers (None: random).
+            parameters: Values for `param()` by name (missing ones take the declared default).
+            restricted: When given, side effects are refused (`LiveRefused`) and this text says when ("while its
+                controls update live").
+        """
         self.flame = flame.copy() if flame is not None else Flame("untitled", [])
         self.host = host or ScriptHost()
+        self.parameters = dict(parameters or {})
+        self.restricted = restricted
+        self.declarations: dict[str, ParamSpec] = {}
+        self.values: dict[str, object] = {}
+        self.effects: set[str] = set()
         self.active = max(0, min(active, max(0, len(self.flame.xforms) - 1)))
         self.rng = _random.Random(seed)
         self.snapshots: dict[str, Flame] = {}
@@ -1021,7 +1108,7 @@ class ScriptContext:
             xform.variations = {"linear": 1.0}
         for key, value in fields.items():
             if key in ("a", "b", "c", "d", "e", "f", "weight", "color", "color_speed", "symmetry", "opacity", "var_color", "name",
-                       "coefs", "post", "variations", "params", "xaos"):
+                       "coefs", "pre", "post", "variations", "params", "xaos"):
                 setattr(wrapper, key, value)
             else:
                 raise ScriptError(f"unknown transform attribute '{key}'")
@@ -1123,6 +1210,12 @@ class ScriptContext:
             for x in self.flame.xforms:
                 x.weight /= total
 
+    def add_symmetry(self, order: int) -> int:
+        """Add flam3-style symmetry transforms: `order` ≥ 2 rotational, −1 a mirror, ≤ −2 dihedral (mirror + rotations);
+        returns how many transforms were added."""
+        from ..fractal.symmetry import add_symmetry
+        return add_symmetry(self.flame, int(order))
+
     def total_weight(self) -> float:
         return float(sum(x.weight for x in self.flame.xforms))
 
@@ -1173,6 +1266,7 @@ class ScriptContext:
 
     def load_flame(self, path, index: int = 0) -> Flame:
         """Replace the flame with entry `index` of a .flame / .chaos / .fa file."""
+        self._effect("read", "load_flame()")
         from ..fractal.formats import load_flame as _load
         try:
             fresh = _load(Path(path).expanduser(), int(index))
@@ -1183,7 +1277,8 @@ class ScriptContext:
         return self.flame
 
     def save_flame(self, path, name: str | None = None) -> int:
-        """Append the flame to a .flame or .fa file (created if missing); returns its entry index."""
+        """Append the flame to a .flame, .fa or .chaos file (created if missing); returns its entry index."""
+        self._effect("write", "save_flame()")
         from ..fractal.formats import fractal_format_for
         target = Path(path).expanduser()
         try:
@@ -1264,6 +1359,12 @@ class ScriptContext:
                 "depth": var.z, "origin": var.origin, "note": var.note}
 
     @staticmethod
+    def list_gradient_presets() -> list[str]:
+        """The names `gradient.preset(name)` accepts."""
+        from ..model.presets import GRADIENT_PRESETS
+        return list(GRADIENT_PRESETS)
+
+    @staticmethod
     def variation_params(name: str) -> list[str]:
         return list(V.REGISTRY[_variation_name(name)].params)
 
@@ -1317,14 +1418,17 @@ class ScriptContext:
 
     def message(self, text) -> None:
         """Show a message box (the script continues)."""
+        self._effect("message", "message()")
         self.host.message(str(text))
 
     def input_text(self, prompt: str = "Enter a value", default="") -> str | None:
         """Ask for text; None if cancelled."""
+        self._effect("prompt", "input_text()")
         return self.host.input_text(str(prompt), "" if default is None else str(default))
 
     def input_number(self, prompt: str = "Enter a number", default: float = 0.0) -> float | None:
         """Ask for a number (asks again while the answer is not a number); None if cancelled."""
+        self._effect("prompt", "input_number()")
         text = "" if default is None else f"{default:g}" if isinstance(default, (int, float)) else str(default)
         for _attempt in range(5):
             answer = self.host.input_text(str(prompt), text)
@@ -1338,15 +1442,18 @@ class ScriptContext:
         return None
 
     def confirm(self, text: str = "Continue?") -> bool:
+        self._effect("prompt", "confirm()")
         return bool(self.host.confirm(str(text)))
 
     def update(self, wait: bool = True) -> None:
         """Show the flame in the main window now and re-render (`wait=True` waits for the first pass)."""
+        self._effect("update", "update()")
         self.host.check_stop()
         self.host.update(self.flame.copy(), bool(wait))
 
     def sleep(self, seconds: float) -> None:
         """Pause (the Stop button still works)."""
+        self._effect("sleep", "sleep()")
         end = time.monotonic() + max(0.0, float(seconds))
         while True:
             self.host.check_stop()
@@ -1363,6 +1470,36 @@ class ScriptContext:
     def stop(reason: str = "") -> None:
         """End the script here; what it changed so far is kept."""
         raise ScriptStopped(reason)
+
+    # --- parameters and side effects -----------------------------------------------------------------------------
+    def _effect(self, kind: str, what: str) -> None:
+        """Note a side effect of kind `kind`; refuse it (before it happens) when the run is restricted."""
+        self.effects.add(kind)
+        if self.restricted and kind in RESTRICTED_EFFECTS:
+            raise LiveRefused(f"{what} {EFFECT_VERBS[kind]}, so it does not run {self.restricted}")
+
+    def param(self, name, default, min=None, max=None, step=None, choices=None, decimals=None, help=""):  # noqa: A002 - the API's names
+        """A tunable input, shown as a control in the Script Editor's Parameters tab: returns the value set there (or
+        given to the run), else `default`. The kind follows the default: a number (a slider with `min` and `max`), an
+        integer, True / False (a check box), text, or one of `choices`."""
+        frame = sys._getframe(1)
+        line = frame.f_lineno if frame.f_code.co_filename == "<script>" else None
+        try:
+            spec = make_spec(name, default, min, max, step, choices, decimals, help, line)
+        except ParameterError as exc:
+            raise ScriptError(str(exc)) from None
+        known = self.declarations.get(spec.name)
+        if known is not None:
+            if not known.same_control(spec):
+                where = f" (lines {known.line} and {line})" if known.line and line else ""
+                raise ScriptError(f"param '{spec.name}' is declared twice with different settings{where}")
+            return self.values[spec.name]
+        if len(self.declarations) >= config.SCRIPT_MAX_PARAMETERS:
+            raise ScriptError(f"a script may declare at most {config.SCRIPT_MAX_PARAMETERS} parameters")
+        value = coerce(spec, self.parameters.get(spec.name))
+        self.declarations[spec.name] = spec
+        self.values[spec.name] = value
+        return value
 
     # --- namespace --------------------------------------------------------------------------------------------------
     def namespace(self) -> dict:
@@ -1400,13 +1537,14 @@ class ScriptContext:
 FUNCTION_NAMES = (
     "add_transform", "add_random_transform", "insert_transform", "remove_transform", "copy_transform", "clear_transforms",
     "get_transform", "set_active_transform", "move_transform", "swap_transforms", "for_each_transform", "normalize_weights",
-    "total_weight", "final_transform", "set_final_transform", "remove_final_transform", "new_transform",
+    "total_weight", "add_symmetry", "final_transform", "set_final_transform", "remove_final_transform", "new_transform",
     "new_flame", "random_flame", "load_flame", "save_flame", "set_flame", "copy_flame", "flame_text", "flame_xml", "from_text",
     "snapshot", "restore", "validate",
-    "list_variations", "variation_info", "variation_params", "random_variation",
+    "list_variations", "variation_info", "variation_params", "random_variation", "list_gradient_presets",
     "random", "random_int", "random_choice", "random_gauss", "random_bool", "random_color", "seed",
     "print", "clear", "message", "input_text", "input_number", "confirm", "update", "sleep", "progress", "stop",
+    "param",
 )
 
-__all__ = ["ScriptContext", "ScriptHost", "ScriptError", "ScriptStopped", "Transform", "TransformList", "VariationMap", "Affine6",
+__all__ = ["ScriptContext", "ScriptHost", "ScriptError", "ScriptStopped", "LiveRefused", "Transform", "TransformList", "VariationMap", "Affine6",
            "CameraHelper", "ColoringHelper", "GradientHelper", "XaosHelper", "FUNCTION_NAMES"]

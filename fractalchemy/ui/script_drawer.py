@@ -1,4 +1,4 @@
-"""The Script Editor's drawer (the right-hand pane): four tabs.
+"""The Script Editor's drawer (the right-hand pane): five tabs.
 
 * **Context** — dynamic documentation for what the cursor is on: the members of the object being typed, or
   the signature of the call the cursor is inside with the current argument highlighted and, when that
@@ -7,6 +7,7 @@
 * **Reference** — the scripting guide, the full API reference (searchable) and the catalogue of variations.
 * **Info** — facts about the script: name, file, metadata, size, the API it uses, the last run.
 * **Templates** — built-in templates by category plus *My templates*; load, insert, run, save, rename, delete.
+* **Parameters** — one control per `param()` declaration of the last run (`script_parameters_tab.py`).
 
 The tabs are views: the window feeds them (`show_context`, `show_info`, `set_templates`) and acts on their
 signals.
@@ -20,7 +21,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLineEdit, QPushButton, QTabWidget, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QHBoxLayout, QLineEdit, QMenu, QPushButton, QTabWidget, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..fractal import variations as V
@@ -459,6 +460,7 @@ class TemplatesTab(QWidget):
         rename_requested(object): Rename a user template.
         delete_requested(object): Delete a user template.
         refresh_requested(): Re-read the template folders.
+        pin_toggled(object): Pin the template to the main window's Scripts menu, or unpin it.
     """
     load_requested = Signal(object)
     insert_requested = Signal(object)
@@ -468,9 +470,11 @@ class TemplatesTab(QWidget):
     rename_requested = Signal(object)
     delete_requested = Signal(object)
     refresh_requested = Signal()
+    pin_toggled = Signal(object)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self.is_pinned = lambda template: False          # the window answers (the pins live in its settings)
         self.search = QLineEdit(self, placeholderText="Filter templates…")
         self.search.setClearButtonEnabled(True)
         self.tree = QTreeWidget(self)
@@ -486,6 +490,8 @@ class TemplatesTab(QWidget):
         self.overwrite_button = QPushButton("Overwrite", self)
         self.rename_button = QPushButton("Rename…", self)
         self.delete_button = QPushButton("Delete", self)
+        self.pin_button = QPushButton("☆ Pin", self)
+        self.pin_button.setToolTip("Pin the template to the main window's Scripts menu, to run it there in one click")
         self.folder_button = QToolButton(self)
         self.folder_button.setText("Open folder")
         self.refresh_button = QToolButton(self)
@@ -505,7 +511,7 @@ class TemplatesTab(QWidget):
             row2.addWidget(b)
         row2.addStretch(1)
         row2b = QHBoxLayout()
-        for b in (self.rename_button, self.delete_button):
+        for b in (self.rename_button, self.delete_button, self.pin_button):
             row2b.addWidget(b)
         row2b.addStretch(1)
         row3 = QHBoxLayout()
@@ -534,6 +540,38 @@ class TemplatesTab(QWidget):
         self.delete_button.clicked.connect(lambda: self._emit(self.delete_requested))
         self.refresh_button.clicked.connect(self.refresh_requested)
         self.folder_button.clicked.connect(self._open_folder)
+        self.pin_button.clicked.connect(lambda: self._emit(self.pin_toggled))
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._menu)
+        self._selection_changed()
+
+    def menu(self) -> QMenu:
+        """The context menu of the selected template."""
+        menu = QMenu(self)
+        template = self.current()
+        if template is None:
+            return menu
+        menu.addAction("Load", lambda: self._emit(self.load_requested))
+        menu.addAction("Insert at the cursor", lambda: self._emit(self.insert_requested))
+        menu.addAction("Load and run", lambda: self._emit(self.run_requested))
+        menu.addSeparator()
+        menu.addAction("Unpin from the main window" if self.is_pinned(template) else "Pin to the main window",
+                       lambda: self._emit(self.pin_toggled))
+        return menu
+
+    def _menu(self, pos) -> None:
+        if self.current() is not None:
+            self.menu().exec(self.tree.viewport().mapToGlobal(pos))
+
+    def refresh_pins(self) -> None:
+        """Mark pinned templates with ★ and update the Pin button."""
+        for i in range(self.tree.topLevelItemCount()):
+            group = self.tree.topLevelItem(i)
+            for j in range(group.childCount()):
+                item = group.child(j)
+                template = item.data(0, TEMPLATE_ROLE)
+                if template is not None:
+                    item.setText(0, template.name + ("  ★" if self.is_pinned(template) else ""))
         self._selection_changed()
 
     def set_templates(self, templates: list[Template], folder: Path | None = None) -> None:
@@ -561,7 +599,7 @@ class TemplatesTab(QWidget):
         self._filter(self.search.text())
         if selected is not None:
             self.select(selected.id)
-        self._selection_changed()
+        self.refresh_pins()
 
     def select(self, template_id: str) -> None:
         for i in range(self.tree.topLevelItemCount()):
@@ -607,6 +645,8 @@ class TemplatesTab(QWidget):
         own = has and not template.builtin
         for b in (self.overwrite_button, self.rename_button, self.delete_button):
             b.setEnabled(own)
+        self.pin_button.setEnabled(has)
+        self.pin_button.setText("★ Unpin" if has and self.is_pinned(template) else "☆ Pin")
         if template is None:
             self.description.show_page("<p class='hint'>Pick a template: double-click loads it into the editor.</p>")
         else:
@@ -625,27 +665,34 @@ class TemplatesTab(QWidget):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.folder)))
 
 
+TAB_NAMES = ("context", "reference", "info", "templates", "parameters")
+
+
 class ScriptDrawer(QTabWidget):
-    """The drawer itself: the four tabs in a tab widget."""
+    """The drawer itself: the five tabs in a tab widget (Parameters last, so saved tab indices stay valid)."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        from .script_parameters_tab import ParametersTab
         self.context = ContextTab(self)
         self.reference = ReferenceTab(self)
         self.info = InfoTab(self)
         self.templates = TemplatesTab(self)
+        self.parameters = ParametersTab(self)
         self.addTab(self.context, "Context")
         self.addTab(self.reference, "Reference")
         self.addTab(self.info, "Info")
         self.addTab(self.templates, "Templates")
+        self.addTab(self.parameters, "Parameters")
         self.setTabToolTip(0, "Documentation for what the cursor is on — updates as you type")
         self.setTabToolTip(1, "The scripting guide, the full API reference and the variations")
         self.setTabToolTip(2, "About this script: name, file, metadata, the API it uses, the last run")
         self.setTabToolTip(3, "Script templates: built-in ones and your own")
+        self.setTabToolTip(4, "The script's param() controls: move one and the fractal follows")
         self.setMinimumWidth(240)
 
     def show_tab(self, name: str) -> None:
-        self.setCurrentIndex({"context": 0, "reference": 1, "info": 2, "templates": 3}[name])
+        self.setCurrentIndex(TAB_NAMES.index(name))
 
 
 __all__ = ["ScriptDrawer", "ContextTab", "ReferenceTab", "InfoTab", "TemplatesTab", "entry_html", "members_table", "guide_html"]

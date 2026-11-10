@@ -366,6 +366,49 @@ def params_for(name: str, params: dict[str, float]) -> dict[str, float]:
 _param_index: tuple[int, dict[str, str]] = (0, {})
 
 
+def param_info(key: str) -> "ParamInfo | None":
+    """What the formula declaring parameter `key` says about it (range, integer, cyclic, non-zero), if anything."""
+    owner = parameter_owner(key)
+    return REGISTRY[owner].param_info.get(key) if owner in REGISTRY else None
+
+
+def constrain_param(key: str, value: float, previous: float | None = None, keep_counts: bool = False) -> tuple[float, str]:
+    """`value` for parameter `key` as its formula allows it, and a note when it had to change.
+
+    The one set of rules the editors' tables and the mutation engine share: a declared range clamps (a cyclic one wraps
+    around), an integer rounds, and a non-zero parameter never becomes 0 (it keeps `previous`, else ±1 / a tiny step).
+    With `keep_counts` an integer that rounds to 0 keeps its sign at ±1 instead (a count or a power is never pushed to
+    zero — the mutation engine's rule). Parameters no loaded formula declares pass unchanged.
+    """
+    info = param_info(key)
+    if info is None:
+        return float(value), ""
+    new = float(value)
+    lo, hi = info.min, info.max
+    if lo is not None and hi is not None and hi > lo:
+        new = lo + (new - lo) % (hi - lo) if info.cyclic else min(hi, max(lo, new))
+    else:
+        new = max(lo, new) if lo is not None else new
+        new = min(hi, new) if hi is not None else new
+    integer = info.type == "int"
+    if integer:
+        new = float(round(new))
+        if keep_counts and new == 0.0 and previous not in (None, 0.0):
+            new = math.copysign(1.0, previous)
+    if info.nonzero and new == 0.0:
+        new = previous if previous not in (None, 0.0) else (1.0 if integer else 1e-6)
+    if new == float(value):
+        return new, ""
+    rules = []
+    if lo is not None or hi is not None:
+        rules.append(("cycles through" if info.cyclic else "stays within") + f" {'' if lo is None else f'{lo:g}'} … {'' if hi is None else f'{hi:g}'}")
+    if integer:
+        rules.append("is a whole number")
+    if info.nonzero:
+        rules.append("is never 0")
+    return new, f"{key} {' and '.join(rules)} — set to {new:g}"
+
+
 def parameter_owner(key: str) -> str | None:
     """The variation a parameter name belongs to, if any registered variation declares it."""
     global _param_index

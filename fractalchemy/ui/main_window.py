@@ -11,11 +11,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QGuiApplication
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QToolButton
+from PySide6.QtGui import QAction, QCloseEvent, QGuiApplication
+from PySide6.QtWidgets import QFileDialog, QMainWindow, QMenu, QMessageBox, QToolButton
 
 from .. import config
-from ..fractal.formats import flame_from_text, flame_to_text, load_flame, open_dialog_filter
+from ..fractal.formats import flame_from_text, load_flame, open_dialog_filter
+from ..fractal.formats.clipboard import CLIPBOARD_FORMATS, flame_to_text as clipboard_text
 from ..fractal.scene import Flame
 from ..library.catalog import FRACTAL_CATALOG
 from ..library.context_menu import LibraryContextMenu
@@ -44,6 +45,11 @@ from .render_status import RenderStatus
 from .render_window import RenderWindow
 from .inspector_panel import InspectorPanel
 from .thumbnails import ThumbnailProvider
+from .commands import PaletteShortcut
+from .recent_files import RecentFiles
+from .script_tools import ScriptTools
+from .recovery import DISCARD, RESTORE, RecoveryKeeper, ask_recovery, populate_recover_menu
+from .undo_labels import show_undo_state
 from .viewer_bar import ViewerBar
 
 UI_FILE = Path(__file__).resolve().parents[2] / "ui" / "main_window.ui"
@@ -89,11 +95,11 @@ class MainWindow(QMainWindow):
         self.fractal_library = LibraryController(
             self.fractalLibraryPanel.model, fractal_roots or LibraryRoots(parent=self, key=FRACTAL_CATALOG.roots_key), self)
         self.fractal_menu = LibraryContextMenu(self.fractal_library, self.open_item, self,
-                                               extra_actions=[("Breed with Current Fractal", self.breed_with_item)])
+                                               extra_actions=[("Breed with Current Fractal", self.breed_with_item)],
+                                               selection_actions=[("Run Script on Selection…", lambda _items: self.scripts.show_batch("selection"))])
         self.thumbnails = ThumbnailProvider(self.render_service, self.fractalLibraryPanel.model, self)
         self._formula_browser = None
         self._random_window = None
-        self._script_editor = None
         self._formula_editor = None
         self._three_d = None
         self._fragments = None
@@ -117,6 +123,33 @@ class MainWindow(QMainWindow):
         self._settings = settings if settings is not None else QSettings()
         self.inspectorPanel.attach_settings(self._settings)
         self.inspectorPanel.bind(self.document)
+        self.scripts = ScriptTools(self)
+        self.palette = PaletteShortcut(self, self._settings)
+        self.actionPalette = QAction("Command Palette…", self)
+        self.actionPalette.setToolTip("Find and run any command by typing part of its name (Ctrl+K, in every window)")
+        self.actionPalette.triggered.connect(lambda: self.palette.open(self))
+        self.menuHelp.insertAction(self.menuHelp.actions()[0], self.actionPalette)
+        self.actionCompare = QAction("Compare with Original", self)
+        self.actionCompare.setCheckable(True)
+        self.actionCompare.setToolTip("Show the fractal as it was loaded or last saved (hold \\ for a quick look; Shift+\\: before the "
+                                      "last edit)")
+        self.actionCompare.toggled.connect(lambda on: self.compare(on))
+        self.menuView.insertAction(self.actionZoomFit, self.actionCompare)
+        self.inspectorPanel.history.compare_requested.connect(self.compare_with)
+        self.recent = RecentFiles(self._settings, self)
+        self.menuOpenRecent = QMenu("Open Recent", self)
+        self.menuOpenRecent.setToolTipsVisible(True)
+        self.menuFile.insertMenu(self.actionSaveFractal, self.menuOpenRecent)
+        self.menuOpenRecent.aboutToShow.connect(lambda: self.recent.populate(self.menuOpenRecent, self.open_recent))
+        self.recovery = RecoveryKeeper(self.document, parent=self)
+        self.menuRecover = QMenu("Recover", self)
+        self.menuRecover.setToolTipsVisible(True)
+        self.menuFile.insertMenu(self.actionSaveFractal, self.menuRecover)
+        self.menuRecover.aboutToShow.connect(lambda: populate_recover_menu(self.menuRecover, self.recovery, self._recovery_failed))
+        self.menuCopyAs = QMenu("Copy Parameters As", self)
+        for fmt, title in CLIPBOARD_FORMATS.items():
+            self.menuCopyAs.addAction(title, lambda _c=False, f=fmt: self.copy_parameters(f))
+        self.menuEdit.insertMenu(self.actionPasteParameters, self.menuCopyAs).setEnabled(False)
         self._connect_actions()
         self._connect_document()
         self._connect_library()
@@ -124,6 +157,7 @@ class MainWindow(QMainWindow):
         self._connect_viewer_controls()
         self.render_service.start()
         self.fractal_library.rescan_all()
+        QTimer.singleShot(0, self.offer_recovery)
 
     # --- wiring -------------------------------------------------------------
     def _connect_actions(self) -> None:
@@ -154,10 +188,10 @@ class MainWindow(QMainWindow):
         self.actionRedo.triggered.connect(self.document.redo)
         self.actionCopyParameters.setIcon(action_icon("copy"))
         self.actionPasteParameters.setIcon(action_icon("paste"))
-        self.actionCopyParameters.triggered.connect(self.copy_parameters)
+        self.actionCopyParameters.triggered.connect(lambda: self.copy_parameters())
         self.actionPasteParameters.triggered.connect(self.paste_parameters)
         self.files.status.connect(self._message)
-        self.files.file_written.connect(self._on_fractal_written)
+        self.files.entry_written.connect(self._on_fractal_written)
         self.actionGradientLibrary.setIcon(gradient_icon())
         self.actionGradientLibrary.triggered.connect(self.show_gradient_library)
         self.actionEditFractalLibrary.triggered.connect(self.edit_fractal_library)
@@ -271,11 +305,66 @@ class MainWindow(QMainWindow):
         if path:
             self.open_file_path(Path(path))
 
-    def open_file_path(self, path: Path) -> None:
-        """Show `path` in the library's temporary area (browsable like any file) and load its first flame."""
+    def open_file_path(self, path: Path, index: int = 0) -> None:
+        """Show `path` in the library's temporary area (browsable like any file) and load flame `index` of it."""
         self._forget_batch()
         self.fractal_library.show_file(path)
-        self.open_path(path, 0)
+        self.open_path(path, index)
+
+    # --- before / after --------------------------------------------------------------------------------------------
+    def compare(self, on: bool, before_last_edit: bool = False) -> None:
+        """Show the fractal as loaded or last saved (or, with `before_last_edit`, as it was before the last edit) in place of
+        the fractal, or the fractal again."""
+        doc = self.document
+        if not on or doc.flame is None:
+            self.viewport.set_compare(None)
+            return
+        if before_last_edit and doc.can_undo:
+            self.viewport.set_compare(doc.state_at(doc.history_position - 1), f"Before: {doc.undo_label}")
+        elif doc.original is not None:
+            self.viewport.set_compare(doc.original, "As saved" if doc.saved_position not in (None, 0) else "As loaded")
+
+    def compare_with(self, flame) -> None:
+        """The History tab's *Compare with this state*: shown until *View ▸ Compare* is switched off."""
+        self.viewport.set_compare(flame, "An earlier state")
+        if not self.actionCompare.isChecked():
+            self.actionCompare.blockSignals(True)
+            self.actionCompare.setChecked(True)
+            self.actionCompare.blockSignals(False)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override: hold \ to compare
+        if event.key() == Qt.Key.Key_Backslash and not event.isAutoRepeat() and not self.actionCompare.isChecked():
+            self.compare(True, bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+            return
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if event.key() == Qt.Key.Key_Backslash and not event.isAutoRepeat() and not self.actionCompare.isChecked():
+            self.compare(False)
+            return
+        super().keyReleaseEvent(event)
+
+    def offer_recovery(self) -> None:
+        """At start-up: offer the newest fractal a crashed session left unsaved (the rest stay under File ▸ Recover)."""
+        orphans = self.recovery.orphans()
+        if not orphans:
+            return
+        entry = orphans[0]
+        answer = ask_recovery(self, entry, len(orphans) - 1)
+        if answer == RESTORE and not self.recovery.restore(entry):
+            self._recovery_failed(entry)
+        elif answer == DISCARD:
+            self.recovery.discard(entry)
+
+    def _recovery_failed(self, entry) -> None:
+        self._report_error("Cannot recover fractal", OSError(f"The recovery copy of '{entry.name}' is damaged and was removed."))
+
+    def open_recent(self, path: Path, index: int) -> None:
+        """*File ▸ Open Recent*: the file in the temporary area (unless the library has it), that entry shown."""
+        if self.fractal_library.root_of(path) is None:
+            self.open_file_path(path, index)
+        else:
+            self.open_path(path, index)
 
     def _forget_batch(self) -> None:
         self._batch = []
@@ -289,12 +378,13 @@ class MainWindow(QMainWindow):
         elif not self.document.is_showing(item.path, item.index):
             self.open_path(item.path, item.index)
 
-    def open_path(self, path: Path, index: int = 0) -> None:
-        """Load flame `index` of `path` on a worker thread, then show it."""
+    def open_path(self, path: Path, index: int = 0, quiet: bool = False) -> None:
+        """Load flame `index` of `path` on a worker thread, then show it (`quiet`: a failure is a status message, not a
+        dialog — the file watcher's reloads, which can catch a file mid-write)."""
         self._message(f"Loading {path.name}…")
-        run_in_background(load_flame, path, index,
-                          on_done=lambda flame: self._loaded(flame, path, index),
-                          on_error=lambda exc: self._report_error("Could not open fractal", exc))
+        report = (lambda exc: self._message(f"Could not re-read {path.name}: {exc}")) if quiet else \
+            (lambda exc: self._report_error("Could not open fractal", exc))
+        run_in_background(load_flame, path, index, on_done=lambda flame: self._loaded(flame, path, index), on_error=report)
 
     def show_flame(self, flame: Flame) -> None:
         """Show a flame that did not come from a file."""
@@ -321,6 +411,7 @@ class MainWindow(QMainWindow):
             from .mutation_window import MutationWindow
             self._mutation = MutationWindow(self.document, self.render_service, self, self._settings)
             self._mutation.open_requested.connect(self.show_flame)
+            self.scripts.link_mutation_window(self._mutation)
         return self._mutation
 
     def show_mutation(self) -> None:
@@ -342,11 +433,12 @@ class MainWindow(QMainWindow):
     @property
     def script_editor(self):
         """The Script Editor window (created on first use; hidden rather than destroyed when closed)."""
-        if self._script_editor is None:
-            from .script_editor_window import ScriptEditorWindow
-            self._script_editor = ScriptEditorWindow(self.document, self, self._settings)
-            self._script_editor.bind_viewport(self.viewport)
-        return self._script_editor
+        return self.scripts.editor
+
+    @property
+    def _script_editor(self):
+        """The Script Editor if it has been created (None otherwise)."""
+        return self.scripts._editor
 
     def show_script_editor(self, tab: str | None = None) -> None:
         """Open (or raise) the Script Editor, optionally on one of its drawer tabs."""
@@ -445,15 +537,17 @@ class MainWindow(QMainWindow):
     def _loaded(self, flame: Flame, path: Path, index: int) -> None:
         self._batch_showing = None
         self.document.replace(flame, path, index)
+        self.recent.add(path, index, flame.name)
         self._message(f"Loaded '{flame.name}' from {path.name}")
 
-    def copy_parameters(self) -> None:
-        """Put the fractal's parameters (gradient included) on the clipboard as .fa text."""
+    def copy_parameters(self, fmt: str = "fa") -> None:
+        """Put the fractal's parameters (gradient included) on the clipboard: `.fa` text, Apophysis `<flame>` XML (`flame`)
+        or a Chaotica world (`chaos`)."""
         flame = self.document.flame
         if flame is None:
             return
-        QGuiApplication.clipboard().setText(flame_to_text(flame))
-        self._message(f"Copied the parameters of '{flame.name}'")
+        QGuiApplication.clipboard().setText(clipboard_text(flame, fmt))
+        self._message(f"Copied the parameters of '{flame.name}'" + ("" if fmt == "fa" else f" as {CLIPBOARD_FORMATS[fmt]}"))
 
     def paste_parameters(self) -> None:
         """Replace the shown fractal with parameters from the clipboard (.fa, <flame> XML or a Chaotica world)."""
@@ -466,7 +560,9 @@ class MainWindow(QMainWindow):
         self.document.paste(flame)
         self._message(f"Pasted '{flame.name}'" + (f" — ignored: {', '.join(flame.unsupported)}" if flame.unsupported else ""))
 
-    def _on_fractal_written(self, path: Path, _index: int) -> None:
+    def _on_fractal_written(self, path: Path, index: int) -> None:
+        if self.document.flame is not None:
+            self.recent.add(path, index, self.document.flame.name)
         library = self.fractal_library
         if library.root_of(path) is None and library.open_file != path and not self._batch:
             library.show_file(path)       # a new file outside the library: browse it from the temporary area
@@ -479,8 +575,7 @@ class MainWindow(QMainWindow):
         self._update_title()
 
     def _on_undo_changed(self, can_undo: bool, can_redo: bool) -> None:
-        self.actionUndo.setEnabled(can_undo)
-        self.actionRedo.setEnabled(can_redo)
+        show_undo_state(self.document, self.actionUndo, self.actionRedo)
 
     def _on_xform_changed(self, *_args) -> None:
         """A transform was edited: refresh the status bar / Info tab once the edits pause (not on every drag step)."""
@@ -525,7 +620,7 @@ class MainWindow(QMainWindow):
         """Reload the shown flame if another program changed its file (not our own gradient saves)."""
         if path == self.document.source_path and not self.gradient_library.files.wrote_recently(path) \
                 and not self.files.wrote_recently(path):
-            self.open_path(path, self.document.source_index)
+            self.open_path(path, self.document.source_index, quiet=True)
 
     # --- other slots --------------------------------------------------------
     def show_gradient_library(self) -> None:
@@ -576,7 +671,7 @@ class MainWindow(QMainWindow):
         self.status.show_idle()
         self.viewerBar.show_flame(flame)
         self.inspectorPanel.info.show_flame(flame, self.document.source_path, self.document.source_index)
-        for action in (self.actionSaveFractal, self.actionSaveAs, self.actionCopyParameters):
+        for action in (self.actionSaveFractal, self.actionSaveAs, self.actionCopyParameters, self.menuCopyAs.menuAction()):
             action.setEnabled(flame is not None)
         self._update_title()
 
@@ -604,7 +699,10 @@ class MainWindow(QMainWindow):
 
     # --- Qt overrides -------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:
-        """Quitting closes the tool windows too, so check for unsaved gradient edits first."""
+        """Quitting closes the tool windows too, so check for unsaved fractal and gradient edits first."""
+        if not self.files.confirm_discard():
+            event.ignore()
+            return
         if not self.gradient_library.files.confirm_discard():
             event.ignore()
             return
@@ -621,6 +719,9 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         if self._fragments is not None and not self._fragments.confirm_quit():
+            event.ignore()
+            return
+        if self.scripts._batch is not None and not self.scripts._batch.confirm_quit():
             event.ignore()
             return
         if self._script_editor is not None:
@@ -640,6 +741,8 @@ class MainWindow(QMainWindow):
             self._fragments.save_state()
             self._fragments.hide()
             self._fragments.shutdown()
+        self.recovery.shutdown()
+        self.palette.release()
         self.gradient_library.close()
         self.render_window.hide()
         self.editor.close()

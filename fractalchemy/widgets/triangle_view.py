@@ -20,6 +20,9 @@ Coordinates are *editor space* (y up; see `fractal.triangles`). Mouse gestures f
   turns it about the pivot (**rotate**), or slides it along the pivot ray (**scale**); **Shift** snaps;
 * drag inside a triangle: move / rotate / scale the whole triangle about the pivot;
 * drag an edge: the hypotenuse scales, the two axes rotate (Apophysis's *extended edit*);
+* drag a **grip** of the selected triangle (`show_grips`): the round one above it rotates, the square ones at the
+  corners of its outline scale — about the pivot, with Shift snapping, exactly like the edge gestures; double-click
+  one to reset the rotation / scale;
 * **Alt** while dragging rotates, **Ctrl** scales, whatever the mode;
 * right-drag pans, the wheel zooms about the cursor, double-click on empty space fits everything;
 * double-click a corner resets it (X / Y: unit axis; O: back to the origin), inside a triangle: rotation
@@ -35,7 +38,7 @@ import math
 from dataclasses import dataclass, field
 
 import numpy as np
-from PySide6.QtCore import QPoint, QPointF, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QKeyEvent, QMouseEvent, QPainter, QPaintEvent, QPen, QPolygonF,
                            QResizeEvent, QWheelEvent)
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -50,6 +53,10 @@ PIVOT_LOCAL, PIVOT_WORLD = "local", "world"
 CORNER_RADIUS_PX = 5.0
 CORNER_HIT_PX = 7.0
 EDGE_HIT_PX = 4.0
+GRIP_DISTANCE_PX = 28.0      # the rotate grip sits this far above the selected triangle's outline
+GRIP_MARGIN_PX = 6.0         # the scale grips sit this far outside its corners
+GRIP_RADIUS_PX = 5.0
+GRIP_ROTATE, GRIP_SCALE = "rotate", "scale"
 ZOOM_STEP = 1.25
 MIN_PIXELS_PER_UNIT = 0.5
 MAX_PIXELS_PER_UNIT = 50000.0
@@ -104,6 +111,7 @@ class Hit:
     key: object
     corner: int | None = None
     edge: int | None = None
+    grip: str | None = None
 
 
 class TriangleView(QWidget):
@@ -134,6 +142,7 @@ class TriangleView(QWidget):
         self.extended_edit = True
         self.show_helpers = True
         self.show_ghosts = True
+        self.show_grips = True
         self.pivot_mode = PIVOT_LOCAL
         self.local_pivot: Point = (0.0, 0.0)     # in the triangle's own (u, v) coordinates
         self.world_pivot: Point = (0.0, 0.0)
@@ -303,8 +312,30 @@ class TriangleView(QWidget):
             return first + [e for e in reversed(self._entries) if e is not selected]
         return list(reversed(self._entries))
 
+    def grips(self) -> dict[str, list[QPointF]]:
+        """Screen positions of the selected triangle's grips (empty when hidden): one rotate grip, four scale grips."""
+        selected = self.entry(self._selected_key)
+        if not self.show_grips or selected is None:
+            return {}
+        points = self._points(selected.triangle)
+        left, right = min(p.x() for p in points) - GRIP_MARGIN_PX, max(p.x() for p in points) + GRIP_MARGIN_PX
+        top, bottom = min(p.y() for p in points) - GRIP_MARGIN_PX, max(p.y() for p in points) + GRIP_MARGIN_PX
+        return {GRIP_ROTATE: [QPointF((left + right) / 2, top - GRIP_DISTANCE_PX)],
+                GRIP_SCALE: [QPointF(left, top), QPointF(right, top), QPointF(left, bottom), QPointF(right, bottom)]}
+
+    def _grip_at(self, point: Point) -> str | None:
+        screen = self.to_screen(point)
+        for kind, positions in self.grips().items():
+            if any(math.hypot(p.x() - screen.x(), p.y() - screen.y()) <= GRIP_RADIUS_PX + 2 for p in positions):
+                return kind
+        return None
+
     def _hit(self, point: Point) -> Hit | None:
-        """What is under `point`: corners first, then edges (extended edit), then the interior; None for nothing."""
+        """What is under `point`: the selected triangle's grips first, then corners, then edges (extended edit), then the
+        interior; None for nothing."""
+        grip = self._grip_at(point)
+        if grip is not None:
+            return Hit(self._selected_key, grip=grip)
         corner_radius, edge_radius = CORNER_HIT_PX / self._ppu, EDGE_HIT_PX / self._ppu
         candidates = self._candidates(prefer_selected=True)
         for e in candidates:
@@ -343,6 +374,15 @@ class TriangleView(QWidget):
         if hit is None:
             hit = Hit(self._selected_key)           # not selecting: any click grabs the selected triangle
         key, corner, edge = hit.key, hit.corner, hit.edge
+        if hit.grip is not None:
+            triangle = self.triangle(key)
+            if triangle is None:
+                return
+            self._drag = begin_triangle_drag(MODE_ROTATE if hit.grip == GRIP_ROTATE else MODE_SCALE, point, self.pivot_of(key), triangle)
+            self._drag_key = key
+            self._update_cursor(self._drag.mode)
+            self.update()
+            return
         if key != self._selected_key:
             self._selected_key = key
             self.selected.emit(key)
@@ -384,7 +424,9 @@ class TriangleView(QWidget):
         hit = self._hit(point)
         changed = hit != self._hover
         self._hover = hit
-        if hit is not None and hit.corner is not None:
+        if hit is not None and hit.grip is not None:
+            self.setCursor(Qt.CursorShape.PointingHandCursor if hit.grip == GRIP_ROTATE else Qt.CursorShape.SizeFDiagCursor)
+        elif hit is not None and hit.corner is not None:
             self.setCursor(Qt.CursorShape.CrossCursor)
         elif hit is not None and hit.edge is not None:
             self.setCursor(Qt.CursorShape.SizeAllCursor if hit.edge == 2 else Qt.CursorShape.PointingHandCursor)
@@ -427,6 +469,9 @@ class TriangleView(QWidget):
             self.fit()
             return
         key, corner, edge = hit.key, hit.corner, hit.edge
+        if hit.grip is not None:
+            self.triangle_command.emit(key, "reset-rotation" if hit.grip == GRIP_ROTATE else "reset-scale")
+            return
         if key != self._selected_key:
             self._selected_key = key
             self.selected.emit(key)
@@ -559,11 +604,29 @@ class TriangleView(QWidget):
         sel = self.entry(self._selected_key)
         if sel is not None:
             self._paint_entry(painter, sel, selected=True)
+        self._paint_grips(painter)
         self._paint_hover(painter)
         self._paint_helpers(painter)
         self._paint_pivot(painter)
         self._paint_captions(painter)
         painter.end()
+
+    def _paint_grips(self, painter: QPainter) -> None:
+        grips = self.grips()
+        if not grips:
+            return
+        fill = QColor(self.entry(self._selected_key).color)
+        hovered = self._hover.grip if self._hover is not None else None
+        for kind, positions in grips.items():
+            painter.setPen(QPen(PIVOT_COLOR, 2.0 if kind == hovered else 1.0))
+            painter.setBrush(fill if kind == hovered else QColor(fill.red(), fill.green(), fill.blue(), 110))
+            for pos in positions:
+                if kind == GRIP_ROTATE:
+                    painter.drawEllipse(pos, GRIP_RADIUS_PX, GRIP_RADIUS_PX)
+                else:
+                    painter.drawRect(QRectF(pos.x() - GRIP_RADIUS_PX + 1, pos.y() - GRIP_RADIUS_PX + 1,
+                                            2 * GRIP_RADIUS_PX - 2, 2 * GRIP_RADIUS_PX - 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
 
     def _paint_grid(self, painter: QPainter) -> None:
         w, h = self.width(), self.height()

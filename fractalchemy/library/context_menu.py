@@ -15,18 +15,22 @@ from .items import Kind, LibraryItem
 class LibraryContextMenu:
     """Builds and shows the right-click menu for library rows."""
     def __init__(self, controller: LibraryController, open_item: Callable[[LibraryItem], None], parent: QWidget,
-                 extra_actions: list[tuple[str, Callable[[LibraryItem], None]]] | None = None):
+                 extra_actions: list[tuple[str, Callable[[LibraryItem], None]]] | None = None,
+                 selection_actions: list[tuple[str, Callable[[list[LibraryItem]], None]]] | None = None):
         """Args:
             controller: Executes the chosen operations.
             open_item: Called with the item when 'Open' is chosen.
             parent: Widget that owns the menu and any prompts.
             extra_actions: (text, handler) pairs offered after *Open* for rows that open an entry — what a window adds
                 for its own library (the Fractal Library's *Breed with Current Fractal*).
+            selection_actions: (text, handler) pairs for files and entries, given the whole selection (the Fractal
+                Library's *Run Script on Selection…*); appended after the copy / paste group.
         """
         self._controller = controller
         self._open_item = open_item
         self._parent = parent
         self._extra = list(extra_actions or [])
+        self._selection_actions = list(selection_actions or [])
 
     def show(self, item: LibraryItem | None, selection: list[LibraryItem], pos: QPoint) -> None:
         """Show the menu for `item` at global `pos`; `selection` feeds multi-item actions."""
@@ -65,6 +69,10 @@ class LibraryContextMenu:
         if item.kind != Kind.ROOT:
             self._add(menu, "Rename…", lambda: self._rename(item))
             self._add(menu, "Delete…", lambda: self._delete(selection))
+        if item.kind in (Kind.FILE, Kind.ENTRY) and self._selection_actions:
+            menu.addSeparator()
+            for text, handler in self._selection_actions:
+                self._add(menu, text, lambda _checked=False, h=handler: h(selection))
         menu.addSeparator()
         if item.is_directory:
             self._add(menu, "New Folder…", lambda: self._new_folder(item))

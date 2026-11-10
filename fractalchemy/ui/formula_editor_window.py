@@ -65,6 +65,7 @@ from .formula_list_panel import FormulaListPanel
 from .formula_session import ORIGIN_FILE, ORIGIN_NEW, ORIGIN_REGISTERED, FormulaNameTaken, FormulaSession
 from .fractal_document import FractalDocument
 from .live_preview import DEFAULT_QUALITY, LivePreview, quality_level
+from .undo_labels import show_undo_state
 from ..widgets.windows import bring_to_front
 from ..widgets.theming import set_themed_style
 
@@ -253,6 +254,7 @@ class FormulaEditorWindow(QMainWindow):
 
     def _connect(self) -> None:
         doc, view, session = self.document, self.view, self.session
+        self.variables.table.table.note.connect(lambda text: self.statusBar().showMessage(text, 5000))
         doc.flame_replaced.connect(self._on_flame_replaced)
         doc.flame_restored.connect(self.rebuild)
         doc.transforms_changed.connect(self.rebuild)
@@ -647,8 +649,7 @@ class FormulaEditorWindow(QMainWindow):
         self._request_previews()
 
     def _on_undo_changed(self, can_undo: bool, can_redo: bool) -> None:
-        self.actions.undo.setEnabled(can_undo)
-        self.actions.redo.setEnabled(can_redo)
+        show_undo_state(self.document, self.actions.undo, self.actions.redo)
 
     def _on_selection_changed(self, key: object) -> None:
         self.view.select(key)

@@ -396,7 +396,7 @@ def test_main_window_toolbar_undo_copy_paste_and_save_flows(qapp, tmp_path, samp
                          "Transform Editor", "Gradient Library", "Animation", "Random Batch…", "Mutate && Breed…",
                          "Script Editor", "Formula Editor", "3D Editor", "Fragments", "Render Image…"]
         assert [a.text() for a in win.menuSaveAs.actions()] == ["As New Entry in This File…", "As New File…", "Into Existing File…"]
-        assert [a.text() for a in win.menuEdit.actions() if a.text()] == ["Undo", "Redo", "Copy Parameters", "Paste Parameters", "Edit Fractal Library…"]
+        assert [a.text() for a in win.menuEdit.actions() if a.text()] == ["Undo", "Redo", "Copy Parameters", "Copy Parameters As", "Paste Parameters", "Edit Fractal Library…"]
         assert not win.actionUndo.isEnabled() and not win.actionCopyParameters.isEnabled() and not win.actionSaveFractal.isEnabled()
         win.open_path(path, 2)
         wait_until(lambda: win.document.flame is not None and win.document.flame.name == "rotated")

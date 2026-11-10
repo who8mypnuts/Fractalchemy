@@ -14,6 +14,7 @@ import json
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from ..autosave import remove_quietly, write_atomically
 
 SESSION_SUFFIX = ".fasession"
 AUTOSAVE_NAME = "autosave" + SESSION_SUFFIX
@@ -97,10 +98,9 @@ class AutosaveStore:
         return self.path.is_file()
 
     def write(self, session: Session) -> None:
-        try:
-            session.write(self.path)
-        except OSError:
-            pass
+        """Write the session through a temporary file (shared with the main window's crash recovery)."""
+        session.saved_at = time.time()
+        write_atomically(self.path, session.to_json())
 
     def read(self) -> Session | None:
         if not self.exists:
@@ -111,10 +111,7 @@ class AutosaveStore:
             return None
 
     def clear(self) -> None:
-        try:
-            self.path.unlink()
-        except OSError:
-            pass
+        remove_quietly(self.path)
 
 
 __all__ = ["Session", "SessionTab", "AutosaveStore", "SESSION_SUFFIX", "AUTOSAVE_NAME"]

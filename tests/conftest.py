@@ -17,6 +17,17 @@ SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 NOT_SAMPLES = ("aposource", "apophysis-7x", "fragmentarium")  # reference source code kept under samples/, not gradient files
 
 
+@pytest.fixture(autouse=True)
+def _no_unsaved_fractal_prompt(request, monkeypatch, tmp_path_factory):
+    """Closing a main window with unsaved fractal edits asks Save / Discard / Cancel (a modal box that would stall an
+    offscreen test); tests answer "discard" unless they are marked `quit_prompt` to exercise the real question. Every
+    test also gets its own crash-recovery folder, so one test's windows never leave "crashed sessions" for the next."""
+    monkeypatch.setattr(config, "RECOVERY_DIR", tmp_path_factory.mktemp("recovery"))
+    if request.node.get_closest_marker("quit_prompt") is None:
+        from fractalchemy.ui.fractal_file_actions import FractalFileActions
+        monkeypatch.setattr(FractalFileActions, "confirm_discard", lambda self: True)
+
+
 @pytest.fixture(scope="session")
 def samples() -> Path:
     return SAMPLES

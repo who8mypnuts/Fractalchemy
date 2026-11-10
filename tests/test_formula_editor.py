@@ -320,7 +320,8 @@ def test_transforms_can_be_added_deleted_flipped_and_undone_from_the_toolbar_the
     assert fe.view.hit_at((0.2, 0.2)) is not None and fe.view.hit_at((-1.5, -1.5)) is None
     on_triangle = [a.text() for a in fe.actions.context_menu(fe, True).actions() if a.text()]
     assert on_triangle[:3] == ["Use the formula on this transform", "Make it linear", "Make it spherical"]
-    assert {"Delete transform", "Duplicate transform", "Flip horizontally", "Add linear transform", "Undo", "Variation preview"} <= set(on_triangle)
+    assert {"Delete transform", "Duplicate transform", "Flip horizontally", "Add linear transform", "Variation preview"} <= set(on_triangle)
+    assert any(text.startswith("Undo") for text in on_triangle)
     on_empty = [a.text() for a in fe.actions.context_menu(fe, False).actions() if a.text()]
     assert on_empty[0] == "Add linear transform" and "Delete transform" not in on_empty
     fe.actions.new_flame.trigger()

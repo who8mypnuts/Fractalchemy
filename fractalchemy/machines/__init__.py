@@ -5,9 +5,9 @@ implicit on purpose.
 """
 
 from .core import IllegalTransition, Machine, MachineSpec, Transition, is_strict, set_strict
-from .specs import (ALL, BUILD, JOB, OFFSPRING, PLAYBACK, RENDER_QUEUE, SCRIPT_RUN, BuildState, JobState, OffspringState,
-                    PlaybackState, QueueState, ScriptState)
+from .specs import (ALL, BUILD, JOB, LIVE_PARAMS, OFFSPRING, PLAYBACK, RENDER_QUEUE, SCRIPT_RUN, BuildState, JobState, LiveState,
+                    OffspringState, PlaybackState, QueueState, ScriptState)
 
 __all__ = ["IllegalTransition", "Machine", "MachineSpec", "Transition", "is_strict", "set_strict", "ALL", "BUILD", "JOB",
-           "OFFSPRING", "PLAYBACK", "RENDER_QUEUE", "SCRIPT_RUN", "BuildState", "JobState", "OffspringState", "PlaybackState",
-           "QueueState", "ScriptState"]
+           "LIVE_PARAMS", "OFFSPRING", "PLAYBACK", "RENDER_QUEUE", "SCRIPT_RUN", "BuildState", "JobState", "LiveState",
+           "OffspringState", "PlaybackState", "QueueState", "ScriptState"]

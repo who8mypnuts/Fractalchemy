@@ -1,18 +1,25 @@
-"""Chaotica `.chaos` worlds → Flame objects (read only).
+"""Chaotica `.chaos` worlds → Flame objects.
 
 Chaotica stores each IFS as iterators with angle/length affines, a list of
 transforms with `type_name` + params (flam3-compatible names), per-iterator
 selection weights (xaos) and a flam3 palette. Two camera styles exist: the
 older `scale` camera and the `flam3 camera` with `sensor_width`, whose
 "Viewing transform" is the final xform.
+
+Tone curves live in `<imaging><curves>`: one `<curve name="…">` per channel with two `<table>`s — the x and the y
+values of its control points (not always in order). `overall` is the master curve; `0`, `5` and `10` are red, green and
+blue (`CURVE_CHANNELS`, established from the sample worlds). Iterators Chaotica names by default ("Iterator 3") come
+back unnamed.
 """
 
 from __future__ import annotations
 
 import math
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from ..curves import Curves
 from ..scene import Affine, Camera, Coloring, Flame, XForm
 from ..variations import normalize
 
@@ -20,6 +27,8 @@ IFS_TAGS = ("flam3_IFS", "IFS")
 # Chaotica's brightness scale differs from Apophysis's; this factor makes the bundled
 # samples look comparable. It is a heuristic — adjust in one place if renders look off.
 BRIGHTNESS_SCALE = 0.2
+CURVE_CHANNELS = {"overall": "overall", "0": "red", "5": "green", "10": "blue"}   # Chaotica curve name → our channel
+DEFAULT_ITERATOR_NAME = re.compile(r"^Iterator \d+$")
 
 
 class ChaosParseError(ValueError):
@@ -103,7 +112,26 @@ def _coloring(imaging: ET.Element | None) -> Coloring:
         gamma_threshold=_real(imaging, "flam3_gamma_linear_threshold", 0.01),
         vibrancy=_real(imaging, "flam3_vibrancy", 1.0),
         background=tuple(max(0, min(255, round(c * 255))) for c in bg[:3]),
+        curves=_curves(imaging),
     )
+
+
+def _curves(imaging: ET.Element) -> Curves:
+    """The tone curves of `<imaging><curves>` (channels we cannot name are ignored)."""
+    curves = Curves()
+    for curve in imaging.findall("curves/curve"):
+        channel = CURVE_CHANNELS.get(curve.get("name", ""))
+        tables = curve.findall("table/values")
+        if channel is None or len(tables) < 2:
+            continue
+        try:
+            xs = [float(v) for v in (tables[0].text or "").split()]
+            ys = [float(v) for v in (tables[1].text or "").split()]
+        except ValueError:
+            continue
+        if len(xs) == len(ys) and len(xs) >= 2:
+            curves.set_points(channel, list(zip(xs, ys)))
+    return curves
 
 
 def _xform_from_iterator(it: ET.Element, unsupported: set[str]) -> XForm:
@@ -115,7 +143,8 @@ def _xform_from_iterator(it: ET.Element, unsupported: set[str]) -> XForm:
         xform.opacity = _real(shader, "opacity", 1.0)
     weights = it.find("weights_selector")
     xform.weight = _real(weights, "base_weight", 0.5) if weights is not None else 0.5
-    xform.name = it.get("name", "")
+    name = it.get("name", "")
+    xform.name = "" if DEFAULT_ITERATOR_NAME.match(name) else name
     return xform
 
 
@@ -138,8 +167,8 @@ def _xform_from_transform(tr: ET.Element | None, unsupported: set[str]) -> XForm
             key, value = real.get("name", ""), float(real.text or 0)
             if key == type_name:
                 weight = value
-            else:  # Chaotica writes some parameters bare ("Re_A"), others prefixed ("bipolar_shift")
-                params[key if key.startswith(type_name + "_") else f"{type_name}_{key}"] = value
+            else:  # Chaotica writes some parameters bare ("Re_A"), others prefixed ("bipolar_shift"); ours keep their own keys ("JRN_dist")
+                params[key if key.startswith(type_name + "_") or _declared(type_name, key) else f"{type_name}_{key}"] = value
         variations[type_name] = variations.get(type_name, 0.0) + weight
     xform.variations, xform.params, unknown = normalize(variations, params)
     unsupported.update(unknown)
@@ -168,6 +197,13 @@ def _affine(affine: ET.Element) -> Affine:
     ya, yl = math.radians(_real(affine, "y_axis_angle", 90.0)), _real(affine, "y_axis_length", 1.0)
     ox, oy = _vec(affine, "offset", (0.0, 0.0))[:2]
     return (math.cos(xa) * xl, math.sin(xa) * xl, math.cos(ya) * yl, math.sin(ya) * yl, ox, oy)
+
+
+def _declared(type_name: str, key: str) -> bool:
+    """True when `key` is a parameter the formula `type_name` declares under its own prefix (JuliaRandomN's `JRN_dist`)."""
+    from ..variations import REGISTRY, canonical_name
+    var = REGISTRY.get(canonical_name(type_name))
+    return var is not None and key in var.params
 
 
 def _real(el: ET.Element | None, name: str, default: float) -> float:

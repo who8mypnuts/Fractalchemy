@@ -105,7 +105,8 @@ def test_chaotica_worlds_load_with_camera_and_xaos(samples):
     assert tram.camera.rotate == -197.31 and tram.camera.scale == pytest.approx(960 / 1.25)
     assert tram.xforms[1].chaos == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     assert "collideoscope" in tram.xforms[0].variations and not tram.unsupported   # a plugin the formula library supplies
-    assert not fractal_format_for(samples / FLAMES / "tatasz_tram_rails.chaos").can_append
+    chaos = fractal_format_for(samples / FLAMES / "tatasz_tram_rails.chaos")
+    assert chaos.can_append and not chaos.can_replace     # new entries may be added; Chaotica's own entries are never rewritten
 
 
 # --- .fa --------------------------------------------------------------------

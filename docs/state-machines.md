@@ -81,10 +81,12 @@ One run from Run to its result. The run ends when the window has *processed* the
 
 | State | Meaning | Accepts |
 |---|---|---|
-| `idle` | no script is running: Run is enabled | `run` → `running` |
+| `idle` | no script is running: Run is enabled | `run` → `running`, `rerun` → `rerunning` |
 | `running` | the script's thread runs against a copy of the fractal: Stop is enabled | `wait` → `waiting`, `stop` → `stopping`, `finished` → `idle` |
 | `waiting` | the script called update(wait=True): the main viewport is rendering the intermediate fractal | `rendered` → `running`, `stop` → `stopping`, `finished` → `idle` |
 | `stopping` | Stop was pressed: the script ends at its next line (or at once when it waits for input) | `finished` → `idle` |
+| `rerunning` | a live parameter re-run is on the worker (restricted: no prompts, updates or files); Run stays enabled and supersedes it, Stop appears only when the re-run is slow | `finished` → `idle`, `stop` → `stopping`, `run` → `superseded` |
+| `superseded` | Run was pressed during a re-run: the re-run is being stopped and the requested Run starts when its result (discarded) arrives | `finished` → `idle`, `stop` → `stopping` |
 
 ```mermaid
 stateDiagram-v2
@@ -97,22 +99,101 @@ stateDiagram-v2
     running --> idle: finished
     waiting --> idle: finished
     stopping --> idle: finished
+    idle --> rerunning: rerun
+    rerunning --> idle: finished
+    rerunning --> stopping: stop
+    rerunning --> superseded: run
+    superseded --> idle: finished
+    superseded --> stopping: stop
+```
+
+### Live parameters
+
+*Owner:* `ui/script_live.py: LiveParameters (the Script Editor)` · *starts in* `off`
+
+Blender's *Adjust Last Operation*, for scripts: a live session belongs to the last run and ends as soon as anything else changes the fractal. Latest value wins: changes during a re-run queue exactly one more.
+
+| State | Meaning | Accepts |
+|---|---|---|
+| `off` | no live session: the controls (if a run declared any) only set the values the next Run uses | `declared_live` → `ready`, `declared_inert` → `inert`, `declared_none` → `off`, `run` → `off`, `unload` → `off`, `changed` → `off` |
+| `ready` | the last run declared parameters and may re-run: moving a control re-runs it from the pre-run snapshot | `declared_live` → `ready`, `declared_inert` → `inert`, `declared_none` → `off`, `run` → `off`, `unload` → `off`, `detach` → `detached`, `changed` → `pending` |
+| `pending` | a control moved: the re-run starts once it has been still for a moment (the debounce) | `declared_live` → `ready`, `declared_inert` → `inert`, `declared_none` → `off`, `run` → `off`, `unload` → `off`, `detach` → `detached`, `changed` → `pending`, `settle` → `rerunning` |
+| `rerunning` | a re-run is on the worker; its result replaces the fractal (same undo step) | `declared_live` → `ready`, `declared_inert` → `inert`, `declared_none` → `off`, `run` → `off`, `unload` → `off`, `detach` → `detached`, `changed` → `queued`, `finished` → `ready`, `refused` → `inert` |
+| `queued` | a control moved during a re-run: one more re-run follows with the latest values | `declared_live` → `ready`, `declared_inert` → `inert`, `declared_none` → `off`, `run` → `off`, `unload` → `off`, `detach` → `detached`, `changed` → `queued`, `finished` → `rerunning`, `refused` → `inert` |
+| `inert` | the script has side effects (prompts, messages, update / sleep, files, imports): its controls set the values, Run applies them | `declared_live` → `ready`, `declared_inert` → `inert`, `declared_none` → `off`, `run` → `off`, `unload` → `off`, `changed` → `inert` |
+| `detached` | the fractal was changed in another way after the run: re-running from the old snapshot would undo that, so the controls wait for the next Run | `declared_live` → `ready`, `declared_inert` → `inert`, `declared_none` → `off`, `run` → `off`, `unload` → `off`, `changed` → `detached` |
+
+```mermaid
+stateDiagram-v2
+    [*] --> off
+    off --> ready: declared_live
+    ready --> ready: declared_live
+    pending --> ready: declared_live
+    rerunning --> ready: declared_live
+    queued --> ready: declared_live
+    inert --> ready: declared_live
+    detached --> ready: declared_live
+    off --> inert: declared_inert
+    ready --> inert: declared_inert
+    pending --> inert: declared_inert
+    rerunning --> inert: declared_inert
+    queued --> inert: declared_inert
+    inert --> inert: declared_inert
+    detached --> inert: declared_inert
+    off --> off: declared_none
+    ready --> off: declared_none
+    pending --> off: declared_none
+    rerunning --> off: declared_none
+    queued --> off: declared_none
+    inert --> off: declared_none
+    detached --> off: declared_none
+    off --> off: run
+    ready --> off: run
+    pending --> off: run
+    rerunning --> off: run
+    queued --> off: run
+    inert --> off: run
+    detached --> off: run
+    off --> off: unload
+    ready --> off: unload
+    pending --> off: unload
+    rerunning --> off: unload
+    queued --> off: unload
+    inert --> off: unload
+    detached --> off: unload
+    ready --> detached: detach
+    pending --> detached: detach
+    rerunning --> detached: detach
+    queued --> detached: detach
+    ready --> pending: changed
+    pending --> pending: changed
+    rerunning --> queued: changed
+    queued --> queued: changed
+    off --> off: changed
+    inert --> inert: changed
+    detached --> detached: changed
+    pending --> rerunning: settle
+    rerunning --> ready: finished
+    queued --> rerunning: finished
+    rerunning --> inert: refused
+    queued --> inert: refused
 ```
 
 ### Mutate & Breed offspring
 
 *Owner:* `ui/mutation_window.py: MutationWindow` · *starts in* `stale`
 
-What the grid shows. Every regeneration decides between *empty*, *needs_parent* and *generating*; a change in the main window or the options makes the grid *stale*. Adopting a cell is not a state: it is one undoable edit followed by a regeneration.
+What the grid shows. Every regeneration decides between *empty*, *needs_parent* / *needs_script* and *generating*; a change in the main window or the options makes the grid *stale*. Adopting a cell is not a state: it is one undoable edit followed by a regeneration.
 
 | State | Meaning | Accepts |
 |---|---|---|
-| `stale` | the parent or the options changed: new offspring are made once the edits pause (or when the window is shown); results still arriving for the old parent are shown meanwhile | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `changed` → `stale`, `made` → `stale`, `failed` → `stale` |
-| `empty` | the main window shows no fractal: there is nothing to mutate | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `changed` → `stale` |
-| `needs_parent` | the Breed tab is showing and there is no second parent (B) yet | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `changed` → `stale` |
-| `generating` | offspring are being made on the thread pool | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `changed` → `stale`, `made` → `ready`, `failed` → `failed` |
-| `ready` | eight offspring are shown: click one (or press its number) to make it the fractal | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `changed` → `stale` |
-| `failed` | making offspring raised an error (shown across the grid) | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `changed` → `stale` |
+| `stale` | the parent or the options changed: new offspring are made once the edits pause (or when the window is shown); results still arriving for the old parent are shown meanwhile | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `no_script` → `needs_script`, `changed` → `stale`, `made` → `stale`, `failed` → `stale` |
+| `empty` | the main window shows no fractal: there is nothing to mutate | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `no_script` → `needs_script`, `changed` → `stale` |
+| `needs_parent` | the Breed tab is showing and there is no second parent (B) yet | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `no_script` → `needs_script`, `changed` → `stale` |
+| `needs_script` | the Explore script tab is showing and the Script Editor has no live script with parameters | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `no_script` → `needs_script`, `changed` → `stale` |
+| `generating` | offspring are being made on the thread pool | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `no_script` → `needs_script`, `changed` → `stale`, `made` → `ready`, `failed` → `failed` |
+| `ready` | eight offspring are shown: click one (or press its number) to make it the fractal | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `no_script` → `needs_script`, `changed` → `stale` |
+| `failed` | making offspring raised an error (shown across the grid) | `generate` → `generating`, `no_fractal` → `empty`, `no_second_parent` → `needs_parent`, `no_script` → `needs_script`, `changed` → `stale` |
 
 ```mermaid
 stateDiagram-v2
@@ -120,24 +201,35 @@ stateDiagram-v2
     stale --> generating: generate
     empty --> generating: generate
     needs_parent --> generating: generate
+    needs_script --> generating: generate
     generating --> generating: generate
     ready --> generating: generate
     failed --> generating: generate
     stale --> empty: no_fractal
     empty --> empty: no_fractal
     needs_parent --> empty: no_fractal
+    needs_script --> empty: no_fractal
     generating --> empty: no_fractal
     ready --> empty: no_fractal
     failed --> empty: no_fractal
     stale --> needs_parent: no_second_parent
     empty --> needs_parent: no_second_parent
     needs_parent --> needs_parent: no_second_parent
+    needs_script --> needs_parent: no_second_parent
     generating --> needs_parent: no_second_parent
     ready --> needs_parent: no_second_parent
     failed --> needs_parent: no_second_parent
+    stale --> needs_script: no_script
+    empty --> needs_script: no_script
+    needs_parent --> needs_script: no_script
+    needs_script --> needs_script: no_script
+    generating --> needs_script: no_script
+    ready --> needs_script: no_script
+    failed --> needs_script: no_script
     stale --> stale: changed
     empty --> stale: changed
     needs_parent --> stale: changed
+    needs_script --> stale: changed
     generating --> stale: changed
     ready --> stale: changed
     failed --> stale: changed
@@ -251,6 +343,12 @@ for users, developers or agents.
 | `ui/fractal_viewport.py` (main viewport), `ui/live_preview.py` (Transform Editor / Animation previews), `ui/grid_renderer.py`, `ui/three_d/viewport.py`, `ui/fragments/render_driver.py` | coalescing render loops: *idle → busy → busy with a newer request waiting*, interactive vs full resolution | generation counters / tokens, a pending flag, settle and throttle timers | Correct by construction: every result carries its generation and stale ones are dropped, so no combination is illegal. Heavily tested. |
 | `ui/formula_session.py` `FormulaSession` | debounced compile: idle → waiting for the pause → compiling ⇄ compiling with a newer edit | debounce timer, `_running` generation, `_pending`; already exposes `compiling` and `state_changed` | The same latest-wins pattern, with a public state signal already. |
 | `ui/three_d/window.py` (mesh / export jobs), `ui/fragments/mesh_export_dialog.py`, `batch_dialog.py`, `de_slice_dialog.py`, `ui/formula_drawer.py` (probe), `ui/random_batch_window.py` | a single job slot: idle ⇄ busy (cancel ends it early) | `self._job is None` / `_busy` | Two states, one owner, no pause: the encoding *is* the machine, and no illegal combination exists. |
+| `ui/script_recorder.py` `ScriptRecorder` (round 13) | recording on / off, and within it one *open block* that same-kind edits keep rewriting | `_recording`, `_block` (None when closed), a refresh timer | A two-state toggle plus an optional "current block" reference: any edit of another kind, typing or moving the cursor closes the block, and no combination is illegal. |
+| `ui/recovery.py` `RecoveryKeeper` (round 13) | nothing unsaved → a write pending → written | a single-shot timer, `document.modified` | Derived from the document on every change; the timer is the only state. |
+| `ui/script_batch_window.py` `ScriptBatchWindow` (round 13) | a batch job with Start / Pause / Stop | `JobWindowBase` — the `JOB` machine | Reuses the explicit machine above. |
+| `ui/script_editor_window.py` console lines, `run_code` (round 13) | a console line or a pinned template run | the `SCRIPT_RUN` machine's *running* state plus `_run_kind` (what the worker is doing: a run, a re-run or a console line) | The machine decides what may start; `_run_kind` only routes the result to its handler. |
+| `ui/fractal_viewport.py` before / after, re-colouring (round 13) | comparing on / off; a render retained for re-colouring | `_compare`, the render signature | A view flag and a cache key; the service owns the retained job. |
+| `widgets/command_palette.py` (round 13) | a popup: open → a command runs or it closes | the dialog itself | Modal and short-lived. |
 | `ui/file_actions_base.py` load tickets, `library/controller.py` scan counter, `ui/thumbnails.py` pending renders | supersession and counting, not lifecycles | tickets, counters, a dict of pending keys | Latest-wins tokens and a "busy while > 0" counter; nothing to transition. |
 | `widgets/node_bar.py`, `widgets/triangle_view.py`, `widgets/timeline.py`, `widgets/curve_editor.py`, `ui/fragments/viewport*.py`, `ui/three_d/viewport.py` | mouse gestures: press → drag → release | `_dragging`, `DragState` (already an explicit value in `fractal/triangle_drag.py`) | Local to one widget; Qt delivers press / move / release in order and every release resets. |
 | `widgets/silent.updating` users, `ui/gradient_link.py` `_syncing`, `ui/mutation_window.py` `_adopting`, `ui/random_batch_window.py` / `ui/fragments/composer_dialog.py` `_loading` | re-entrancy guards | booleans set around a block (mostly the `updating()` context manager) | Not lifecycles: they only silence feedback while code fills widgets. |

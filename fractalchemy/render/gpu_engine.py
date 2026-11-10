@@ -362,6 +362,14 @@ class GpuRenderJob:
         """The current histogram tone-mapped to RGBA8."""
         return self._tonemap()
 
+    def retone(self, coloring) -> np.ndarray | None:
+        """Tone-map the histogram again with new colouring (brightness, gamma, vibrancy, background, curves …); the
+        samples are kept. None before the first pass."""
+        self.coloring = coloring
+        self.curves_tex.release()
+        self._upload_curves()
+        return self._tonemap() if self.stats.samples else None
+
     def close(self) -> None:
         """Free the GPU objects (idempotent)."""
         if self._closed:

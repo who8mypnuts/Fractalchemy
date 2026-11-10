@@ -1,5 +1,6 @@
 """The **Inspector**: the collapsible panel on the right of the viewport, with an *Info* tab describing the loaded
-fractal and an *Image* tab with the preview effort, camera, 3D camera and colouring controls.
+fractal, an *Image* tab with the preview effort, camera, 3D camera and colouring controls, and a *History* tab listing
+every undo step (click one to go back to it).
 
 (It was called the "settings panel"; the new name keeps it apart from the *Info* tab — `InfoPanel` — inside it.)
 
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 from .. import config
 from .fractal_document import FractalDocument
 from .image_panel import ImagePanel
+from .history_panel import HistoryPanel
 from .info_panel import InfoPanel
 
 PASSES_KEY = "preview/passes"
@@ -27,7 +29,8 @@ LEGACY_TAB_KEY = "panel/tab"          # before the panel was called the Inspecto
 
 
 class InspectorPanel(QWidget):
-    """The Inspector, a tabbed panel: *Info* (facts about the fractal), *Image* (preview effort, camera, 3D, colouring).
+    """The Inspector, a tabbed panel: *Info* (facts about the fractal), *Image* (preview effort, camera, 3D, colouring),
+    *History* (the undo steps).
 
     Signals:
         render_settings_changed(int, float): (passes, quality) whenever either preview box changes.
@@ -42,6 +45,7 @@ class InspectorPanel(QWidget):
         self.tabs = QTabWidget(self)
         self.info = InfoPanel(self)
         self.image = ImagePanel(self)
+        self.history = HistoryPanel(self)
         self.passes_box = self.image.passes_box
         self.quality_box = self.image.quality_box
         self._build()
@@ -57,14 +61,17 @@ class InspectorPanel(QWidget):
         self._load()
 
     def bind(self, document: FractalDocument) -> None:
-        """Let the Image tab edit and follow `document`."""
+        """Let the Image tab edit and follow `document`, and the History tab list its steps."""
         self.image.bind(document)
+        self.history.bind(document)
 
     def _build(self) -> None:
         self.tabs.addTab(self.info, "Info")
         self.tabs.addTab(self.image, "Image")
+        self.tabs.addTab(self.history, "History")
         self.tabs.setTabToolTip(0, "What the loaded fractal is made of")
         self.tabs.setTabToolTip(1, "Preview effort, camera, 3D camera and colouring")
+        self.tabs.setTabToolTip(2, "Every edit since the fractal was opened: click one to go back to it")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addWidget(self.tabs)

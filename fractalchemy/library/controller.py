@@ -111,8 +111,35 @@ class LibraryController(QObject):
                           on_error=lambda exc: self._scan_failed(Path(path), exc))
 
     def rescan_open_file(self) -> None:
-        if self.open_file is not None and not self.model.open_file_is_virtual:
-            self.show_file(self.open_file)
+        """Re-read the file in the temporary area after it changed on disk — quietly: a file caught mid-write keeps its
+        section (a status message says so), and one that no longer holds anything leaves with a status message; no
+        dialogs, since this runs from the file watcher."""
+        if self.open_file is None or self.model.open_file_is_virtual:
+            return
+        path = self.open_file
+        self._open_generation += 1
+        generation = self._open_generation
+        self._set_pending(+1)
+        run_in_background(self.catalog.entry_names, path,
+                          on_done=lambda names: self._apply_open_rescan(path, names, generation),
+                          on_error=lambda exc: self._open_rescan_failed(path, exc, generation))
+
+    def _apply_open_rescan(self, path: Path, names: list[str], generation: int) -> None:
+        self._set_pending(-1)
+        if generation != self._open_generation:
+            return
+        if not names:
+            self.model.set_open_file(None)
+            self.watcher.watch_file(None)
+            self.status.emit(f"{path.name} holds no fractals any more")
+            return
+        self.model.set_open_file(ScannedFile(path, list(names)))
+        self.root_scanned.emit(path)
+
+    def _open_rescan_failed(self, path: Path, exc: Exception, generation: int) -> None:
+        self._set_pending(-1)
+        if generation == self._open_generation:
+            self.status.emit(f"Could not re-read {path.name}: {exc}")
 
     def _apply_open_scan(self, path: Path, scanned, generation: int) -> None:
         self._set_pending(-1)

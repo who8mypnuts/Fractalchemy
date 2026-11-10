@@ -69,6 +69,8 @@ class EditorActions:
                           "that do something faintly behind the normal ones", checkable=True)
         self.helpers = act("Helper lines", None, w.set_helpers, None, "Pivot cross-hair, rotation circle and scale rays while dragging",
                            checkable=True)
+        self.grips = act("Show grips", None, w.set_grips, None,
+                         "Rotate (round) and scale (square) grips around the selected triangle", checkable=True)
         self.xform_colors = act("Use transform colors", None, w.set_transform_colors, None,
                                 "Colour each triangle with its transform's palette colour instead of the fixed set", checkable=True)
         self.reload = act("Reload formulas", "reload", w.reload_formulas, None,
@@ -78,6 +80,7 @@ class EditorActions:
         self.move.setChecked(True)
         self.ghosts.setChecked(True)
         self.helpers.setChecked(True)
+        self.grips.setChecked(True)
         self._mode_group = QActionGroup(w)
         for action in (self.move, self.rotate, self.scale):
             self._mode_group.addAction(action)
@@ -101,7 +104,7 @@ class EditorActions:
         populate(window.menuBar().addMenu("Edit"), self.undo, self.redo, None, self.copy, self.paste, None, self.select, self.move,
                  self.rotate, self.scale, self.pivot)
         populate(window.menuBar().addMenu("View"), self.fit, self.zoom_in, self.zoom_out, None, self.var_preview, self.ghosts,
-                 self.helpers, self.xform_colors, None, self.reload, None, self.close)
+                 self.helpers, self.grips, self.xform_colors, None, self.reload, None, self.close)
         return toolbar
 
     def show_context_menu(self, window, pos: QPoint, on_triangle: bool) -> None:

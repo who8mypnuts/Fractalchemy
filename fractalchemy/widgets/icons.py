@@ -259,7 +259,7 @@ def _glyph_pixmap(name: str, size: int) -> QPixmap:
 
 def _script_glyph(painter: QPainter, name: str, u: float) -> None:
     """The Script Editor's toolbar glyphs (new, open, run, stop, find, comment, indent, outdent, check, flame-script, revert,
-    template, clear, drawer)."""
+    template, clear, drawer, record, console)."""
     from PySide6.QtGui import QPolygonF
     white = QColor("#fafafa")
     if name == "new":
@@ -321,6 +321,15 @@ def _script_glyph(painter: QPainter, name: str, u: float) -> None:
         painter.drawRect(QRectF(2 * u, 3 * u, 12 * u, 10 * u))
         painter.setBrush(GLYPH_ACCENT)
         painter.drawRect(QRectF(9 * u, 3 * u, 5 * u, 10 * u))
+    elif name == "record":
+        painter.setBrush(QColor("#d32f2f"))                                          # a record button
+        painter.drawEllipse(QPointF(8 * u, 8 * u), 5.2 * u, 5.2 * u)
+    elif name == "console":
+        painter.setBrush(QColor("#263238"))
+        painter.drawRoundedRect(QRectF(1.5 * u, 2.5 * u, 13 * u, 11 * u), u, u)
+        painter.setPen(QPen(QColor("#fafafa"), max(1.0, 1.4 * u), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawPolyline(QPolygonF([QPointF(4 * u, 6 * u), QPointF(6.5 * u, 8 * u), QPointF(4 * u, 10 * u)]))
+        painter.drawLine(QPointF(8 * u, 10.5 * u), QPointF(12 * u, 10.5 * u))
 
 
 def _pencil(painter: QPainter, u: float) -> None:

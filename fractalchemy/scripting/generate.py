@@ -1,43 +1,13 @@
-"""Flame → Script: a script that rebuilds a flame with the scripting API (a starting point for editing it)."""
+"""Flame → Script: a script that rebuilds a flame with the scripting API (a starting point for editing it).
+
+The number formatting and the transform / palette blocks come from `codegen`, shared with the recorder's diff generator.
+"""
 
 from __future__ import annotations
 
-from ..fractal.scene import Flame, XForm, identity_affine
-
-
-def _num(value: float) -> str:
-    if isinstance(value, int):
-        return str(value)
-    text = f"{value:.9g}"
-    return text if ("." in text or "e" in text or text in ("inf", "-inf", "nan")) else text + ".0"
-
-
-def _affine(coefs) -> str:
-    return ", ".join(_num(c) for c in coefs)
-
-
-def _dict(values: dict) -> str:
-    return "{" + ", ".join(f"{k!r}: {_num(v)}" for k, v in values.items()) + "}"
-
-
-def _xform_lines(x: XForm, var: str, final: bool) -> list[str]:
-    fields = [f"variations={_dict(x.variations) if x.variations else '{}'}"]
-    if not final:
-        fields.insert(0, f"weight={_num(x.weight)}")
-    fields += [f"color={_num(x.color)}", f"color_speed={_num(x.color_speed)}"]
-    if x.opacity != 1.0:
-        fields.append(f"opacity={_num(x.opacity)}")
-    if x.var_color != 1.0:
-        fields.append(f"var_color={_num(x.var_color)}")
-    if x.name:
-        fields.append(f"name={x.name!r}")
-    call = "set_final_transform" if final else "add_transform"
-    lines = [f"{var} = {call}({', '.join(fields)})", f"{var}.set_affine({_affine(x.coefs)})"]
-    if tuple(x.post) != identity_affine():
-        lines.append(f"{var}.post.coefs = ({_affine(x.post)})")
-    if x.params:
-        lines.append(f"{var}.params.update({_dict(x.params)})")
-    return lines
+from ..fractal.curves import CHANNELS
+from ..fractal.scene import Flame
+from .codegen import curve_call, num as _num, palette_lines, xform_lines as _xform_lines
 
 
 def flame_to_script(flame: Flame) -> str:
@@ -55,7 +25,9 @@ def flame_to_script(flame: Flame) -> str:
     lines += [f"flame.oversample = {flame.oversample}", f"flame.filter_radius = {_num(flame.filter_radius)}"]
     lines += ["", f"coloring.brightness = {_num(col.brightness)}", f"coloring.gamma = {_num(col.gamma)}",
               f"coloring.gamma_threshold = {_num(col.gamma_threshold)}", f"coloring.vibrancy = {_num(col.vibrancy)}",
-              f"coloring.contrast = {_num(col.contrast)}", f"coloring.background = {tuple(int(c) for c in col.background)}", ""]
+              f"coloring.contrast = {_num(col.contrast)}", f"coloring.background = {tuple(int(c) for c in col.background)}"]
+    lines += [curve_call(channel, col.curves.points[channel]) for channel in CHANNELS if not col.curves.is_default(channel)]
+    lines.append("")
     for i, x in enumerate(flame.xforms):
         lines.append(f"# transform {i + 1}")
         lines += _xform_lines(x, f"t{i + 1}", final=False)
@@ -73,11 +45,8 @@ def flame_to_script(flame: Flame) -> str:
                 lines.append(f"xaos.set_row({i}, [{', '.join(_num(v) for v in row)}])")
         lines.append("")
     lines.append("# palette (256 colours)")
-    lines.append("gradient.colors = [")
-    palette = [tuple(int(c) for c in rgb) for rgb in flame.palette]
-    for start in range(0, len(palette), 8):
-        lines.append("    " + ", ".join(str(c) for c in palette[start:start + 8]) + ",")
-    lines += ["]", "", "print('rebuilt', flame.name, 'with', len(transforms), 'transforms')"]
+    lines += palette_lines(flame.palette)
+    lines += ["", "print('rebuilt', flame.name, 'with', len(transforms), 'transforms')"]
     return "\n".join(lines) + "\n"
 
 

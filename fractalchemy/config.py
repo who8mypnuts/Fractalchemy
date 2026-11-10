@@ -75,3 +75,15 @@ FRAG_SUBFRAME_BUDGET_MS = 500   # a subframe slower than this makes the viewport
 FRAG_THUMBNAIL = (160, 100, 4)  # library thumbnails: width, height, subframes
 FRAG_MAX_TILE_SIDE = 4096       # hi-res render tile size limit
 FRAG_MAX_IMAGE_SIDE = 32768     # hi-res render image size limit (FragM's; EXR output is exempt)
+
+# --- crash recovery (ui/recovery.py) ---
+RECOVERY_DIR = None             # folder for recovery files; None = the per-user cache folder's `recovery/`
+RECOVERY_DELAY_MS = 3000        # unsaved fractal edits are written this long after they pause
+SHELF_SIZE = 20                 # unsaved edits kept when another fractal is shown (File ▸ Recover)
+
+# --- Script Editor: live parameters and recording ---
+SCRIPT_MAX_PARAMETERS = 40      # param() declarations per script
+SCRIPT_LIVE_DEBOUNCE_MS = 150   # a moved control re-runs the script this long after it stops moving
+SCRIPT_LIVE_SLOW_MS = 1500      # a re-run slower than this switches the controls to "apply on release"
+SCRIPT_LIVE_BUSY_MS = 300       # "Updating…" and an enabled Stop appear only when a re-run takes longer than this
+SCRIPT_RECORD_REFRESH_MS = 100  # the recorder rewrites a growing statement at most this often

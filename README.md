@@ -19,13 +19,24 @@ python -m pytest
 ## What it does today
 
 ### Main window
-* Menu bar: *File* (Open Fractal…, Save Fractal `Ctrl+S`, Save Fractal As ▸ New Entry / New File `Ctrl+Shift+S` /
-  Into Existing File, Exit), *Edit* (Undo `Ctrl+Z`, Redo `Ctrl+Shift+Z`, Copy Parameters `Ctrl+Shift+C`, Paste
+* Menu bar: *File* (Open Fractal…, **Open Recent ▸**, **Recover ▸**, Save Fractal `Ctrl+S`, Save Fractal As ▸ New Entry /
+  New File `Ctrl+Shift+S` / Into Existing File, Exit), *Edit* (Undo `Ctrl+Z`, Redo `Ctrl+Shift+Z` — both named after the
+  step, "Undo Gamma" —, Copy Parameters `Ctrl+Shift+C`, **Copy Parameters As ▸** Fractalchemy / Apophysis / Chaotica, Paste
   Parameters `Ctrl+Shift+V`, Edit Fractal Library…), *View* (Show/Hide Fractal Library `Ctrl+L`,
-  Refresh `F5`, Thumbnails, Show/Hide Inspector, Zoom to Fit / 100%, Guides, **Theme ▸**, Toolbar, Status Bar),
-  *Windows* (Transform Editor `F4`, Gradient Library `F6`, Animation `F9`, Random Batch `F7`, Mutate & Breed `Ctrl+M`,
-  Script Editor `F8`,
-  Formula Editor `F10`, 3D Editor `F11`, Fragments `F12`, Render Image… `Ctrl+R`), *Help* (Formulas…, About).
+  Refresh `F5`, Thumbnails, Show/Hide Inspector, **Compare with Original**, Zoom to Fit / 100%, Guides, **Theme ▸**, Toolbar,
+  Status Bar), *Windows* (Transform Editor `F4`, Gradient Library `F6`, Animation `F9`, Random Batch `F7`, Mutate & Breed
+  `Ctrl+M`, Script Editor `F8`, **Scripts ▸**, Formula Editor `F10`, 3D Editor `F11`, Fragments `F12`, Render Image…
+  `Ctrl+R`), *Help* (**Command Palette…** `Ctrl+K`, Formulas…, About).
+* **Command palette** (`Ctrl+K` in every window): type a few letters of any command — the window's own menus, the main
+  window's, *Open Recent*, *Recover*, the themes, "Run template: …" — and press Enter. Matching is fuzzy (letters in
+  order, word starts count most); with nothing typed the commands you used last come first; unavailable commands are
+  shown dimmed.
+* **Nothing unsaved is lost.** A few seconds after edits pause, an unsaved fractal is copied to the recovery folder
+  (the per-user cache, never next to your files); if Fractalchemy does not close properly, the next start offers to
+  restore it (*Restore* / *Not now* — it stays under *File ▸ Recover* — / *Discard*), modified and still linked to its
+  file entry. Showing another fractal never asks, but puts the unsaved edits on the **shelf** (*File ▸ Recover*, the 20
+  newest). Quitting with unsaved fractal edits asks *Save / Discard / Cancel*.
+* **Open Recent** lists the last ten fractals opened or saved (file and entry); missing files are shown disabled.
 * Toolbar: **Open**, **Save**, **Save As ▾** (new entry in this file / new `.flame` or `.fa` file / into another file),
   **Undo**, **Redo**, **Copy Parameters** (the whole fractal, gradient included, as `.fa` text), **Paste Parameters**
   (`.fa`, Apophysis `<flame>` XML or a Chaotica world from the clipboard, undoable), **Transform Editor** (`F4`),
@@ -38,7 +49,12 @@ python -m pytest
   top of the Fractal Library, above a separator; opening another file replaces it. The section follows the file:
   rename / delete / duplicate its flames there, or drag them into library files.
 * **Undo / Redo** cover every edit to the fractal — camera moves (Ctrl+drag / Ctrl+wheel / double-click) and gradient
-  edits made in the Gradient Library; a drag or a slider sweep is one step. The title shows `*` while unsaved.
+  edits made in the Gradient Library; a drag or a slider sweep is one step, and an edit that changes nothing is no step at
+  all. The title shows `*` while the fractal differs from what was loaded or saved — undoing back to that state clears
+  it. The Inspector's **History** tab lists every step by name and jumps to any of them.
+* **Before / after**: hold `\` to see the fractal as it was loaded (or last saved), `Shift+\` as it was before the last
+  edit; *View ▸ Compare with Original* keeps the comparison on. The other picture is rendered once with the same view
+  and kept, so pressing again is instant.
 * **Save** writes the flame back into its own entry (`.fa`, `.flame`); for a Chaotica world or a flame without a file
   it becomes *New File…*. **Save As ▸** (File menu and the toolbar button) has the same three flavours as the
   Gradient Library, so one `.fa` (or `.flame`) file can collect many fractals: *Add to This File as New Fractal…*
@@ -47,7 +63,8 @@ python -m pytest
   `.flame`). Afterwards the document points at the saved entry, so the next Save is in place. Saving a flame that
   uses variations we can't render yet back into its `.flame` warns first, because those variations would be dropped.
 * **Copy Parameters** puts the parameters (transforms, camera, colouring *and* gradient) on the clipboard as
-  Fractalchemy text; **Paste Parameters** accepts `.fa`, Apophysis `<flame>` XML or a Chaotica world.
+  Fractalchemy text (*Copy Parameters As ▸* Apophysis `<flame>` XML or a Chaotica world); **Paste Parameters** accepts
+  any of the three.
 * **Fractal Library** (left pane, collapsible via the divider arrow or `Ctrl+L`): folders of `.flame`
   (Apophysis / flam3, legacy files included), `.chaos` (Chaotica) and `.fa` (Fractalchemy) files, each file
   expanding into its flames. A file opened with **Open Fractal** sits in a temporary area at the top, above a
@@ -89,7 +106,11 @@ python -m pytest
     `blur3D`, `zblur`, `zscale`, `pre_`/`post_rotate_x/y`, `linear3D`, … — show real 3D); **Coloring** (brightness, gamma, gamma threshold, vibrancy,
     contrast, background colour via the live picker); **Curves** (Chaotica-style tone curves — overall, R, G, B
     and alpha/coverage — click to add points, drag, right-click to remove, *Reset* per channel and *Reset all*;
-    Apophysis 7X `curves` are read, ours are saved as `fa_curves`).
+    Apophysis 7X `curves` are read, ours are saved as `fa_curves`). Colouring and curve edits change the picture at once:
+    the render's histogram is kept and only tone-mapped again, at the quality already reached (refining carries on).
+  * *History* — every undo step of the fractal by name ("Gamma", "Triangle 3", "Script: Random rotate", "Adopt
+    mutant"), the loaded state at the top, the current one in bold, undone steps dimmed, the saved state marked 💾. Click
+    one to go back (or forward) to it; right-click to compare it with the current picture or copy its parameters.
   Every change re-renders and is undoable; nothing is written until you save. The tab you were on persists.
 * **Status bar** across the bottom: the loaded fractal (name, transform count, size, file, ignored
   variations), render facts (engine, render size, samples, samples/second — the full GPU name is in the
@@ -161,8 +182,13 @@ preview of what the final renderer will produce — see [docs/rendering.md](docs
 |---|---|---|---|---|
 | `.flame` (Apophysis / flam3) | ✓ | many | ✓ | ✓ (in-place text edits; unknown data survives) |
 | `.fa` (Fractalchemy, JSON) | ✓ | many | ✓ | ✓ |
-| `.chaos` (Chaotica) | ✓ | many | ✓ | – |
+| `.chaos` (Chaotica) | ✓ (tone curves included) | many | ✓ | add only (a new `<IFS>`; entries are never rewritten, so Chaotica-only data survives) |
 | `.faanim` (Fractalchemy animation, JSON) | ✓ (Animation window) | one animation | – | ✓ |
+
+Writing a flame into a Chaotica world keeps what Chaotica can hold: the pre affine is folded into the affine, `zoom`
+into the scale, and the final transform becomes the camera's viewing transform; the filter radius, contrast, the alpha
+curve, the 3D camera and direct colour (`var_color`) have no Chaotica equivalent. Tone curves are read and written as
+Chaotica's `overall` / red / green / blue curves. `tests/test_format_roundtrip.py` checks every format against these rules.
 
 ### Transform Editor window
 *Windows ▸ Transform Editor* (`F4`, the triangle on the toolbar) is Apophysis's editor, rebuilt: it edits the fractal
@@ -188,7 +214,9 @@ shown in the main window, every change is undoable from either window (`Ctrl+Z`)
   cancels a drag. Arrow keys nudge by the move step (Shift ×10, Ctrl ÷10), `Alt+←/→` and `PgUp/PgDn` rotate,
   `Alt+↑/↓` and `Home/End` scale, `Insert` duplicates, `Delete` deletes, `M` / `R` / `S` pick the move / rotate /
   scale mode, `A` toggles select mode, `T` steps through pre / normal / post. Hovering a triangle lists its
-  variations in the corner; the status bar shows the cursor position, the zoom and what a drag did.
+  variations in the corner; the status bar shows the cursor position, the zoom and what a drag did. **Grips** around the
+  selected triangle (*View ▸ Show grips*, on by default): drag the round one above it to rotate, a square one at its
+  corners to scale — about the pivot, Shift snapping — and double-click one to reset the rotation / scale.
 * **Toolbar**: new flame (one linear transform, camera reset; palette and colouring kept), add / duplicate /
   delete / link transforms (a *linked* transform takes over the selected transform's xaos links, as in
   Apophysis), undo / redo, copy / paste triangle coordinates, the select / move / rotate / scale modes, world
@@ -204,7 +232,9 @@ shown in the main window, every change is undoable from either window (`Ctrl+Z`)
   formulas, **3D** ones (they set the depth — `julia3D`, `ztranslate`, `zscale`, `curl3D`, `blur3D`, …), direct
   colour and random ones. Type a weight, drag a name sideways (Shift coarse, Ctrl / Alt fine) or double-click it
   for 0 ↔ 1. **Variables** — the parameters of the active variations (the z / 3D ones included), typed or
-  dragged, double-click resets the default, *Show all variables* lists every parameter of every formula.
+  dragged, double-click resets the default, *Show all variables* lists every parameter of every formula. Values stay
+  within what the formula declares — its range (a cyclic one wraps), whole numbers for integers, never 0 where 0 is not
+  allowed — and the status bar says when a typed or dragged value was adjusted (files, scripts and paste keep any value).
   **Xaos** — the outgoing (*to*) or incoming (*from*) weights, *Clear all* / *Set all*. **Triangle** — corner
   coordinates, rotate / move / scale buttons with their amounts, the pivot, axis lock, extended edit and *auto
   weights from triangle area*. **Transform** — the X / Y / O vectors of all three affines, rectangular or polar,
@@ -262,7 +292,9 @@ random gradient, and is framed automatically; systems that blow up are rolled ag
 saved**: it appears in the library's temporary area under the heading **Randomly Generated** (replacing an
 opened file there), browsable with thumbnails like any file. Open one, adjust it, and *Save* / *Save As* put it
 in a file of your choosing — the batch stays on show so you can keep the others too. Your checks, count and
-range persist; a formula you add later starts out checked.
+range persist; a formula you add later starts out checked. **Symmetry** adds flam3's symmetry transforms to every
+fractal: none (the default), flam3's own random pick, a left–right mirror, N-fold rotation or both, with an order
+range.
 
 ### Mutate & Breed window
 *Windows ▸ Mutate & Breed…* (`Ctrl+M`, the double helix on the toolbar) explores relatives of the fractal shown in the
@@ -281,6 +313,12 @@ and a tooltip listing every change.
   its slot or chosen with the row's *Breed with Current Fractal*, or any cell (*Use as parent B*). **Combine**: *alternate* (each transform from one parent or the other),
   *interpolate* (every number blended, 25–75 %), *union* (all the transforms of both, weighted 30–70 %) or *mixed*.
   The **gradient** comes from A, B, a blend or either; the **camera** and colouring from A, B, or re-framed on the child.
+* **Explore script**: eight variations of the Script Editor's live script (a script whose `param()` controls are live):
+  its parameters nudged around the current values (or drawn anywhere in their ranges, or only new random numbers), each
+  run on the fractal as it was before the script. **Spread**, **where**, *new random numbers too* and which parameters may
+  change are the options. Clicking a cell hands its values to the Parameters tab — the fractal follows, still the
+  script's one undo step; *Make it the fractal* in the cell's menu adopts the flame as a separate step instead. The
+  Parameters tab's *Explore…* opens this tab.
 * Offspring that blow up or collapse are rolled again. **Click a cell** (or press its number, 1–9) to make it the
   fractal: **one undoable edit** that keeps the file link and the name (Ctrl+Z in either window goes back, Save
   overwrites the entry), and the grid regenerates around it. The Gradient Library shows the new gradient straight away,
@@ -297,7 +335,8 @@ included), the gradient and palette, the chaos / xaos matrix, the camera (2D and
 prompts, random numbers and live previews. Closing the window hides it; the script, the drawer state and the
 window layout are remembered between runs. See [docs/scripting.md](docs/scripting.md) for the full reference.
 
-* **Toolbar**: New / Open / Save / Save As (`.py` files) · **Run** (`Ctrl+Enter`) / **Stop** (`Shift+Esc`) ·
+* **Toolbar**: New / Open / Save / Save As (`.py` files) · **Run** (`Ctrl+Enter`) / **Stop** (`Shift+Esc`) · **Record ▾**
+  (`Ctrl+Shift+R`) ·
   Undo / Redo · Find & replace (`Ctrl+F` / `Ctrl+H`), toggle comment (`Ctrl+/`), outdent / indent · **Check syntax** ·
   **Flame → Script** (a script that rebuilds the current fractal — the quickest way to start editing one) ·
   **Revert flame** (back to before the last run) · **Save as template** · clear output · show / hide the drawer (`Ctrl+L`).
@@ -315,26 +354,62 @@ window layout are remembered between runs. See [docs/scripting.md](docs/scriptin
   and, for arguments that take a known set of values, that list (e.g. every variation name); click anything to insert
   it. **Reference** — the scripting guide, the searchable API reference and the catalogue of loaded variations.
   **Info** — the script's name, file, `# @name` / `# @author` / `# @description` metadata, size, the API it uses,
-  whether it prompts or animates, and the last run (time, result, transforms before → after). **Templates** — 35
+  whether it prompts or animates, its parameters, and the last run (time, result, transforms before → after).
+  **Parameters** — one control per `param()` declaration of the last run (below). **Templates** — 36
   built-in templates by category (*Random rotate all transforms*, *Normalize weights*, *Add random transform*,
   *Julia mutation*, *Make rotational symmetry*, *Spiral*, *Tile the plane*, *Gnarl*, gradient, xaos and camera
   helpers, *Random flame explorer*, *Flame report*, *Build a flame from scratch*, …) plus *My templates*: save the
   current script as one, overwrite, rename, delete; load, insert at the cursor, or load-and-run. User templates are
-  plain `.py` files in the per-user scripts folder (*Open folder*), so they can be shared.
+  plain `.py` files in the per-user scripts folder (*Open folder*), so they can be shared. **Pin** a template (★) and it
+  appears in the main window's **Scripts ▾** menu: one click runs it on the fractal with its saved parameter values,
+  without opening the editor (*Adjust Parameters…* opens its Parameters tab).
+* **Live parameters**: a script declares tunable inputs instead of asking for them —
+  `angle = param('Angle', 30, min=-180, max=180)` (a slider), `param('Copies', 3, min=1, max=12)` (an integer slider),
+  `param('Keep colours', True)` (a check box), `param('Palette', 'Fire', choices=list_gradient_presets())` (a dropdown),
+  `param('File', '')` (text). After a run the Parameters tab shows the controls; moving one runs the script again from
+  the fractal as it was before the run, with the same random numbers (*New seed* rolls new ones; *Keep seed on Run* makes
+  Run repeat them), and the fractal follows live while the whole session stays **one undo step**. Changing the fractal
+  in any other way ends the session (the values stay; Run applies them again). Scripts with side effects — questions,
+  messages, `update()` / `sleep()`, writing files, imports beyond `math` / `colorsys` / `random` … — are not re-run live:
+  their controls set the values the next Run uses. *Set as defaults in script* writes the values into the `param()`
+  calls; *Save as Template* offers to. Right-click a control for *Reset to default*, *Animate…* (Animation keyframes of
+  the result while that parameter sweeps) and *Go to declaration*. The values you change are remembered with the draft.
+  Twelve built-in templates declare parameters (*Random rotate*, *Warm / cool shift*, *Make rotational symmetry*,
+  *Julia mutation*, *Live kaleidoscope*, …).
+* **Record** writes the code for what you do anywhere else: every edit — camera drags and zooms, the Image tab, the 3D
+  camera, colouring and curves, the Gradient Library, the Transform Editor, Paste Parameters, adopting a mutant — appends
+  the statements that reproduce it at the cursor (`camera.zoom = 1.25`, `coloring.gamma = 3.5`,
+  `gradient.set_stops([...])`, `transforms[1].coefs = (…)`). A drag or a slider sweep is one statement; Undo in the main
+  window removes the statement it had just written (Redo puts it back); each statement is one step of the editor's own
+  undo; the editor never takes the focus. *Record ▾ Changes* writes changes instead of values (`camera.zoom += 0.25`,
+  `transforms[0].rotate(15)`, `gradient.adjust_stops(hue=30)`) so the recording works as a filter on any fractal. Every
+  statement is checked by running it, so a recording always reproduces the edits. Recording stops when a script runs;
+  the main window's status bar shows **● Recording script** meanwhile (click it to stop).
+* **Console** (the `>>>` line under the output): type a line and press Enter — an expression shows its value, variables
+  carry over to the next line, a line that changes the fractal is one undo step ("Console: camera.zoom += 1"); ↑ / ↓ walk
+  the history. While recording, console lines go into the script as typed.
+* **Run on Many Fractals** (*Script* menu, the main window's *Scripts ▾*, the Fractal Library's *Run Script on
+  Selection…*): the script (or any template) applied to the library selection, every fractal of a file, the Randomly
+  Generated batch or the current fractal, the results added to a `.fa` / `.flame` / `.chaos` file — never over the
+  fractals it reads. Names (`{name} · {script}`), random numbers (the same for all, or new for each) and what to do when
+  one fails are options; Pause and Stop work as in the render windows, and a stopped batch keeps what it made.
 * **Running**: a script runs on a worker thread against a copy of the fractal; `print()` streams into the output
-  panel, `input_text()` / `input_number()` / `confirm()` pop up dialogs, `message()` shows a box, `update()` pushes
+  panel, `param()` declares a control (above), `input_text()` / `input_number()` / `confirm()` pop up dialogs,
+  `message()` shows a box, `update()` pushes
   the current state into the main window and re-renders (with `sleep()` that makes animation previews), `progress()`
   feeds the status bar, `stop()` ends the script keeping its changes. When it finishes the fractal takes the result
   as **one undo step**; an error leaves the fractal untouched (intermediate updates are rolled back). **Stop** ends
   any script — `while True:` loops, sleeps and open prompts included.
 * **The API** (Python, no imports needed): `flame`; `transforms` / `transform` (the active one) with `a`–`f`,
   `coefs`, `post`, `weight`, `color`, `color_speed`, `opacity`, `variations[…]`, `params[…]`, `xaos`, and
-  `rotate()`, `scale()`, `translate()`, `rotate_around()`, `multiply()`, `flip_*()`, `set_variation()`, …;
+  `pre`, `rotate()`, `scale()`, `translate()`, `rotate_around()`, `multiply()`, `flip_*()`, `set_variation()`, …;
   `add_transform()`, `add_random_transform()`, `remove_transform()`, `copy_transform()`, `set_active_transform()`,
-  `set_final_transform()`, `normalize_weights()`, …; `camera` (`x`, `y`, `scale`, `zoom`, `rotate`, size, the 3D
-  camera, `fit()`, `zoom_by()`, `pan()`); `gradient` (`colors`, `stops`, `set_stops()`, `random()`, the Gradient
-  Library's node operations and sliders, `load()` from any gradient file); `xaos` (`set()`, `matrix`, `chain()`,
-  `isolate()`, `from_function()`, `randomize()`); `coloring`; `new_flame()`, `random_flame()`, `load_flame()`,
+  `set_final_transform()`, `normalize_weights()`, `add_symmetry()`, …; `camera` (`x`, `y`, `scale`, `zoom`, `rotate`, size,
+  the 3D
+  camera, `fit()`, `zoom_by()`, `pan()`); `gradient` (`colors`, `stops`, `set_stops()`, `random()`, `preset()`, the
+  Gradient Library's node operations and sliders — `adjust_stops()` exactly as it applies them —, `load()` from any
+  gradient file); `xaos` (`set()`, `matrix`, `chain()`, `isolate()`, `from_function()`, `randomize()`); `coloring` (with
+  `curve()` / `set_curve()`); `param()`; `new_flame()`, `random_flame()`, `load_flame()`,
   `save_flame()`, `flame_xml()`, `snapshot()` / `restore()`; random helpers; and Apophysis-style aliases
   (`Transform`, `AddTransform`, `Rotate`, `Scale`, `Translate`, `Multiply`, `RotateFlame`, `UpdateFlame`, `Print`, …).
 
@@ -748,11 +823,15 @@ docs/scripting.md       the scripting guide and API reference (generated by tool
 docs/fragments.md       the Fragments window guide and the .frag language reference
 docs/state-machines.md  every explicit state machine (generated from machines/specs.py) and the inventory of the rest
 fractalchemy/
-  config.py             tunables: app name/version, node counts, simplify tolerance, sizes, preview quality
+  config.py             tunables: app name/version, node counts, simplify tolerance, sizes, preview quality, recovery,
+                        the Script Editor's live parameters and recording
   settings.py           QSettings identity
+  autosave.py           crash-recovery files (Qt-free): the unsaved fractal of each running instance, the shelf of edits
+                        left behind, and the write / read helpers the Fragments session autosave shares
+  search.py             fuzzy matching (the command palette)
   machines/             explicit state machines (Qt-free): core (MachineSpec, Machine, strict mode for the tests) and
-                        specs (every machine of the application: render jobs, script runs, Mutate & Breed offspring,
-                        fragment builds, animation playback, the render queue)
+                        specs (every machine of the application: render jobs, script runs, live parameters, Mutate &
+                        Breed offspring, fragment builds, animation playback, the render queue)
   animation/            keyframed animations: model (Animation / Keyframe), interpolate (alignment + blending),
                         format (.faanim), render (AnimationRenderSettings, frame names, the ffmpeg command),
                         render_job (the batch thread: one sampler for every frame, then ffmpeg)
@@ -761,7 +840,9 @@ fractalchemy/
                         triangle_drag (the mouse-drag maths), xform_ops (add / duplicate / link / delete transforms
                         with consistent xaos), random_flame (the Random Batch recipes, framing, the blow-up test),
                         blend (align + blend flames: animation frames, drift, interpolated children), mutation (the
-                        mutation operators and mutants), breeding (alternate / interpolate / union children)
+                        mutation operators and mutants), breeding (alternate / interpolate / union children), symmetry
+                        (flam3's symmetry transforms); variations also hold `constrain_param` (a parameter's declared
+                        range / integer / non-zero rules, shared by the editors and the mutation engine)
   themes/               Qt-free themes: model (seed colours → every role, WCAG contrast rules enforced), catalog
                         (System + 38 themes), nord (the Nord family)
   formulas/             the formulas: builtin/ (native Python), library/ (the plugin dialect, one file each:
@@ -803,7 +884,8 @@ fractalchemy/
                         STL, PLY, glTF + instancing, USD + PointInstancer, Blender scripts, readers), hdri (.hdr / .exr
                         readers, the equirect environment map: SH9 irradiance, prefiltered levels, key lights),
                         mesh_formula (a mesh as a `mesh_…` variation)
-  model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations
+  model/                Qt-free data: colours, stops, Gradient, simplification, adjustments, node operations, presets
+                        (the named gradients)
   formats/              one module per file type + registry; textfile.py / ufparams.py do in-place text edits
   library/              generic library: Catalog (gradient / fractal file knowledge), roots (QSettings), scanner,
                         model/filter/tree, controller, menus, dialog, panel
@@ -818,25 +900,36 @@ fractalchemy/
                         GradientBar (the Formula Editor's clickable gradient swatch), CollapsibleSection, logo (the
                         application's mark — docs/logo.md, renders in logo/), theming (ThemeManager: applying a theme,
                         the palette, `on_theme_changed`, themed style sheets), theme_menu (View ▸ Theme), syntax (the
-                        theme-coloured highlighter base), FlameGrid (the Mutate & Breed grid)
+                        theme-coloured highlighter base), FlameGrid (the Mutate & Breed grid), CommandPalette (Ctrl+K)
   scripting/            the scripting engine (Qt-free): api (the objects and functions scripts see), runner (stoppable
                         execution with line-numbered errors), docs (the reference database behind completion and the
                         help tabs), completion (type-aware completion / context help), generate (Flame → Script),
-                        templates (+ builtin_templates/*.py)
+                        codegen (numbers and blocks as code, flame equivalence), parameters (param() declarations,
+                        coercion, live blockers, baking defaults), diff (the statements that turn one flame into another:
+                        the recorder's code, values or changes, verified), explore (explorer variations, parameter
+                        sweeps), batch (one script on many flames), templates (+ builtin_templates/*.py)
   ui/                   .ui loader, background tasks, MainWindow, FractalDocument (undo history), FractalViewport +
                         ViewGeometry (image framing, view vs. camera pan/zoom), ViewerBar (zoom + image size),
-                        InspectorPanel (the Info + Image tabs), FractalLibraryPanel, ThumbnailProvider, RenderStatus (status bar),
+                        InspectorPanel (the Info + Image + History tabs; history_panel, undo_labels: the steps' names),
+                        FractalLibraryPanel, ThumbnailProvider, RenderStatus (status bar), recent_files (Open Recent),
+                        recovery (RecoveryKeeper: crash recovery and the unsaved-edits shelf), commands (the command
+                        palette's commands and the Ctrl+K shortcut), script_tools (the main window's script features:
+                        the Script Editor, the Scripts menu, the batch window, the recording indicator),
                         GradientLink, FormulaBrowser, LibraryHost (shared library-pane wiring),
                         EditorWindow (+ editor_context, editor_actions, editor_operations, editor_panels and
                         editor_value_tabs: the tabs, live_preview: the mini preview shared with the animation),
                         AnimationWindow (+ animation_document, animation_panels, animation_playback),
-                        MutationWindow (+ mutation_panels: the Mutate / Breed options, grid_renderer: small renders
-                        of in-memory flames through the render service),
+                        MutationWindow (+ mutation_panels: the Mutate / Breed / Explore options, grid_renderer: small
+                        renders of in-memory flames through the render service),
                         JobWindowBase → RenderWindow and AnimationRenderWindow (+ animation_render_panels),
                         FileActionsBase + the fractal / gradient file actions, GradientDocument,
                         GradientLibraryWindow, RenderWindow (+ render_size_panel, render_quality_panel,
                         render_output_panel, render_progress), ScriptEditorWindow (+ script_drawer: the Context /
-                        Reference / Info / Templates tabs, script_runner: the worker thread),
+                        Reference / Info / Templates / Parameters tabs, script_runner: the worker thread,
+                        script_editor_actions, script_output (the output panel and its live section), script_console,
+                        script_parameters_tab + script_live (live parameters), script_recorder (Record), script_menu
+                        (pinned templates), script_animate (Animate a parameter), script_batch_window (Run on Many
+                        Fractals)),
                         FormulaEditorWindow (+ formula_session: the formula being edited and its background
                         compiles, formula_editor_actions, formula_list_panel, formula_editor_panels: preview
                         options / variable tools / presets, formula_drawer: reference / compiler output / probe,

@@ -13,7 +13,7 @@ from ...formats.chaos import ChaosFormat as _GradientChaosFormat
 from ...formats.flame import FlameFormat as _GradientFlameFormat, _append_text, _open as _open_flame_text
 from ...formats.textfile import require_index
 from ..scene import Flame
-from . import chaos_world, fa, flame_xml
+from . import chaos_world, chaos_writer, fa, flame_xml
 from .flame_xml import FlameParseError
 
 
@@ -93,10 +93,12 @@ class FlameFileFormat(FractalFormat):
 
 
 class ChaosFileFormat(FractalFormat):
-    """Chaotica worlds: readable, entries can be renamed."""
+    """Chaotica worlds: readable, entries can be renamed, and flames can be added (a new world, or an `<IFS>` appended to
+    an existing one). Entries are never replaced in place: regenerating one from our model would lose what only
+    Chaotica keeps (layers, shaders), so *Save* on a flame opened from a world asks for a file."""
     name = "Chaotica world"
     extensions = (".chaos",)
-    can_rename = True
+    can_append = can_rename = True
     _text = _GradientChaosFormat()
 
     def load(self, path: Path) -> list[Flame]:
@@ -104,6 +106,17 @@ class ChaosFileFormat(FractalFormat):
 
     def names(self, path: Path) -> list[str]:
         return chaos_world.flame_names(path)
+
+    def append(self, flame: Flame, path: Path) -> int:
+        if not path.is_file():
+            path.write_text(chaos_writer.flames_to_world([flame], flame.name), encoding="utf-8")
+            return 0
+        text = path.read_text(encoding="utf-8")
+        end = text.rfind("</world>")
+        if end < 0:
+            raise chaos_world.ChaosParseError(f"{path.name} is not a Chaotica world (no </world>)")
+        path.write_text(text[:end] + chaos_writer.flame_to_ifs(flame) + text[end:], encoding="utf-8")
+        return len(self.names(path)) - 1
 
     def rename(self, path: Path, index: int, name: str) -> None:
         self._text.rename(path, index, name)

@@ -3,28 +3,32 @@
 Opened from *Windows ▸ Script Editor* (`F8`) or the toolbar. Like the Gradient Library it is a tool window
 of the main window: closing it hides it and the script is kept (and remembered between runs in QSettings).
 
-Layout: a toolbar (New / Open / Save / Save As · Run / Stop · Undo / Redo · Find, Comment, Indent, Outdent ·
+Layout: a toolbar (New / Open / Save / Save As · Run / Stop · Record · Undo / Redo · Find, Comment, Indent, Outdent ·
 Check syntax · Flame → Script · Revert flame · Save as template · Clear output · Drawer), the code editor
 with an output panel beneath it on the left, and on the right a sliding drawer (collapsible like the main
-window's panels) with four tabs — *Context* (dynamic documentation), *Reference* (guide + API), *Info*
-(about this script) and *Templates*.
+window's panels) with five tabs — *Context* (dynamic documentation), *Reference* (guide + API), *Info*
+(about this script), *Templates* and *Parameters*.
 
 A script runs on a worker thread against a copy of the flame (`ScriptRunner`); `print` output streams into the
 output panel, prompts pop up dialogs, `update()` pushes intermediate results into the main window, and the
 result replaces the fractal as one undo step. Errors are reported with their line (click to jump there).
+Runs are seeded, so a script's random numbers can be repeated.
+
+The window coordinates helpers: `LiveParameters` (`script_live.py`: the Parameters tab's controls and the live
+re-runs they drive — a re-run is a `rerunning` state of the run machine, superseded by Run) and `ScriptRecorder`
+(`script_recorder.py`: Record). `run_code()` runs any code without putting it in the editor (the main window's
+pinned templates).
 """
 
 from __future__ import annotations
 
-import re
 import time
-from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QGuiApplication, QKeySequence, QTextCursor
+from PySide6.QtGui import QGuiApplication, QTextCursor
 from PySide6.QtWidgets import (
-    QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox, QProgressBar, QSplitter, QTextBrowser, QToolBar, QVBoxLayout, QWidget,
+    QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox, QProgressBar, QSplitter, QVBoxLayout, QWidget,
 )
 
 from ..fractal.scene import Flame
@@ -36,22 +40,31 @@ from ..scripting.runner import ScriptResult, check_syntax
 from ..widgets.code_editor import CodeEditor
 from ..widgets.collapsible_splitter import CollapsibleSplitter
 from ..widgets.find_bar import FindBar
-from ..widgets.icons import action_icon, script_icon
+from ..widgets.icons import script_icon
 from .fractal_document import FractalDocument
+from .script_console import ConsolePanel, console_code
 from .script_drawer import ScriptDrawer
+from .script_editor_actions import build_actions
+from .script_output import OutputPanel
+from .script_live import ORIGIN_EDITOR, LiveParameters
+from .script_recorder import ScriptRecorder
+from .script_info import info_facts
+from .script_templates import TemplateActions
 from .script_runner import REQUEST_CONFIRM, REQUEST_INPUT, ScriptRunner
+from .undo_labels import undo_label
 from ..machines import SCRIPT_RUN, ScriptState
 from ..widgets.windows import bring_to_front
-from ..widgets.theming import colored_html, current_theme
 
 WINDOW_TITLE = "Script Editor"
 RUN_STATE_LABELS = {ScriptState.IDLE: "", ScriptState.RUNNING: "Running…",
-                    ScriptState.WAITING: "Running — waiting for the viewport…", ScriptState.STOPPING: "Stopping…"}
+                    ScriptState.WAITING: "Running — waiting for the viewport…", ScriptState.STOPPING: "Stopping…",
+                    ScriptState.RERUNNING: "Updating the live parameters…", ScriptState.SUPERSEDED: "Stopping the live update…"}
 DRAWER_WIDTH = 400
 OUTPUT_HEIGHT = 150
-MAX_OUTPUT_BLOCKS = 3000
 RENDER_WAIT_MS = 2500
 DRAFT_KEY = "script/draft"
+RECORD_STYLE_KEY = "script/record_style"
+RECORDED_HEADER = "# @name Recorded script\n# @description Edits recorded in Fractalchemy (Script ▸ Record)\n\n"
 FILE_KEY = "script/file"
 NAME_KEY = "script/name"
 MODIFIED_KEY = "script/modified"
@@ -74,64 +87,26 @@ print('rotated', len(transforms), 'transforms')
 """
 
 
-class OutputPanel(QTextBrowser):
-    """The script's output: `print` text, results, and errors that jump to their line when clicked.
+class ScriptEditorWindow(QMainWindow):
+    """The Script Editor tool window, bound to the main window's document.
 
     Signals:
-        line_clicked(int): An error line was clicked.
+        explore_requested(): The Parameters tab's *Explore…* (the main window opens Mutate & Breed's Explore tab).
+        batch_requested(): *Script ▸ Run on Many Fractals…*.
+        recording_changed(bool): Record was switched on or off.
     """
-    line_clicked = Signal(int)
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setOpenLinks(False)
-        self.setPlaceholderText("print() output, results and errors appear here")
-        self.document().setMaximumBlockCount(MAX_OUTPUT_BLOCKS)
-        self.anchorClicked.connect(lambda url: self.line_clicked.emit(int(url.toString().split(":")[1])))
-        font = self.font()
-        font.setFamily("monospace")
-        self.setFont(font)
-        self._pending = ""
-
-    def append_text(self, text: str) -> None:
-        """Plain text from print (may contain several lines, may lack a final newline)."""
-        self._pending += text
-        while "\n" in self._pending:
-            line, self._pending = self._pending.split("\n", 1)
-            self._append_html(escape(line) or " ")
-
-    def flush(self) -> None:
-        if self._pending:
-            self._append_html(escape(self._pending))
-            self._pending = ""
-
-    def _append_html(self, html: str) -> None:
-        self.append(f"<span style='white-space: pre'>{html}</span>")
-
-    def append_note(self, text: str, kind: str = "info", line: int | None = None) -> None:
-        """A coloured line in the theme's colours: `info` (dimmed), `ok` (success), `error` (clickable when `line` is given)."""
-        self.flush()
-        color = current_theme()[{"info": "dim_text", "ok": "success", "error": "error"}.get(kind, "text")]
-        body = escape(text).replace("\n", "<br>")
-        if line is not None:
-            body = f"<a href='line:{line}' style='color: {color}'>{body}</a>"
-        self._append_html(f"<span style='color: {color}'>{body}</span>")
-
-    def clear_output(self) -> None:
-        self._pending = ""
-        self.clear()
-
-
-class ScriptEditorWindow(QMainWindow):
-    """The Script Editor tool window, bound to the main window's document."""
+    explore_requested = Signal()
+    batch_requested = Signal()
+    recording_changed = Signal(bool)
 
     def __init__(self, document: FractalDocument, parent: QWidget | None = None, settings: QSettings | None = None,
-                 user_dir: Path | None = None):
+                 user_dir: Path | None = None, gradient_hint=None):
         """Args:
             document: The fractal scripts act on.
             parent: Owning window; when given this becomes a child top-level window.
             settings: Where the draft, layout and preferences persist (the application's store by default).
             user_dir: Folder for the user's scripts and templates (default `templates.user_script_dir()`).
+            gradient_hint: Returns the Gradient Library's current gradient (the recorder writes its nodes).
         """
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowIcon(script_icon())
@@ -139,19 +114,22 @@ class ScriptEditorWindow(QMainWindow):
         self._settings = settings if settings is not None else QSettings()
         self.user_dir = user_dir or T.user_script_dir()
         self.viewport = None                       # set by the main window; used to wait for a render pass
+        self.animation_provider = None             # set by the main window: returns the Animation window (*Animate…*)
+        self._gradient_hint = gradient_hint
         self.runner = ScriptRunner(self)
         self._run: object = None
         self._run_started = 0.0
         self._run_updated = False
         self._snapshot: Flame | None = None
         self._last_run: ScriptResult | None = None
-        self._last_run_info: dict = {}
+        self.last_run_info: dict = {}
         self.script_name = "untitled"
         self.script_path: Path | None = None
         self.template_id: str | None = None
         self.editor = CodeEditor(self)
         self.find_bar = FindBar(self.editor, self)
         self.output = OutputPanel(self)
+        self.console = ConsolePanel(self._settings, self)
         self.drawer = ScriptDrawer(self)
         self.splitter = CollapsibleSplitter(self, last_width=DRAWER_WIDTH, collapse_last=True)
         self.vsplitter = QSplitter(Qt.Orientation.Vertical, self)
@@ -164,8 +142,20 @@ class ScriptEditorWindow(QMainWindow):
         self._load()
         self._wait_timer = QTimer(self, singleShot=True)
         self._wait_timer.timeout.connect(self._render_waited)
-        self.run_state = SCRIPT_RUN.new(WINDOW_TITLE)     # idle → running ⇄ waiting → stopping → idle (machines.SCRIPT_RUN)
-        self.run_state.on_change(lambda _step: self._show_run_state())
+        self._run_kind = "run"                           # what the runner's thread is doing: a full "run" or a live "rerun"
+        self._run_name = self.script_name
+        self._pending_run: tuple | None = None          # the Run that superseded a live re-run (machines.SCRIPT_RUN)
+        self.recorder = ScriptRecorder(document, self.editor, gradient_hint, self)
+        self.recorder.recording_changed.connect(self._on_recording_changed)
+        self.set_record_style(self._record_style())
+        self._parameters_shown: set[str] = set()       # scripts whose Parameters tab was brought forward once
+        self.run_state = SCRIPT_RUN.new(WINDOW_TITLE)     # idle → running ⇄ waiting → stopping → idle, and live re-runs
+        self.live = LiveParameters(self)
+        self.templates = TemplateActions(self)
+        self.pins = self.templates.pins
+        self.drawer.parameters.explore_requested.connect(self.explore_requested.emit)
+        self.drawer.parameters.animate_requested.connect(self.animate_parameter)
+        self.run_state.on_change(lambda _step: self.show_run_state())
         self.refresh_templates()
         self.refresh_info()
         self._refresh_context()
@@ -178,7 +168,13 @@ class ScriptEditorWindow(QMainWindow):
         column.setSpacing(0)
         column.addWidget(self.find_bar)
         self.vsplitter.addWidget(self.editor)
-        self.vsplitter.addWidget(self.output)
+        lower = QWidget(self)
+        lower_column = QVBoxLayout(lower)
+        lower_column.setContentsMargins(0, 0, 0, 0)
+        lower_column.setSpacing(0)
+        lower_column.addWidget(self.output, 1)
+        lower_column.addWidget(self.console)
+        self.vsplitter.addWidget(lower)
         self.vsplitter.setStretchFactor(0, 1)
         self.vsplitter.setStretchFactor(1, 0)
         self.vsplitter.setSizes([500, OUTPUT_HEIGHT])
@@ -198,87 +194,7 @@ class ScriptEditorWindow(QMainWindow):
         self.resize(1180, 720)
 
     def _build_actions(self) -> None:
-        def action(text: str, slot, shortcut: str = "", icon: str = "", tip: str = "", checkable: bool = False) -> QAction:
-            a = QAction(text, self)
-            if shortcut:
-                a.setShortcut(QKeySequence(shortcut))
-            if icon:
-                a.setIcon(action_icon(icon))
-            a.setToolTip(tip + (f" ({shortcut})" if shortcut else "") if tip else text)
-            a.setStatusTip(tip or text)
-            a.setCheckable(checkable)
-            a.triggered.connect(slot)
-            return a
-
-        self.actionNew = action("New Script", self.new_script, "Ctrl+N", "new", "New script")
-        self.actionOpen = action("Open Script…", self.open_script, "Ctrl+O", "open", "Open a script file")
-        self.actionSave = action("Save Script", lambda: self.save_script(False), "Ctrl+S", "save", "Save the script")
-        self.actionSaveAs = action("Save Script As…", lambda: self.save_script(True), "Ctrl+Shift+S", "save-as", "Save the script under a new name")
-        self.actionRun = action("Run", self.run, "Ctrl+Return", "run", "Run the script on the fractal")
-        self.actionStop = action("Stop", self.stop, "Shift+Esc", "stop", "Stop the running script")
-        self.actionStop.setEnabled(False)
-        self.actionUndo = action("Undo", self.editor.undo, "", "undo", "Undo the last edit in the script")
-        self.actionRedo = action("Redo", self.editor.redo, "", "redo", "Redo")
-        self.actionCut = action("Cut", self.editor.cut, "Ctrl+X")
-        self.actionCopy = action("Copy", self.editor.copy, "Ctrl+C")
-        self.actionPaste = action("Paste", self.editor.paste, "Ctrl+V")
-        self.actionFind = action("Find…", lambda: self.find_bar.open(False), "", "find", "Find (Ctrl+F) / replace (Ctrl+H)")
-        self.actionReplace = action("Replace…", lambda: self.find_bar.open(True))
-        self.actionGoto = action("Go to Line…", self.goto_line)
-        self.actionComment = action("Toggle Comment", self.editor.toggle_comment, "", "comment", "Comment / uncomment the selected lines (Ctrl+/)")
-        self.actionIndent = action("Indent", self.editor.indent, "", "indent", "Indent the selected lines (Tab)")
-        self.actionOutdent = action("Outdent", self.editor.outdent, "", "outdent", "Outdent the selected lines (Shift+Tab)")
-        self.actionCheck = action("Check Syntax", self.check_syntax, "Ctrl+Shift+C", "check", "Check the script for syntax errors without running it")
-        self.actionFlameToScript = action("Flame → Script", self.flame_to_script, "", "flame-script", "Generate a script that rebuilds the fractal shown in the main window")
-        self.actionRevert = action("Revert Flame", self.revert_flame, "", "revert", "Put the fractal back as it was before the last run")
-        self.actionRevert.setEnabled(False)
-        self.actionSaveTemplate = action("Save as Template…", self.save_as_template, "", "template", "Keep the script as a template of your own")
-        self.actionClearOutput = action("Clear Output", self.output.clear_output, "", "clear", "Clear the output panel")
-        self.actionToggleDrawer = action("Show/Hide Drawer", self._toggle_drawer, "Ctrl+L", "drawer", "Show or hide the documentation drawer", checkable=True)
-        self.actionToggleDrawer.setChecked(True)
-        self.actionClose = action("Close Window", self.close, "Ctrl+W")
-        self.actionGuide = action("Scripting Guide", lambda: self.show_reference("guide"), "F1")
-        self.actionApi = action("API Reference", lambda: self.show_reference("api"))
-        self.actionVariations = action("Variations", lambda: self.show_reference("variations"))
-        self.actionTemplates = action("Templates", lambda: self.show_tab("templates"))
-        self.actionInfo = action("Script Info", lambda: self.show_tab("info"))
-        self.actionContext = action("Context Help", lambda: self.show_tab("context"))
-        for a in (self.actionUndo, self.actionRedo):
-            a.setEnabled(False)
-        self.editor.undoAvailable.connect(self.actionUndo.setEnabled)
-        self.editor.redoAvailable.connect(self.actionRedo.setEnabled)
-
-        bar = self.menuBar()
-        self.menuFile = bar.addMenu("File")
-        for a in (self.actionNew, self.actionOpen, self.actionSave, self.actionSaveAs):
-            self.menuFile.addAction(a)
-        self.menuFile.addSeparator()
-        self.menuFile.addAction(self.actionClose)
-        self.menuEdit = bar.addMenu("Edit")
-        for a in (self.actionUndo, self.actionRedo, None, self.actionCut, self.actionCopy, self.actionPaste, None, self.actionFind, self.actionReplace,
-                  self.actionGoto, None, self.actionComment, self.actionIndent, self.actionOutdent):
-            self.menuEdit.addAction(a) if a is not None else self.menuEdit.addSeparator()
-        self.menuScript = bar.addMenu("Script")
-        for a in (self.actionRun, self.actionStop, self.actionCheck, None, self.actionFlameToScript, self.actionRevert, None, self.actionSaveTemplate,
-                  self.actionClearOutput):
-            self.menuScript.addAction(a) if a is not None else self.menuScript.addSeparator()
-        self.menuView = bar.addMenu("View")
-        for a in (self.actionToggleDrawer, None, self.actionContext, self.actionGuide, self.actionApi, self.actionVariations, self.actionInfo, self.actionTemplates):
-            self.menuView.addAction(a) if a is not None else self.menuView.addSeparator()
-
-        self.toolBar = QToolBar("Script toolbar", self)
-        self.toolBar.setMovable(False)
-        self.toolBar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.addToolBar(self.toolBar)
-        for a in (self.actionNew, self.actionOpen, self.actionSave, self.actionSaveAs, None, self.actionRun, self.actionStop, None, self.actionUndo,
-                  self.actionRedo, None, self.actionFind, self.actionComment, self.actionOutdent, self.actionIndent, self.actionCheck, None,
-                  self.actionFlameToScript, self.actionRevert, None, self.actionSaveTemplate, self.actionClearOutput, self.actionToggleDrawer):
-            self.toolBar.addAction(a) if a is not None else self.toolBar.addSeparator()
-        for a in (self.actionNew, self.actionOpen, self.actionSave, self.actionSaveAs, self.actionUndo, self.actionRedo, self.actionFind, self.actionComment,
-                  self.actionOutdent, self.actionIndent, self.actionCheck, self.actionClearOutput, self.actionToggleDrawer):
-            button = self.toolBar.widgetForAction(a)
-            if button is not None:
-                button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        build_actions(self)
 
     def _connect(self) -> None:
         self.editor.run_requested.connect(self.run)
@@ -295,18 +211,10 @@ class ScriptEditorWindow(QMainWindow):
         self.drawer.reference.insert_requested.connect(self.insert_name)
         self.drawer.info.header_requested.connect(self.insert_header)
         self.drawer.info.copy_requested.connect(lambda: QGuiApplication.clipboard().setText(self.editor.text()))
-        templates = self.drawer.templates
-        templates.load_requested.connect(self.load_template)
-        templates.insert_requested.connect(lambda t: self.editor.insert_snippet(T.strip_metadata(t.code)))
-        templates.run_requested.connect(self.run_template)
-        templates.save_requested.connect(self.save_as_template)
-        templates.overwrite_requested.connect(self.overwrite_template)
-        templates.rename_requested.connect(self.rename_template)
-        templates.delete_requested.connect(self.delete_template)
-        templates.refresh_requested.connect(self.refresh_templates)
         self.drawer.currentChanged.connect(lambda i: self._settings.setValue(TAB_KEY, i))
         self.splitter.last_collapsed_changed.connect(self._on_drawer_collapsed)
-        self.runner.output.connect(self.output.append_text)
+        self.runner.output.connect(self._on_output)
+        self.console.line.submitted.connect(self.run_console)
         self.runner.cleared.connect(self.output.clear_output)
         self.runner.message.connect(self._script_message)
         self.runner.progress.connect(self._script_progress)
@@ -353,7 +261,7 @@ class ScriptEditorWindow(QMainWindow):
         self.editor.setFocus()
 
     def closeEvent(self, event) -> None:
-        if self.running and QMessageBox.question(self, WINDOW_TITLE, "A script is running. Stop it and close the editor?") != QMessageBox.StandardButton.Yes:
+        if self.run_state.state in (ScriptState.RUNNING, ScriptState.WAITING) and QMessageBox.question(self, WINDOW_TITLE, "A script is running. Stop it and close the editor?") != QMessageBox.StandardButton.Yes:
             event.ignore()
             return
         self.stop()
@@ -391,6 +299,25 @@ class ScriptEditorWindow(QMainWindow):
         line, column = self.editor.line_column()
         self.position_label.setText(f"Ln {line}, Col {column}   ·   {self.editor.blockCount()} lines")
 
+    @property
+    def settings(self) -> QSettings:
+        """Where the window's draft, layout and preferences persist."""
+        return self._settings
+
+    @staticmethod
+    def example_param_line() -> str:
+        """What the Parameters tab's *Insert example* inserts."""
+        return "angle = param('Angle', 30, min=-180, max=180)\n"
+
+    def auto_show_parameters(self) -> bool:
+        """Whether a run that declared parameters should bring the Parameters tab forward: the first time for a script."""
+        key = str(self.script_path or self.script_name)
+        if key in self._parameters_shown:
+            return False
+        self._parameters_shown.add(key)
+        return True
+
+
     def _on_text_changed(self) -> None:
         meta = T.parse_metadata(self.editor.text())
         if meta.get("name") and self.script_path is None and meta["name"] != self.script_name:
@@ -398,6 +325,8 @@ class ScriptEditorWindow(QMainWindow):
         self._update_title()
         self._show_position()
         self._info_timer_start()
+        if hasattr(self, "live"):
+            self.live.refresh_code_changed()
 
     _info_timer: QTimer | None = None
 
@@ -416,50 +345,7 @@ class ScriptEditorWindow(QMainWindow):
 
     def refresh_info(self) -> None:
         """Rebuild the Info tab."""
-        code = self.editor.text()
-        meta = T.parse_metadata(code)
-        lines = code.split("\n")
-        code_lines = [line for line in lines if line.strip() and not line.lstrip().startswith("#")]
-        used = [n for n in D.GLOBALS if re.search(rf"(?<![\w.]){re.escape(n)}\b", code)]
-        functions = re.findall(r"^\s*def\s+(\w+)", code, re.MULTILINE)
-        prompts = bool(re.search(r"\b(input_text|input_number|confirm)\s*\(", code))
-        updates = bool(re.search(r"\b(update|UpdateFlame)\s*\(", code))
-        template = next((t for t in self._templates if t.id == self.template_id), None) if self.template_id else None
-        tags = lambda names: " ".join(f"<code>{escape(n)}</code>" for n in names) or "—"   # noqa: E731
-        script_rows = [
-            ("Name", escape(meta.get("name") or self.script_name)),
-            ("File", escape(str(self.script_path)) if self.script_path else "<i>not saved to a file</i>"),
-            ("Status", "Modified (unsaved changes)" if self.editor.document().isModified() else "Saved"),
-        ]
-        for key in ("author", "version"):
-            if meta.get(key):
-                script_rows.append((key.capitalize(), escape(meta[key])))
-        script_rows += [
-            ("Description", escape(meta.get("description", "")) or "—"),
-            ("Size", f"{len(lines)} lines, {len(code_lines)} code lines, {len(code)} characters"),
-            ("Interaction", ("asks questions" if prompts else "no prompts") + (", updates the preview while running" if updates else "")),
-            ("Functions", tags(functions)), ("API used", tags(used)),
-        ]
-        if template is not None:
-            script_rows.append(("From template", escape(template.name) + (" (built-in)" if template.builtin else " (yours)")))
-        run_rows: list[tuple[str, str]] = []
-        info = self._last_run_info
-        if self.running:
-            run_rows.append(("Result", colored_html("running…", "warning")))
-        elif info:
-            outcome = info.get("outcome", "")
-            run_rows += [("Started", info.get("started", "")), ("Duration", f"{info.get('seconds', 0):.2f} s"),
-                         ("Result", colored_html(escape(outcome), "success" if info.get("ok") else "error")),
-                         ("Transforms", f"{info.get('before', '?')} → {info.get('after', '?')}"), ("Output", f"{info.get('lines', 0)} lines")]
-        else:
-            run_rows.append(("Result", "not run yet"))
-        flame = self.document.flame
-        flame_rows = [("Flame", escape(flame.name) if flame else "<i>none loaded</i>")]
-        if flame is not None:
-            flame_rows += [("Transforms", f"{len(flame.xforms)}" + (" + final" if flame.final else "")),
-                           ("Size", f"{flame.camera.width} × {flame.camera.height}"),
-                           ("Source", escape(self.document.source_path.name) if self.document.source_path else "not from a file")]
-        self.drawer.info.show_info([("Script", script_rows), ("Last run", run_rows), ("Fractal in the main window", flame_rows)])
+        self.drawer.info.show_info(info_facts(self))
 
     def insert_name(self, name: str, kind: str) -> None:
         """Insert a name from the documentation at the cursor, replacing a typed prefix it completes."""
@@ -515,54 +401,180 @@ class ScriptEditorWindow(QMainWindow):
     # --- running -----------------------------------------------------------------------------------------------------
     def run(self) -> None:
         """Run the editor's script on the main window's fractal (only when no run is in progress — the previous run's
-        result included, which arrives a moment after its thread has ended)."""
+        result included, which arrives a moment after its thread has ended; a live re-run in flight is superseded)."""
+        self.run_code(self.editor.text(), self.script_name, origin=ORIGIN_EDITOR)
+
+    def run_code(self, code: str, name: str, parameters: dict | None = None, origin: str = ORIGIN_EDITOR) -> bool:
+        """Run `code` on the fractal as one undoable step, named `name`, without putting it in the editor when `origin` is
+        not the editor (the main window's pinned templates). `parameters` default to the Parameters tab's changed
+        values. Returns False when it could not start (another run, a syntax error)."""
+        if self.run_state.state == ScriptState.RERUNNING:
+            self._pending_run = (code, name, parameters, origin)
+            self.live.superseded()
+            self.runner.stop()
+            self.run_state.fire("run")                      # → superseded: the Run starts when the re-run's result is in
+            return True
         if not self.run_state.can("run"):
-            return
-        code = self.editor.text()
+            return False
         self.editor.set_error_line(None)
         error = check_syntax(code)
         if error is not None:
             self.output.append_note(f"✖ {error}", "error", error.line)
-            if error.line:
+            if error.line and origin == ORIGIN_EDITOR:
                 self.editor.set_error_line(error.line)
                 self.editor.goto_line(error.line, error.column or 1)
             self.statusBar().showMessage("Syntax error — see the output panel", 5000)
-            return
+            return False
+        if self.recorder is not None:
+            self.recorder.stop()                            # recording ends when a script runs (its result is not recorded)
         flame = self.document.flame
         self._snapshot = flame.copy() if flame is not None else None
         self._run = object()
+        self._run_kind = "run"
         self._run_updated = False
+        self._run_name = name
         self._run_started = time.monotonic()
-        self._last_run_info = {"started": time.strftime("%H:%M:%S"), "before": len(flame.xforms) if flame else 0}
-        self.output.append_note(f"▶ Running {self.script_name}…", "info")
+        self.last_run_info = {"started": time.strftime("%H:%M:%S"), "before": len(flame.xforms) if flame else 0}
+        seed = self.live.seed_for_run()
+        values = dict(parameters) if parameters is not None else self.live.values_for_run()
+        self.live.on_run_started(code, self._snapshot, self._run, seed, name, origin)
+        self.output.end_live_section()
+        where = {ORIGIN_EDITOR: "", "palette": " (from the command palette)"}.get(origin, " (from the Scripts menu)")
+        self.output.append_note(f"▶ Running {name}{where}…", "info")
         self.run_state.fire("run")
         self.refresh_info()
-        self.runner.run(code, flame)
+        self.runner.run(code, flame, seed=seed, parameters=values)
+        return True
+
+    # --- recording ---------------------------------------------------------------------------------------------------------
+    def set_recording(self, on: bool) -> bool:
+        """Record on / off. Starting on the untouched default script begins a new *Recorded script*."""
+        if not on:
+            self.recorder.stop()
+            return False
+        if self.document.flame is None:
+            self.actionRecord.setChecked(False)
+            self.statusBar().showMessage("Open a fractal first: recording writes the code for its edits", 5000)
+            return False
+        if self.editor.text() == DEFAULT_SCRIPT and not self.editor.document().isModified():
+            self.load_code(RECORDED_HEADER, "Recorded script")
+            self.editor.moveCursor(QTextCursor.MoveOperation.End)
+        started = self.recorder.start(self._record_style())
+        self.actionRecord.setChecked(started)
+        return started
+
+    def set_record_style(self, style: str) -> None:
+        """*Record Values* (`absolute`) or *Record Changes* (`relative`)."""
+        self.actionRecordValues.setChecked(style == "absolute")
+        self.actionRecordChanges.setChecked(style == "relative")
+        self.recorder.style = style
+        self._settings.setValue(RECORD_STYLE_KEY, style)
+
+    def _record_style(self) -> str:
+        style = self._settings.value(RECORD_STYLE_KEY, "absolute")
+        return style if style in ("absolute", "relative") else "absolute"
+
+    def _on_recording_changed(self, recording: bool) -> None:
+        if self.actionRecord.isChecked() != recording:
+            self.actionRecord.setChecked(recording)
+        self.show_run_state()
+        self.recording_changed.emit(recording)
+
+    def run_console(self, line: str) -> bool:
+        """Run one console line against the fractal: an expression echoes its value, plain variables carry over to the
+        next line, and a line that changes the fractal is one undo step named after it. Recorded as typed while Record
+        is on."""
+        if not self.run_state.can("run"):
+            self.output.append_note("The console waits while a script runs.", "info")
+            return False
+        console = self.console.line
+        code, self._console_offset = console_code(line, console.variables)
+        console.remember(line)
+        console.set_text("")
+        self.output.end_live_section()
+        self.output.append_note(">>> " + line.replace("\n", "\n... "), "info")
+        if self.recorder is not None and self.recorder.recording:
+            self.recorder.insert_code(line)
+        flame = self.document.flame
+        self._run = object()
+        self._run_kind = "console"
+        self._run_name = line if len(line) <= 40 else line[:39] + "…"
+        self._run_updated = False
+        self._snapshot = flame.copy() if flame is not None else None
+        self._run_started = time.monotonic()
+        self.run_state.fire("run")
+        self.runner.run(code, flame, seed=self.live.seed_for_run())
+        return True
+
+    def _console_finished(self, result: ScriptResult) -> None:
+        self._run_kind = "run"
+        self.output.flush()
+        console = self.console.line
+        if result.ok:
+            console.variables.update(result.variables)
+            if result.flame is not None:
+                self.document.apply_script(result.flame, self._run, label=undo_label("console", self._run_name))
+        else:
+            error = result.error
+            line = error.line - self._console_offset if error.line else None
+            self.output.append_note(f"✖ {error.kind}: {error.message}" + (f" (line {line})" if line and line > 1 else ""), "error")
+        self.run_state.fire("finished")
+
+    def start_rerun(self, code: str, flame: Flame | None, seed: int, values: dict, restricted: str) -> None:
+        """A live-parameter re-run (`LiveParameters`): restricted, on the pre-run snapshot, the same undo step."""
+        self._run_kind = "rerun"
+        self.run_state.fire("rerun")
+        self.runner.run(code, flame, seed=seed, parameters=values, restricted=restricted)
+
+    def run_label(self, name: str | None = None) -> str:
+        """The undo step's name for a run ("Script: Random rotate")."""
+        return undo_label("script", name if name is not None else self._run_name)
+
+    def _run_label(self) -> str:
+        return self.run_label()
 
     @property
     def running(self) -> bool:
-        """True from Run until the run's result has been processed (stopping and waiting for the viewport included)."""
+        """True from Run until the run's result has been processed (stopping, waiting for the viewport and live re-runs
+        included)."""
         return self.run_state.state != ScriptState.IDLE
 
     def stop(self) -> None:
         """Ask the running script to stop (it ends at its next line, or at once when it waits)."""
         if self.run_state.can("stop"):
+            if self.run_state.state == ScriptState.SUPERSEDED:
+                self._pending_run = None
+            self.live.stop_requested()
             self.runner.stop()
             self._wait_timer.stop()
             self.run_state.fire("stop")
 
-    def _show_run_state(self) -> None:
-        """Actions, the state label and the progress bar from the run's state."""
+    def show_run_state(self) -> None:
+        """Actions, the state label and the progress bar from the run's state. A quick live re-run changes nothing
+        visible (no flicker while a slider moves); a slow one shows Stop and the busy bar."""
         state = self.run_state.state
-        running = state != ScriptState.IDLE
+        quiet_rerun = state == ScriptState.RERUNNING and not self.live.busy
+        running = state != ScriptState.IDLE and not quiet_rerun
         self.actionRun.setEnabled(self.run_state.can("run"))
-        self.actionStop.setEnabled(self.run_state.can("stop"))
-        self.state_label.setText(RUN_STATE_LABELS[state])
+        self.actionStop.setEnabled(self.run_state.can("stop") and not quiet_rerun)
+        label = RUN_STATE_LABELS[state] if not quiet_rerun else ""
+        if not label and self.recorder.recording:
+            label = "● Recording"
+        self.state_label.setText(label)
         if running != self.progress_bar.isVisible():
             self.progress_bar.setVisible(running)
             self.progress_bar.setValue(0)
             if running:
                 self.progress_bar.setRange(0, 0)
+
+    _show_run_state = show_run_state
+
+    def _on_output(self, text: str) -> None:
+        """`print` text: into the output panel, or — for a live re-run — into the live section when it ends."""
+        if self._run_kind == "rerun":
+            self.live.collect_output(text)
+        else:
+            self.output.append_text(text)
 
     def _script_progress(self, fraction: float) -> None:
         self.progress_bar.setRange(0, 100)
@@ -584,7 +596,7 @@ class ScriptEditorWindow(QMainWindow):
 
     def _script_update(self, flame: Flame, wait: bool) -> None:
         """`update()`: push the intermediate flame into the main window; reply when a pass has been rendered (or soon)."""
-        self.document.apply_script(flame, self._run)
+        self.document.apply_script(flame, self._run, label=self._run_label())
         self._run_updated = True
         self.actionRevert.setEnabled(True)
         if wait and self.viewport is not None and self.run_state.fire_if("wait"):    # not while stopping: reply at once
@@ -608,13 +620,30 @@ class ScriptEditorWindow(QMainWindow):
             self.runner.reply(None)
 
     def _script_finished(self, result: ScriptResult) -> None:
+        if self._run_kind == "rerun":
+            self._rerun_finished(result)
+        elif self._run_kind == "console":
+            self._console_finished(result)
+        else:
+            self._full_run_finished(result)
+
+    def _rerun_finished(self, result: ScriptResult) -> None:
+        superseded = self.run_state.state == ScriptState.SUPERSEDED
+        self._run_kind = "run"
+        self.run_state.fire("finished")
+        self.live.on_rerun_finished(result)
+        pending, self._pending_run = self._pending_run, None
+        if superseded and pending is not None:
+            self.run_code(*pending)
+
+    def _full_run_finished(self, result: ScriptResult) -> None:
         self.output.flush()
         seconds = time.monotonic() - self._run_started
-        info = self._last_run_info
+        info = self.last_run_info
         info.update(seconds=seconds, lines=result.output_lines, ok=result.ok)
         if result.ok:
             if result.flame is not None:
-                self.document.apply_script(result.flame, self._run)
+                self.document.apply_script(result.flame, self._run, label=self._run_label())
             self.actionRevert.setEnabled(self._snapshot is not None or result.flame is not None)
             count = len(result.flame.xforms) if result.flame is not None else 0
             what = "■ Stopped" + (f": {result.stop_reason}" if result.stop_reason and not result.user_stopped else " by you") if result.stopped else "✔ Finished"
@@ -635,13 +664,15 @@ class ScriptEditorWindow(QMainWindow):
             info.update(outcome=str(error), after=info.get("before"))
             self.statusBar().showMessage("Script failed — see the output panel", 5000)
         self.run_state.fire("finished")
+        self.live.on_run_finished(result)
+        info.update(parameters=len(result.declarations), live=self.live.live)
         self.refresh_info()
 
     def revert_flame(self) -> None:
         """Put the fractal back as it was before the last run (itself undoable)."""
         if self._snapshot is None:
             return
-        self.document.apply_script(self._snapshot, None)
+        self.document.apply_script(self._snapshot, None, label="Revert flame")
         self.output.append_note("↶ Fractal reverted to its state before the last run.", "info")
 
     def check_syntax(self) -> bool:
@@ -678,7 +709,10 @@ class ScriptEditorWindow(QMainWindow):
         return answer == QMessageBox.StandardButton.Discard
 
     def load_code(self, code: str, name: str | None = None, path: Path | None = None, template_id: str | None = None) -> None:
-        """Put `code` in the editor (unmodified) and name the script."""
+        """Put `code` in the editor (unmodified) and name the script (another script: recording and the live session end)."""
+        if self.recorder is not None:
+            self.recorder.stop()
+        self.live.unload()
         self.editor.set_text(code)
         self.script_path = path
         self.script_name = name or T.parse_metadata(code).get("name") or (path.stem if path else "untitled")
@@ -738,63 +772,41 @@ class ScriptEditorWindow(QMainWindow):
         self.statusBar().showMessage(f"Saved {path}", 4000)
         return True
 
-    # --- templates ---------------------------------------------------------------------------------------------------------
+    # --- templates (script_templates.TemplateActions) ---------------------------------------------------------------------
     @property
     def templates_folder(self) -> Path:
         return self.user_dir / "templates"
 
+    @property
+    def _templates(self) -> list[T.Template]:
+        return self.templates.templates
+
+    def all_templates(self) -> list[T.Template]:
+        """Every template (yours, then the built-in ones), as the Templates tab lists them."""
+        return list(self.templates.templates)
+
     def refresh_templates(self) -> None:
-        self._templates = T.all_templates(self.templates_folder)
-        self.drawer.templates.set_templates(self._templates, self.templates_folder)
+        self.templates.refresh()
 
     def load_template(self, template: T.Template) -> bool:
-        if not self.confirm_discard():
-            return False
-        self.load_code(template.code, template.name, None, template.id)
-        self.statusBar().showMessage(f"Loaded template '{template.name}'", 3000)
-        return True
-
-    def run_template(self, template: T.Template) -> None:
-        if self.load_template(template):
-            self.run()
+        return self.templates.load(template)
 
     def save_as_template(self) -> None:
-        meta = T.parse_metadata(self.editor.text())
-        name, ok = QInputDialog.getText(self, "Save as template", "Template name:", text=meta.get("name") or self.script_name)
-        if not ok or not name.strip():
-            return
-        existing = next((t for t in self._templates if not t.builtin and t.name == name.strip()), None)
-        if existing is not None and QMessageBox.question(self, "Save as template", f"A template named '{name}' exists. Overwrite it?") != QMessageBox.StandardButton.Yes:
-            return
-        template = T.save_user_template(name.strip(), self.editor.text(), meta.get("description", ""), self.templates_folder,
-                                        existing.path if existing else None)
-        self.template_id = template.id
-        self.refresh_templates()
-        self.drawer.templates.select(template.id)
-        self.show_tab("templates")
-        self.statusBar().showMessage(f"Template '{template.name}' saved to {template.path}", 5000)
+        self.templates.save_as()
 
     def overwrite_template(self, template: T.Template) -> None:
-        if template.builtin or QMessageBox.question(self, "Overwrite template", f"Replace the template '{template.name}' with the script in the editor?") != QMessageBox.StandardButton.Yes:
-            return
-        meta = T.parse_metadata(self.editor.text())
-        T.save_user_template(template.name, self.editor.text(), meta.get("description", template.description), self.templates_folder, template.path)
-        self.refresh_templates()
-        self.statusBar().showMessage(f"Template '{template.name}' updated", 3000)
-
-    def rename_template(self, template: T.Template) -> None:
-        if template.builtin:
-            return
-        name, ok = QInputDialog.getText(self, "Rename template", "New name:", text=template.name)
-        if ok and name.strip():
-            T.rename_user_template(template, name.strip())
-            self.refresh_templates()
+        self.templates.overwrite(template)
 
     def delete_template(self, template: T.Template) -> None:
-        if template.builtin or QMessageBox.question(self, "Delete template", f"Delete the template '{template.name}'?") != QMessageBox.StandardButton.Yes:
+        self.templates.delete(template)
+
+    def animate_parameter(self, name: str) -> None:
+        """The Parameters tab's *Animate…*: keyframes of the script's result while one parameter sweeps."""
+        from .script_animate import AnimateParameterDialog
+        if self.animation_provider is None or self.live.session is None:
+            self.statusBar().showMessage("Animating a parameter needs the Animation window (run the script first)", 5000)
             return
-        T.delete_user_template(template)
-        self.refresh_templates()
+        AnimateParameterDialog(self.live, name, self.animation_provider(), self).exec()
 
 
 __all__ = ["ScriptEditorWindow", "FindBar", "OutputPanel", "DEFAULT_SCRIPT", "WINDOW_TITLE"]

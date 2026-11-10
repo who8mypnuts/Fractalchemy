@@ -86,7 +86,38 @@ for i in range(20):              # a preview animation
     sleep(0.1)
 ```
 
-## 7. Script metadata
+## 7. Parameters: scripts as live tools
+
+Declare the inputs a script should expose instead of asking for them:
+
+```python
+angle = param('Angle', 30, min=-180, max=180)       # a slider
+copies = param('Copies', 3, min=1, max=12)          # an integer slider
+palette = param('Palette', 'Fire', choices=list_gradient_presets())   # a dropdown
+keep = param('Keep colours', True)                  # a check box
+```
+
+Run it once and the *Parameters* tab shows one control per declaration. Moving a control runs the script again
+from the fractal as it was before the run, with the same random numbers, so only the value you move changes the
+picture — and the whole session is still one undo step. `param()` returns the default when nothing is set, so the
+script behaves the same everywhere else. *Set as defaults in script* writes the current values into the code.
+
+Controls update the fractal live only while the script has no side effects: a script that asks questions, shows
+messages, calls `update()` / `sleep()`, saves files, or imports anything but the harmless modules (`math`,
+`colorsys`, `random`, …) still takes its values from the controls, but applies them when you press **Run**.
+Changing the fractal in another way ends the live session (the values stay; press Run to apply them again).
+
+## 8. Recording
+
+**Record** (on the toolbar) writes code while you work in the rest of Fractalchemy: every edit — camera drags and
+zooms, the Image tab, the 3D camera, colouring and curves, the Gradient Library, the Transform Editor, Paste
+Parameters — appends the statements that reproduce it at the cursor (`camera.zoom = 1.25`, `coloring.gamma = 3.5`,
+`gradient.set_stops([...])`). A slider drag becomes one statement; undoing in the main window removes the statement
+it had just written. Recording stops when you press Run. *Record ▾ Changes* writes changes instead of values
+(`camera.zoom += 0.25`), so the recording works as a filter on any fractal. Replace a recorded number by a `param()`
+call and the recording becomes a tool.
+
+## 9. Script metadata
 
 Comment lines at the top are shown in the *Info* tab and name the script when it is saved as a template:
 
@@ -96,7 +127,7 @@ Comment lines at the top are shown in the *Info* tab and name the script when it
 # @description Rotates every transform by a random angle.
 ```
 
-## 8. Tips
+## 10. Tips
 
 * **Tab** completes names; **Ctrl+Space** opens the list anywhere. Inside `set_variation('…')`,
   `variations['…']` and `params['…']` the list holds the valid names.
@@ -147,13 +178,14 @@ Everything below is a global name in a script. Types (`Transform`, `Camera`, …
 
 ### Transforms
 
-* `add_transform(spec?, weight?, color?, color_speed?, opacity?, a?, b?, c?, d?, e?, f?, coefs?, post?, variations?, params?, name?, xaos?)` → `Transform` — Append a transform and make it active. Give a Transform / dict to copy, or keyword arguments.
+* `add_transform(spec?, weight?, color?, color_speed?, opacity?, a?, b?, c?, d?, e?, f?, coefs?, pre?, post?, variations?, params?, name?, xaos?)` → `Transform` — Append a transform and make it active. Give a Transform / dict to copy, or keyword arguments.
   * `spec?` `Transform|dict`: What to copy (optional).
   * `weight?` `float`: Relative probability (default 0.5).
   * `color?` `float`: Palette position 0..1.
   * `color_speed?` `float`: 0..1, how strongly the point colour moves to `color`.
   * `opacity?` `float`: 0..1.
   * `coefs?` `tuple`: (a, b, c, d, e, f).
+  * `pre?` `tuple`: Pre affine (a, b, c, d, e, f).
   * `post?` `tuple`: Post affine (a, b, c, d, e, f).
   * `variations?` `dict`: {'name': weight, …} — replaces the default linear.
   * `params?` `dict`: {'julian_power': 4, …}.
@@ -163,12 +195,13 @@ Everything below is a global name in a script. Types (`Transform`, `Camera`, …
   ```
 * `add_random_transform(variations?)` → `Transform` — Append a transform with one of Apophysis's random affines and random variations.
   * `variations?` `list[str]`: Names to choose from (default: every formula). (any loaded formula name)
-* `insert_transform(index, spec?, weight?, color?, color_speed?, opacity?, a?, b?, c?, d?, e?, f?, coefs?, post?, variations?, params?, name?, xaos?)` → `Transform` — Insert a transform at a position.
+* `insert_transform(index, spec?, weight?, color?, color_speed?, opacity?, a?, b?, c?, d?, e?, f?, coefs?, pre?, post?, variations?, params?, name?, xaos?)` → `Transform` — Insert a transform at a position.
   * `weight?` `float`: Relative probability (default 0.5).
   * `color?` `float`: Palette position 0..1.
   * `color_speed?` `float`: 0..1, how strongly the point colour moves to `color`.
   * `opacity?` `float`: 0..1.
   * `coefs?` `tuple`: (a, b, c, d, e, f).
+  * `pre?` `tuple`: Pre affine (a, b, c, d, e, f).
   * `post?` `tuple`: Post affine (a, b, c, d, e, f).
   * `variations?` `dict`: {'name': weight, …} — replaces the default linear.
   * `params?` `dict`: {'julian_power': 4, …}.
@@ -186,13 +219,19 @@ Everything below is a global name in a script. Types (`Transform`, `Camera`, …
   ```
 * `normalize_weights()` — Scale the weights so they add up to 1.
 * `total_weight()` → `float` — Sum of the transform weights.
+* `add_symmetry(order)` → `int` — Add flam3-style symmetry transforms (linear, weight 1, colour speed 0): order ≥ 2 gives rotational symmetry, −1 a mirror, ≤ −2 dihedral symmetry (mirror + rotations).
+  ```python
+  add_symmetry(5)     # five-fold
+  add_symmetry(-1)    # left-right mirror
+  ```
 * `final_transform()` → `Transform|None` — The final transform as a Transform, or None.
-* `set_final_transform(spec?, weight?, color?, color_speed?, opacity?, a?, b?, c?, d?, e?, f?, coefs?, post?, variations?, params?, name?, xaos?)` → `Transform` — Create or replace the final transform (keyword arguments as for add_transform); `set_final_transform(None)` removes it.
+* `set_final_transform(spec?, weight?, color?, color_speed?, opacity?, a?, b?, c?, d?, e?, f?, coefs?, pre?, post?, variations?, params?, name?, xaos?)` → `Transform` — Create or replace the final transform (keyword arguments as for add_transform); `set_final_transform(None)` removes it.
   * `weight?` `float`: Relative probability (default 0.5).
   * `color?` `float`: Palette position 0..1.
   * `color_speed?` `float`: 0..1, how strongly the point colour moves to `color`.
   * `opacity?` `float`: 0..1.
   * `coefs?` `tuple`: (a, b, c, d, e, f).
+  * `pre?` `tuple`: Pre affine (a, b, c, d, e, f).
   * `post?` `tuple`: Post affine (a, b, c, d, e, f).
   * `variations?` `dict`: {'name': weight, …} — replaces the default linear.
   * `params?` `dict`: {'julian_power': 4, …}.
@@ -201,12 +240,13 @@ Everything below is a global name in a script. Types (`Transform`, `Camera`, …
   set_final_transform(variations={'spherical': 1})
   ```
 * `remove_final_transform()` — Remove the final transform.
-* `new_transform(spec?, weight?, color?, color_speed?, opacity?, a?, b?, c?, d?, e?, f?, coefs?, post?, variations?, params?, name?, xaos?)` → `Transform` — A detached transform to prepare and add later.
+* `new_transform(spec?, weight?, color?, color_speed?, opacity?, a?, b?, c?, d?, e?, f?, coefs?, pre?, post?, variations?, params?, name?, xaos?)` → `Transform` — A detached transform to prepare and add later.
   * `weight?` `float`: Relative probability (default 0.5).
   * `color?` `float`: Palette position 0..1.
   * `color_speed?` `float`: 0..1, how strongly the point colour moves to `color`.
   * `opacity?` `float`: 0..1.
   * `coefs?` `tuple`: (a, b, c, d, e, f).
+  * `pre?` `tuple`: Pre affine (a, b, c, d, e, f).
   * `post?` `tuple`: Post affine (a, b, c, d, e, f).
   * `variations?` `dict`: {'name': weight, …} — replaces the default linear.
   * `params?` `dict`: {'julian_power': 4, …}.
@@ -242,6 +282,7 @@ Everything below is a global name in a script. Types (`Transform`, `Camera`, …
   * `name` `str`:  (any loaded formula name)
 * `random_variation(exclude?)` → `str` — A random formula name.
   * `exclude?` `list[str]`: Names to skip (default ['pre_blur']).
+* `list_gradient_presets()` → `list[str]` — The names of the bundled gradient presets (for `gradient.preset(name)`).
 
 ### Randomness
 
@@ -266,6 +307,25 @@ Everything below is a global name in a script. Types (`Transform`, `Camera`, …
 * `math : math` — Python's math module (sin, cos, atan2, hypot, …).
 * `PI : float` — 3.14159…
 * `TAU : float` — 2π
+
+### Parameters
+
+* `param(name, default, min?, max?, step?, choices?, decimals?, help?)` → `any` — A tunable input: a control in the Script Editor's Parameters tab. Returns the value set there, else the default; moving the control re-runs the script live (from the fractal as it was before the run, with the same random numbers). The kind follows the default: a number (a slider when min and max are given), an integer, True / False (a check box), text, or one of `choices` (a list).
+  * `name` `str`: The label, and the key of the value.
+  * `default` `any`: The value used when none is set.
+  * `min?` `float`: Lowest value (a number's slider needs min and max).
+  * `max?` `float`: Highest value.
+  * `step?` `float`: Increment of the spin box / slider.
+  * `choices?` `list`: The options of a dropdown.
+  * `decimals?` `int`: Decimals shown for a number.
+  * `help?` `str`: Tooltip of the control.
+  ```python
+  angle = param('Angle', 30, min=-180, max=180)
+  copies = param('Copies', 3, min=1, max=12)
+  keep = param('Keep colours', True)
+  for t in transforms:
+      t.rotate(angle)
+  ```
 
 ### Output & interaction
 
@@ -350,6 +410,7 @@ A transform of the flame (a live view of one XForm). Attributes are read and ass
 * `f : float` — Affine f (origin y).
 * `coefs : tuple` — All six coefficients (a, b, c, d, e, f) — get or assign.
 * `post : Affine` — The post-variation affine: `t.post.a`, `t.post.coefs`, `t.post.reset()`.
+* `pre : Affine` — The pre affine, applied to the point before the normal triangle: `t.pre.coefs`, `t.pre.reset()`.
 * `origin : tuple` — (e, f): where the O point sits — get or assign.
 * `determinant : float` *(read-only)* — a·d − b·c: the triangle's signed area factor.
 * `variations : VariationMap` — Variation name → weight (live): `t.variations['julian'] = 1`; 0 removes.
@@ -362,6 +423,7 @@ A transform of the flame (a live view of one XForm). Attributes are read and ass
 * `set_affine(a, b, c, d, e, f)` → `Transform` — Set all six coefficients.
 * `reset_affine()` → `Transform` — Identity affine.
 * `reset_post()` → `Transform` — Identity post affine.
+* `reset_pre()` → `Transform` — Identity pre affine.
 * `rotate(degrees)` → `Transform` — Turn the triangle about its own origin.
   * `degrees` `float`: Positive = counter-clockwise on screen.
   ```python
@@ -470,6 +532,14 @@ The tone mapping (Apophysis semantics).
 * `reset()` → `Coloring` — Apophysis defaults.
 * `reset_curves(channel?)` → `Coloring` — Straighten the tone curves.
   * `channel?` `str`: One channel, or all when omitted. (overall / red / green / blue / alpha)
+* `curve(channel?)` → `list` — One tone curve's control points [(x, y), …].
+  * `channel?` `str`: overall / red / green / blue / alpha. (overall / red / green / blue / alpha)
+* `set_curve(channel, points)` → `Coloring` — Replace one tone curve's control points.
+  * `channel` `str`:  (overall / red / green / blue / alpha)
+  * `points` `list`: [(x, y), …] with x and y in 0..1.
+  ```python
+  coloring.set_curve('overall', [(0, 0), (0.5, 0.62), (1, 1)])
+  ```
 
 ### Gradient
 
@@ -515,6 +585,16 @@ The flame's palette (256 colours) plus the Gradient Library's node operations. A
 * `load(path, index?)` → `Gradient` — Load a gradient from any file the Gradient Library reads.
   * `path` `str`: .ugr, .map, .flame, .chaos, .fa, an image …
   * `index?` `int`: Entry in a multi-gradient file (default 0).
+* `preset(name)` → `Gradient` — Use one of the bundled gradients (`list_gradient_presets()`).
+  ```python
+  gradient.preset('Fire')
+  ```
+* `adjust_stops(hue?, saturation?, luminance?)` → `Gradient` — The Gradient Library's sliders exactly as it applies them (on the nodes, then re-sampled).
+  * `hue?` `float`: Degrees.
+  * `saturation?` `float`: Percent.
+  * `luminance?` `float`: Percent.
+* `rotate_stops(amount)` → `Gradient` — The Gradient Library's Position slider: move the nodes by this share of the gradient.
+  * `amount` `float`: −0.5 .. 0.5 (a full turn is 1).
 
 ### Xaos
 
@@ -570,6 +650,7 @@ The raw transform dataclass (weight, color, color_speed, opacity, coefs, post, v
 * `color_speed : float`
 * `opacity : float`
 * `coefs : tuple`
+* `pre : tuple`
 * `post : tuple`
 * `variations : dict`
 * `params : dict`
@@ -631,12 +712,13 @@ One gradient node.
 * **Add random transform** (Transforms) — Appends a transform with a random affine and random variations (Apophysis: Add random transform).
 * **Gnarl** (Transforms) — A new flame: a near-identity transform with small popcorn2 / waves2 warps — the classic gnarl.
 * **Julia mutation** (Transforms) — The classic Apophysis "Julia" script: pushes the transforms outwards and adds a julian transform.
+* **Live kaleidoscope** (Transforms) — Folds the fractal into a kaleidoscope: symmetry order, twist and zoom on live controls.
 * **Make rotational symmetry** (Transforms) — Adds rotated linear copies so the whole fractal gets N-fold rotational symmetry (the classic Apophysis trick).
 * **Mirror horizontally** (Transforms) — Flips every transform (and the final transform) in the vertical axis.
-* **Mutate (jitter) coefficients** (Transforms) — Nudges every affine coefficient a little — a quick way to explore nearby fractals.
+* **Mutate (jitter) coefficients** (Transforms) — Nudges every affine coefficient a little — a quick way to explore nearby fractals (New seed rolls again).
 * **Normalize weights** (Transforms) — Scales the transform weights so they add up to 1 (Apophysis: Normalize Weights).
 * **Random rotate about the centre** (Transforms) — Rotates every transform, position included, by a random angle about (0, 0).
-* **Random rotate all transforms** (Transforms) — Rotates every transform by a random angle about its own origin.
+* **Random rotate all transforms** (Transforms) — Rotates every transform by a random angle about its own origin (the Parameters tab sets the range live).
 * **Random variation swap** (Transforms) — Keeps linear and replaces every other variation with a random one of the same weight.
 * **Reset post transforms** (Transforms) — Sets every post transform back to the identity.
 * **Reset variations to linear** (Transforms) — Replaces every variation with linear = 1, keeping affines, colours and weights.
@@ -648,7 +730,7 @@ One gradient node.
 * **Rainbow gradient** (Colours) — Fills the palette with a full hue cycle.
 * **Random gradient** (Colours) — A whole new random gradient (the Gradient Library's Reroll).
 * **Spread colours evenly** (Colours) — Distributes the transform colours evenly along the gradient.
-* **Warm / cool shift** (Colours) — Turns the hue of the whole gradient and boosts its saturation (the Gradient Library's sliders).
+* **Warm / cool shift** (Colours) — Turns the hue of the whole gradient and pushes its saturation (the Gradient Library's sliders), live.
 * **Random xaos** (Xaos) — Random on / off links with a chosen density; every transform keeps at least one way out.
 * **Reset xaos** (Xaos) — Clears all chaos weights.
 * **Xaos chain** (Xaos) — Each transform may only be followed by the next one (a ring), self-loops allowed.
@@ -662,4 +744,4 @@ One gradient node.
 * **Flame report** (Flame) — Prints everything about the current flame to the output panel.
 * **Print flame XML** (Flame) — Prints the flame as Apophysis <flame> XML.
 * **Random flame explorer** (Flame) — Shows random flames one after another; answer Yes to keep the current one.
-* **Save rotated variants to a file** (Flame) — Appends several rotated copies of the flame to a .flame file of your choice.
+* **Save rotated variants to a file** (Flame) — Appends several rotated copies of the flame to a .flame file of your choice (set the file in Parameters, then Run).

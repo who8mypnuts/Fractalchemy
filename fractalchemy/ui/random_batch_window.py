@@ -5,7 +5,10 @@ check box; the search box filters it (debounced), *Check all* / *Uncheck all* ac
 *Generate* builds the flames on the thread pool (see `fractal/random_flame.py`) and emits
 `batch_ready(list[Flame])`; the main window shows them in the library's temporary area.
 
-The unchecked set, the count and the transform range persist in QSettings, so a formula the user
+*Symmetry* adds flam3's symmetry transforms to every flame (`fractal/symmetry.py`): none (the default), flam3's own
+random pick, a mirror, N-fold rotation or both, with the order range for the last two.
+
+The unchecked set, the count, the transform range and the symmetry persist in QSettings, so a formula the user
 adds later starts out checked.
 """
 
@@ -13,7 +16,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSettings, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QApplication, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSpinBox,
+    QApplication, QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSpinBox,
     QVBoxLayout, QWidget,
 )
 
@@ -27,6 +30,11 @@ EXCLUDED_KEY = "random/excluded"
 COUNT_KEY = "random/count"
 MIN_KEY = "random/min_transforms"
 MAX_KEY = "random/max_transforms"
+SYMMETRY_KEY = "random/symmetry"
+ORDER_MIN_KEY = "random/symmetry_min"
+ORDER_MAX_KEY = "random/symmetry_max"
+SYMMETRY_CHOICES = (("none", "None"), ("random", "Random (as flam3 picks it)"), ("bilateral", "Mirror (left–right)"),
+                    ("rotational", "Rotational, order"), ("dihedral", "Mirror + rotational, order"))
 SEARCH_DEBOUNCE_MS = 250
 DEFAULT_COUNT = 10
 MAX_COUNT = 500
@@ -57,6 +65,9 @@ class RandomBatchWindow(QWidget):
         self.count_box = QSpinBox(self)
         self.min_box = QSpinBox(self)
         self.max_box = QSpinBox(self)
+        self.symmetry_box = QComboBox(self)
+        self.order_min = QSpinBox(self)
+        self.order_max = QSpinBox(self)
         self.generate_button = QPushButton("Generate", self)
         self.summary = QLabel(self)
         self._search_timer = QTimer(self, singleShot=True, interval=SEARCH_DEBOUNCE_MS)
@@ -80,6 +91,14 @@ class RandomBatchWindow(QWidget):
             box.setValue(value)
         self.min_box.setToolTip("Fewest transforms per fractal")
         self.max_box.setToolTip("Most transforms per fractal")
+        for key, text in SYMMETRY_CHOICES:
+            self.symmetry_box.addItem(text, key)
+        self.symmetry_box.setToolTip("Symmetry transforms added to every fractal (flam3's): a mirror, N-fold rotation, or both")
+        for box, value in ((self.order_min, 2), (self.order_max, 6)):
+            box.setRange(2, 16)
+            box.setValue(value)
+        self.order_min.setToolTip("Lowest symmetry order (rotational / dihedral)")
+        self.order_max.setToolTip("Highest symmetry order (rotational / dihedral)")
         self.generate_button.setToolTip("Generate the batch: the fractals appear in the library's temporary area (not saved)")
         self.generate_button.setDefault(True)
         self.summary.setWordWrap(True)
@@ -96,6 +115,12 @@ class RandomBatchWindow(QWidget):
         transforms.addWidget(self.max_box)
         transforms.addStretch(1)
         form.addRow("Transforms", transforms)
+        symmetry = QHBoxLayout()
+        symmetry.addWidget(self.symmetry_box, 1)
+        symmetry.addWidget(self.order_min)
+        symmetry.addWidget(QLabel("to", self))
+        symmetry.addWidget(self.order_max)
+        form.addRow("Symmetry", symmetry)
         layout = QVBoxLayout(self)
         layout.addWidget(self.search)
         layout.addWidget(self.list, 1)
@@ -111,8 +136,10 @@ class RandomBatchWindow(QWidget):
         self.uncheck_all_button.clicked.connect(lambda: self._set_listed(False))
         self.list.itemChanged.connect(lambda _i: self._on_checks_changed())
         self.generate_button.clicked.connect(self.generate)
-        for box in (self.count_box, self.min_box, self.max_box):
+        for box in (self.count_box, self.min_box, self.max_box, self.order_min, self.order_max):
             box.valueChanged.connect(lambda _v: self._save())
+        self.symmetry_box.currentIndexChanged.connect(lambda _i: self._on_symmetry_changed())
+        self._on_symmetry_changed(save=False)
 
     # --- the variation list ---------------------------------------------------------------------------------
     def populate(self) -> None:
@@ -169,6 +196,13 @@ class RandomBatchWindow(QWidget):
         if save:
             self._save()
 
+    def _on_symmetry_changed(self, save: bool = True) -> None:
+        ordered = self.symmetry_box.currentData() in ("rotational", "dihedral")
+        self.order_min.setEnabled(ordered)
+        self.order_max.setEnabled(ordered)
+        if save:
+            self._save()
+
     # --- persistence ------------------------------------------------------------------------------------------
     def _load(self) -> None:
         if self._settings is None:
@@ -179,8 +213,11 @@ class RandomBatchWindow(QWidget):
                 self.count_box.setValue(int(self._settings.value(COUNT_KEY, DEFAULT_COUNT)))
                 self.min_box.setValue(int(self._settings.value(MIN_KEY, 2)))
                 self.max_box.setValue(int(self._settings.value(MAX_KEY, 5)))
+                self.order_min.setValue(int(self._settings.value(ORDER_MIN_KEY, 2)))
+                self.order_max.setValue(int(self._settings.value(ORDER_MAX_KEY, 6)))
             except (TypeError, ValueError):
                 pass
+            self.symmetry_box.setCurrentIndex(max(0, self.symmetry_box.findData(self._settings.value(SYMMETRY_KEY, "none"))))
             excluded = self._settings.value(EXCLUDED_KEY, [])
             if isinstance(excluded, str):
                 excluded = [excluded] if excluded else []
@@ -199,11 +236,15 @@ class RandomBatchWindow(QWidget):
         self._settings.setValue(COUNT_KEY, self.count_box.value())
         self._settings.setValue(MIN_KEY, self.min_box.value())
         self._settings.setValue(MAX_KEY, self.max_box.value())
+        self._settings.setValue(SYMMETRY_KEY, self.symmetry_box.currentData())
+        self._settings.setValue(ORDER_MIN_KEY, self.order_min.value())
+        self._settings.setValue(ORDER_MAX_KEY, self.order_max.value())
 
     # --- generating -------------------------------------------------------------------------------------------
     def options(self, width: int = 1024, height: int = 768) -> RandomOptions:
         lo, hi = sorted((self.min_box.value(), self.max_box.value()))
-        return RandomOptions(self.checked_names(), lo, hi, width, height)
+        return RandomOptions(self.checked_names(), lo, hi, width, height, symmetry=self.symmetry_box.currentData(),
+                             symmetry_orders=(self.order_min.value(), self.order_max.value()))
 
     def generate(self) -> None:
         """Build the batch on the thread pool and announce it."""

@@ -8,6 +8,7 @@ every new line the script executes checks the stop event and raises `ScriptStopp
 
 from __future__ import annotations
 
+import math
 import sys
 import threading
 import time
@@ -15,7 +16,8 @@ import traceback
 from dataclasses import dataclass, field
 
 from ..fractal.scene import Flame
-from .api import ScriptContext, ScriptHost, ScriptStopped
+from .api import LiveRefused, ScriptContext, ScriptHost, ScriptStopped
+from .parameters import ParamSpec
 
 SCRIPT_FILENAME = "<script>"
 
@@ -55,6 +57,13 @@ class ScriptResult:
         active: The active transform index after the script.
         seconds: Wall time.
         output_lines: How many `print` calls were made.
+        declarations: The `param()` declarations, in the order the script made them.
+        values: The value each parameter had in this run.
+        effects: The kinds of side effect the script made (`prompt`, `message`, `update`, `sleep`, `write`, `read`).
+        refused: When a restricted run was stopped before a side effect, why (the effect did not happen).
+        seed: The seed the script's random numbers used (None: unseeded).
+        variables: The plain-data variables the script defined (numbers, strings, and tuples / lists / dicts of them) —
+            what the Script Editor's console carries from one line to the next.
     """
     ok: bool
     stopped: bool = False
@@ -66,6 +75,25 @@ class ScriptResult:
     output_lines: int = 0
     user_stopped: bool = False
     flame_changed: bool = field(default=True)
+    declarations: tuple[ParamSpec, ...] = ()
+    values: dict = field(default_factory=dict)
+    effects: frozenset = frozenset()
+    refused: str = ""
+    seed: int | None = None
+    variables: dict = field(default_factory=dict)
+
+
+def is_plain(value, depth: int = 0) -> bool:
+    """Plain data that `repr` writes back as Python: numbers, strings, booleans, None, and tuples / lists / dicts of them."""
+    if depth > 4 or isinstance(value, float) and not math.isfinite(value):
+        return False
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return True
+    if isinstance(value, (tuple, list)):
+        return len(value) <= 1000 and all(is_plain(v, depth + 1) for v in value)
+    if isinstance(value, dict):
+        return len(value) <= 1000 and all(is_plain(k, depth + 1) and is_plain(v, depth + 1) for k, v in value.items())
+    return False
 
 
 def check_syntax(code: str) -> ScriptErrorInfo | None:
@@ -109,7 +137,7 @@ class _StopTrace:
 
 
 def run_script(code: str, flame: Flame | None, host: ScriptHost | None = None, stop_event: threading.Event | None = None,
-               active: int = 0, seed: int | None = None) -> ScriptResult:
+               active: int = 0, seed: int | None = None, parameters: dict | None = None, restricted: str | None = None) -> ScriptResult:
     """Execute `code` against a copy of `flame` and return what happened.
 
     Args:
@@ -119,6 +147,8 @@ def run_script(code: str, flame: Flame | None, host: ScriptHost | None = None, s
         stop_event: Set it from another thread to stop the script.
         active: Index of the active transform when the script starts.
         seed: Seed for the script's random numbers (None = random).
+        parameters: Values for the script's `param()` declarations, by name.
+        restricted: Refuse side effects, saying when ("while its controls update live"); see `api.LiveRefused`.
     """
     stop_event = stop_event or threading.Event()
     host = host or ScriptHost()
@@ -132,36 +162,42 @@ def run_script(code: str, flame: Flame | None, host: ScriptHost | None = None, s
     syntax = check_syntax(code)
     if syntax is not None:
         return ScriptResult(False, error=syntax, flame=flame.copy() if flame else None, active=active)
-    context = ScriptContext(flame, host, active, seed)
+    context = ScriptContext(flame, host, active, seed, parameters, restricted)
     namespace = context.namespace()
+    given = set(namespace)
+
+    def done(ok: bool, **fields) -> ScriptResult:
+        return ScriptResult(ok, flame=context.flame, active=context.active, seconds=time.monotonic() - started,
+                            output_lines=context.output_lines, declarations=tuple(context.declarations.values()),
+                            values=dict(context.values), effects=frozenset(context.effects), seed=seed,
+                            variables={k: v for k, v in namespace.items() if k not in given and not k.startswith("_") and is_plain(v)},
+                            **fields)
+
     compiled = compile(code, SCRIPT_FILENAME, "exec")
     previous = sys.gettrace()
     sys.settrace(_StopTrace(stop_event))
     try:
         exec(compiled, namespace)   # noqa: S102 - running the user's script is the point
+    except LiveRefused as refused:
+        return done(True, stopped=True, stop_reason=refused.reason, refused=f"{refused.reason} (line {_script_line(refused)})"
+                    if _script_line(refused) else refused.reason)
     except ScriptStopped as stopped:
-        return ScriptResult(True, stopped=True, stop_reason=stopped.reason, flame=context.flame, active=context.active,
-                            seconds=time.monotonic() - started, output_lines=context.output_lines, user_stopped=stop_event.is_set())
+        return done(True, stopped=True, stop_reason=stopped.reason, user_stopped=stop_event.is_set())
     except SystemExit as exc:   # exit() / quit() in a script: treat like stop()
-        return ScriptResult(True, stopped=True, stop_reason=str(exc.code) if exc.code not in (None, 0) else "", flame=context.flame,
-                            active=context.active, seconds=time.monotonic() - started, output_lines=context.output_lines)
+        return done(True, stopped=True, stop_reason=str(exc.code) if exc.code not in (None, 0) else "")
     except RecursionError as exc:
-        return ScriptResult(False, error=ScriptErrorInfo("RecursionError", "maximum recursion depth exceeded", _script_line(exc)),
-                            flame=context.flame, active=context.active, seconds=time.monotonic() - started, output_lines=context.output_lines)
+        return done(False, error=ScriptErrorInfo("RecursionError", "maximum recursion depth exceeded", _script_line(exc)))
     except Exception as exc:  # noqa: BLE001 - whatever the script raised is reported, not propagated
         kind = type(exc).__name__
         message = str(exc)
         if isinstance(exc, KeyError) and exc.args:
             message = f"no such key: {exc.args[0]!r}"
-        return ScriptResult(False, error=ScriptErrorInfo(kind, message, _script_line(exc), None, _script_traceback(exc)),
-                            flame=context.flame, active=context.active, seconds=time.monotonic() - started, output_lines=context.output_lines)
+        return done(False, error=ScriptErrorInfo(kind, message, _script_line(exc), None, _script_traceback(exc)))
     except BaseException as exc:  # noqa: BLE001 - KeyboardInterrupt and friends must still end in a result
-        return ScriptResult(False, error=ScriptErrorInfo(type(exc).__name__, str(exc) or type(exc).__name__, _script_line(exc)),
-                            flame=context.flame, active=context.active, seconds=time.monotonic() - started, output_lines=context.output_lines)
+        return done(False, error=ScriptErrorInfo(type(exc).__name__, str(exc) or type(exc).__name__, _script_line(exc)))
     finally:
         sys.settrace(previous)
-    return ScriptResult(True, flame=context.flame, active=context.active, seconds=time.monotonic() - started,
-                        output_lines=context.output_lines)
+    return done(True)
 
 
 __all__ = ["ScriptResult", "ScriptErrorInfo", "run_script", "check_syntax", "SCRIPT_FILENAME"]

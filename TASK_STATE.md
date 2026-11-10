@@ -270,18 +270,18 @@ black before.
   The decompiler would need structured loop reconstruction for the first group.
 * CPU speed of a few compiled formulas is low (crackle ~20 µs/point, eMod ~3 µs/point): both branches of every
   divergent `if` are evaluated; the GPU path is fine.
-* Random Batch has no symmetry options yet (Apophysis: bilateral / rotational); parameters stay at defaults.
-* Script Editor: no "record actions as script" yet; `update(wait=True)` waits for the first render pass or 2.5 s.
+* Random Batch parameters stay at defaults (symmetry options were added in round 13).
+* Script Editor: `update(wait=True)` waits for the first render pass or 2.5 s (Record, live parameters, the console: round 13).
 * Animation: interpolation is by index (transform 1 blends with transform 1); there is no per-keyframe easing, no
   motion blur, and the timeline has no undo. Rotation of affines interpolates the coefficients (flam3's
   linear mode), not angles — a 180° turn passes through a collapsed triangle.
-* Transform Editor: no rotate / scale widget grips around the selected triangle (edges and modifier keys cover it);
-  `ParamInfo.min/max` are shown in tooltips but not enforced; the pre affine is an editing convenience (it
+* Transform Editor: (grips and enforced parameter ranges arrived in round 13) the pre affine is an editing convenience (it
   composes with the normal affine), so it adds no new shapes — placing it after the `pre_` variations instead
   would (one-line change in `apply_xform` / `_xform_function`).
 * *Save* rewrites the `<flame>` element from the model, so attributes we do not model (`plotmode`, `animate`,
-  motion, `estimator_*`) are dropped from that entry; coloring / curve edits re-render instead of
-  re-tonemapping the kept histogram (a possible speed-up, now that jobs can be kept alive).
+  motion, `estimator_*`) are dropped from that entry. Colouring / curve edits re-tone the kept histogram in the main
+  viewport (round 13); the Render Image window still renders afresh (a "develop after render" feature would need the
+  tiles' histograms kept).
 * The user reports rare GPU shader build failures (crackle, edisc) on their driver that fall back to the CPU;
   not reproducible on llvmpipe (40 random crackle/edisc flames compiled) — the diagnostics file is the next step.
 * On software OpenGL (llvmpipe, as in the test sandbox) refinement to q 500 takes minutes; on a real GPU
@@ -676,3 +676,46 @@ fields, generation counters, load tickets) and each hit read; `docs/state-machin
   assertions; the whole suite runs strict.
 * Noted, not changed: `tests/test_fractal_files.py` (excluded by `pytest.ini`) targets an older architecture;
   `FractalFileActions` still duplicates `FileActionsBase` (different `file_written` signal).
+
+
+## Round 13: live script parameters, recording, and the sixteen improvements
+Plans: `plans/live-parameters-and-recording-plan.md` (Plan A, D1–D9) and `plans/improvements-s1-s16-plan.md` (E1–E15;
+E7 = viewport only; `.chaos` curves read and written). Both are implemented; their §12 / §20 logs list the details.
+
+**Foundations.** `FractalDocument` announces every change once more, after its specific signal, as `edited(kind)`;
+edits that change nothing record nothing; `modified` follows the saved position (undoing back to the loaded / saved
+state clears the `*`); every step has a readable label (`ui/undo_labels.py`: "Gamma", "Triangle 3", "Script: …") that
+names the Undo / Redo actions and fills the Inspector's new **History** tab (`history()`, `jump_to()`, `state_at()`);
+a non-script edit ends a script's undo token (an intermediate `update()` can no longer swallow a user's edit);
+`apply_script(interactive=True)` renders live ticks at interactive resolution; `rename()` / `restore_unsaved()`;
+`about_to_replace`. `FractalFileActions` now builds on `FileActionsBase` (`entry_written`, `note_write`, the
+lossy-save question restored, the quit prompt). Ctrl+wheel zoom is worked out on a copy (it used to change the camera
+outside the document, so Undo restored the centre but not the zoom).
+
+**Scripts.** `param()` (scripting/parameters.py; the API's effects and `LiveRefused` for restricted runs; `ScriptResult`
+gains declarations / values / effects / refused / seed / variables) and the **Parameters** tab with live re-runs
+(`ui/script_live.py`, the `LIVE_PARAMS` machine; `SCRIPT_RUN` gains *rerunning* / *superseded*); twelve templates declare
+parameters (+ *Live kaleidoscope*). **Record** (`ui/script_recorder.py` on `scripting/diff.py`: values or changes,
+verified by execution, raw-model fallbacks; undo-aware blocks); the **console**; **pinned templates** and the main
+window's **Scripts ▾** menu; **Explore script** in Mutate & Breed (`scripting/explore.py`, `NEEDS_SCRIPT`); **Animate…**
+a parameter; **Run on Many Fractals** (`scripting/batch.py`, a `JobWindowBase`). API additions: `Transform.pre`,
+`coloring.curve / set_curve`, `add_symmetry`, `list_gradient_presets` / `gradient.preset`, `gradient.adjust_stops /
+rotate_stops`. Flame → Script now writes pre affines and curves (codegen.py shared with the diff).
+
+**Main window.** Open Recent, crash recovery + the unsaved-edits shelf (`autosave.py`, `ui/recovery.py`, QLockFile per
+instance; the Fragments autosave shares the file helpers), quit prompt, Copy Parameters As, before / after (`\`,
+*View ▸ Compare with Original*), the command palette (`Ctrl+K` in every window: `search.py`, `widgets/command_palette.py`,
+`ui/commands.py`; one shared application event filter serves every main window — a filter per window made the
+test suite crawl), instant re-colouring (`RenderService.retone` / `submit(retain=True)`, jobs' `retone`), a quiet reload when
+the shown file changes on disk (no dialog for a file caught mid-write; the library's open-file rescan is quiet too).
+
+**Elsewhere.** Random Batch symmetry (`fractal/symmetry.py`); Transform Editor grips and parameter ranges
+(`variations.constrain_param`, shared with the mutation engine — its seeded output is unchanged); `.chaos`: parameters
+declared under another prefix (JuliaRandomN's `JRN_*`) are written, curves are read and written (`overall`, `0` / `5` /
+`10` = R / G / B), default iterator names come back empty, new entries can be added (`ChaosFileFormat.append`); the dead
+`fractal/formats/registry.py` is gone; `tests/test_fractal_files.py` is ported and runs again.
+
+Tests added: test_document_history, test_recovery, test_format_roundtrip, test_script_parameters, test_script_live,
+test_script_diff, test_script_recorder, test_script_batch_explore, test_script_tools, test_retone_compare,
+test_editor_polish, test_command_palette (+ the ported test_fractal_files). `tests/conftest.py` gives every test its own
+recovery folder and answers the unsaved-fractal quit question (`@pytest.mark.quit_prompt` for the real one).

@@ -39,12 +39,13 @@ def test_application_is_named_fractalchemy(window):
 def test_menu_bar_has_windows_and_help_menus(window):
     assert menu_titles(window) == ["File", "Edit", "View", "Windows", "Help"]
     assert [a.text() for a in window.menuWindows.actions()] == [
-        "Transform Editor", "Gradient Library", "Animation", "Random Batch…", "Mutate && Breed…", "Script Editor", "Formula Editor",
-        "3D Editor", "Fragments", "Render Image…"]
-    assert [a.text() for a in window.menuHelp.actions()] == ["Formulas…", "", "About Fractalchemy…", "About Qt…"]
+        "Transform Editor", "Gradient Library", "Animation", "Random Batch…", "Mutate && Breed…", "Script Editor", "Scripts",
+        "Formula Editor", "3D Editor", "Fragments", "Render Image…"]
+    assert [a.text() for a in window.menuHelp.actions()] == ["Command Palette…", "Formulas…", "", "About Fractalchemy…", "About Qt…"]
     assert [a.text() for a in window.menuView.actions()][-2:] == ["Toolbar", "Status Bar"]
     assert window.theme_menu.menuAction() in window.menuView.actions() and window.theme_menu.title() == "Theme"
-    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Save Fractal", "Save Fractal As", "Exit"]
+    assert [a.text() for a in window.menuFile.actions() if a.text()] == ["Open Fractal…", "Open Recent", "Recover", "Save Fractal",
+                                                                      "Save Fractal As", "Exit"]
     assert not window.actionSaveFractal.isEnabled() and not window.actionSaveAs.isEnabled()   # nothing loaded
 
 
@@ -179,7 +180,7 @@ def test_fractal_library_lists_flames_and_has_search_collapse_and_view_buttons(f
     assert [candy.child(i).text() for i in range(candy.rowCount())] == ["original", "outlined", "rotated", "pearl", "obsession"]
     assert panel.search.placeholderText() and panel.collapse_button.toolTip() == "Collapse All"
     assert panel.list_button.isChecked() and not panel.thumb_button.isChecked()
-    assert [a.text() for a in fractal_window.menuEdit.actions() if a.text()] == ["Undo", "Redo", "Copy Parameters", "Paste Parameters", "Edit Fractal Library…"]
+    assert [a.text() for a in fractal_window.menuEdit.actions() if a.text()] == ["Undo", "Redo", "Copy Parameters", "Copy Parameters As", "Paste Parameters", "Edit Fractal Library…"]
     assert fractal_window.actionToggleFractalLibrary.isChecked()
     fractal_window.actionToggleFractalLibrary.setChecked(False)
     assert fractal_window.splitter.is_collapsed()
@@ -221,7 +222,11 @@ def test_camera_zoom_keeps_the_point_under_the_cursor_and_rerenders_at_half_size
     win.show_flame(load_flame(win.fractal_library.roots.paths()[0] / "candy.flame", 0))
     submitted = []
     real_submit = win.render_service.submit
-    win.render_service.submit = lambda key, flame, settings, priority=0: (submitted.append((key, settings)), real_submit(key, flame, settings, priority))
+
+    def submit(key, flame, settings, priority=0, **kw):
+        submitted.append((key, settings))
+        return real_submit(key, flame, settings, priority, **kw)
+    win.render_service.submit = submit
     before = win.viewport.generation
     view = win.viewport
     pos = QPointF(view.image_rect.center())

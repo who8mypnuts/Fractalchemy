@@ -96,6 +96,13 @@ class CpuRenderJob:
         self.stats.seconds = self._elapsed
         return self.image()
 
+    def retone(self, coloring) -> np.ndarray | None:
+        """Tone-map the histogram again with new colouring (brightness, gamma, vibrancy, background, curves …); the
+        samples are kept. None before the first pass."""
+        self.coloring = coloring
+        self.luts = curve_luts(coloring.curves)
+        return self.image() if self.stats.samples else None
+
     def image(self) -> np.ndarray:
         """The current histogram tone-mapped to RGBA8."""
         s = self.settings
@@ -245,7 +252,8 @@ def apply_xform(xform: CompiledXForm, x: np.ndarray, y: np.ndarray, z: np.ndarra
             tx, ty, tz, vx, vy, vz, col = cv.variation.apply(point)
     if xform.has_post:
         a, b, cc, d, e, f = xform.post
-        vx, vy = a * vx + cc * vy + e, b * vx + d * vy + f
+        with np.errstate(all="ignore"):                 # points already at infinity are re-seeded by the caller
+            vx, vy = a * vx + cc * vy + e, b * vx + d * vy + f
     if xform.direct_color:
         c = c + xform.var_color * (col - c)
     return vx, vy, vz, c

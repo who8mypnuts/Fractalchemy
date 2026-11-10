@@ -1,18 +1,21 @@
-"""The Mutate & Breed window's option panels: `MutatePanel` (how mutants are made) and `BreedPanel` (the second parent
-and how children are made). They only gather options and announce requests; the window does the work.
+"""The Mutate & Breed window's option panels: `MutatePanel` (how mutants are made), `BreedPanel` (the second parent
+and how children are made) and `ExplorePanel` (how far variations of a live script's parameters stray). They only
+gather options and announce requests; the window does the work.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QImage, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
+                               QSlider, QVBoxLayout, QWidget)
 
 from ..fractal import breeding as B
 from ..fractal import mutation as M
 from ..fractal import variations as V
 from ..fractal.scene import Flame
+from ..scripting.explore import ExploreOptions
+from ..scripting.parameters import ParamSpec
 from ..library.catalog import FRACTAL_CATALOG
 from ..library.items import LibraryItem
 from ..library.payload import from_mime
@@ -301,4 +304,107 @@ def _choice(value, allowed: tuple[str, ...], default: str) -> str:
     return value if value in allowed else default
 
 
-__all__ = ["MutatePanel", "BreedPanel", "ParentSlot", "RANDOM_TREND"]
+
+
+EXPLORE_MODES = (("Around the current values", "around"), ("Anywhere in their ranges", "anywhere"), ("New random numbers only", "seeds"))
+
+
+class ExplorePanel(QWidget):
+    """How the *Explore script* tab varies a live script's parameters: spread, where, new random numbers, and which
+    parameters stay as they are.
+
+    Signals:
+        options_changed(): Any option changed.
+        regenerate_requested(): *New variations*.
+    """
+    options_changed = Signal()
+    regenerate_requested = Signal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._updating = False
+        self.script_label = QLabel(self)
+        self.script_label.setWordWrap(True)
+        self.spread = QSlider(Qt.Orientation.Horizontal, self)
+        self.spread.setRange(1, 100)
+        self.spread_label = QLabel(self)
+        self.mode = QComboBox(self)
+        for text, key in EXPLORE_MODES:
+            self.mode.addItem(text, key)
+        self.vary_seed = QCheckBox("New random numbers too", self)
+        self.vary_seed.setToolTip("Each variation also gets its own random numbers (scripts that use random())")
+        self.locks = QListWidget(self)
+        self.locks.setToolTip("Unticked parameters keep their current value")
+        self.regenerate_button = QPushButton("New variations", self)
+        self.regenerate_button.setToolTip("Eight new variations of the values (Space in the grid, or F5)")
+        spread_row = QHBoxLayout()
+        spread_row.addWidget(self.spread, 1)
+        spread_row.addWidget(self.spread_label)
+        form = QFormLayout()
+        form.addRow("Spread", spread_row)
+        form.addRow("Where", self.mode)
+        box = QGroupBox("Parameters that may change", self)
+        QVBoxLayout(box).addWidget(self.locks)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.script_label)
+        layout.addLayout(form)
+        layout.addWidget(self.vary_seed)
+        layout.addWidget(box, 1)
+        layout.addWidget(self.regenerate_button)
+        self.spread.valueChanged.connect(self._changed)
+        self.mode.currentIndexChanged.connect(self._changed)
+        self.vary_seed.toggled.connect(self._changed)
+        self.locks.itemChanged.connect(self._changed)
+        self.regenerate_button.clicked.connect(self.regenerate_requested)
+        self.set_options(ExploreOptions())
+        self.set_script("", [])
+
+    def set_script(self, name: str, specs: list[ParamSpec], reason: str = "") -> None:
+        """Show the script's parameters (kept ticks survive; new parameters start ticked)."""
+        locked = self.locked()
+        with updating(self):
+            self.locks.clear()
+            for spec in specs:
+                item = QListWidgetItem(spec.name, self.locks)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Unchecked if spec.name in locked else Qt.CheckState.Checked)
+                item.setToolTip(spec.help or spec.name)
+        self.script_label.setText(reason or (f"Varies the parameters of <b>{name}</b> (the Script Editor's live script)." if name else ""))
+
+    def locked(self) -> frozenset:
+        return frozenset(self.locks.item(i).text() for i in range(self.locks.count())
+                         if self.locks.item(i).checkState() != Qt.CheckState.Checked)
+
+    def options(self) -> ExploreOptions:
+        return ExploreOptions(self.spread.value() / 100.0, self.mode.currentData(), self.locked(), self.vary_seed.isChecked())
+
+    def set_options(self, options: ExploreOptions) -> None:
+        with updating(self):
+            self.spread.setValue(round(options.spread * 100))
+            self.mode.setCurrentIndex(max(0, self.mode.findData(options.mode)))
+            self.vary_seed.setChecked(options.vary_seed)
+        self.spread_label.setText(f"{self.spread.value()} %")
+
+    def _changed(self, *_args) -> None:
+        self.spread_label.setText(f"{self.spread.value()} %")
+        if not self._updating:
+            self.options_changed.emit()
+
+    def save(self, settings: QSettings, prefix: str) -> None:
+        o = self.options()
+        settings.setValue(f"{prefix}/spread", o.spread)
+        settings.setValue(f"{prefix}/mode", o.mode)
+        settings.setValue(f"{prefix}/vary_seed", o.vary_seed)
+
+    def load(self, settings: QSettings, prefix: str) -> None:
+        default = ExploreOptions()
+        try:
+            spread = float(settings.value(f"{prefix}/spread", default.spread))
+        except (TypeError, ValueError):
+            spread = default.spread
+        mode = str(settings.value(f"{prefix}/mode", default.mode) or default.mode)
+        self.set_options(ExploreOptions(min(1.0, max(0.01, spread)), mode if mode in dict((k, k) for _t, k in EXPLORE_MODES) else default.mode,
+                                        frozenset(), _flag(settings.value(f"{prefix}/vary_seed", default.vary_seed))))
+
+
+__all__ = ["MutatePanel", "BreedPanel", "ExplorePanel", "ParentSlot", "RANDOM_TREND"]

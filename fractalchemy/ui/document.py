@@ -48,6 +48,7 @@ class GradientDocument(QObject):
         self._base: Gradient | None = None        # gradient before the pending adjustments
         self._adjustments = Adjustments()
         self.modified = False
+        self.last_hint: dict | None = None          # what the last change was, for the recorder's relative style
 
     # --- state --------------------------------------------------------------
     @property
@@ -120,6 +121,8 @@ class GradientDocument(QObject):
             self._base = self._gradient.copy()
         self._adjustments = adjustments
         self._gradient = apply_adjustments(self._base, adjustments)
+        self.last_hint = {"adjustments": {"hue": adjustments.hue, "saturation": adjustments.saturation,
+                                          "luminance": adjustments.luminance, "rotation": adjustments.rotation}}
         self.modified = True
         self.select(-1)
         self.gradient_changed.emit()
@@ -127,6 +130,8 @@ class GradientDocument(QObject):
     def apply_operation(self, operation: Callable[[Gradient], list[ColorStop]]) -> None:
         """Replace all stops with `operation(gradient)`; bakes in any pending adjustments first."""
         self._commit_adjustments()
+        name = getattr(operation, "__name__", "")
+        self.last_hint = {"operation": name} if name and not name.startswith("<") else None
         self._gradient = Gradient(self._gradient.name, operation(self._gradient))
         self.modified = True
         self.select(-1)
@@ -136,6 +141,7 @@ class GradientDocument(QObject):
     def insert_stop(self, stops: list[ColorStop], new_index: int) -> None:
         """Replace the stop list (already containing the new node) and select the new node."""
         self._commit_adjustments()
+        self.last_hint = None
         self._gradient = Gradient(self._gradient.name, stops)
         self.modified = True
         self.gradient_changed.emit()
@@ -144,6 +150,7 @@ class GradientDocument(QObject):
     def remove_stop(self, index: int) -> None:
         """Delete a node and select its successor (or the new last node)."""
         self._commit_adjustments()
+        self.last_hint = None
         self._gradient = Gradient(self._gradient.name, without(self._gradient, index))
         self.modified = True
         self.select(-1)
@@ -153,6 +160,7 @@ class GradientDocument(QObject):
     def move_stop(self, index: int, position: float) -> int:
         """Move a stop; selection follows it. Returns its new index."""
         self._commit_adjustments()
+        self.last_hint = None
         new_index = self._gradient.move_stop(index, position)
         if self._selected == index:
             self.select(new_index)
@@ -162,6 +170,7 @@ class GradientDocument(QObject):
     def set_color(self, index: int, color: RGB) -> None:
         """Recolour node `index` (commits pending adjustments first)."""
         self._commit_adjustments()
+        self.last_hint = None
         self._gradient.set_color(index, color)
         self._touch(index)
 

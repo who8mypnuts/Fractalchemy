@@ -100,8 +100,9 @@ class ScriptRunner(QObject):
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def run(self, code: str, flame: Flame | None, active: int = 0) -> None:
-        """Start `code` against a copy of `flame`; `finished` reports the outcome."""
+    def run(self, code: str, flame: Flame | None, active: int = 0, seed: int | None = None, parameters: dict | None = None,
+            restricted: str | None = None) -> None:
+        """Start `code` against a copy of `flame`; `finished` reports the outcome (see `run_script` for the rest)."""
         if self.running:
             raise RuntimeError("a script is already running")
         self._stop = threading.Event()
@@ -110,7 +111,7 @@ class ScriptRunner(QObject):
         snapshot = flame.copy() if flame is not None else None
 
         def work() -> None:
-            result = run_script(code, snapshot, host, stop, active)
+            result = run_script(code, snapshot, host, stop, active, seed, parameters, restricted)
             self.finished.emit(result)
 
         self._thread = threading.Thread(target=work, name="fractalchemy-script", daemon=True)

@@ -14,6 +14,13 @@ restarted: its histogram is kept and it resumes when its turn comes again. The O
 context is created on this thread because contexts are thread-bound; if that fails the
 CPU engine is used.
 
+**Re-colouring without re-rendering** (`retone(key, coloring)`): brightness, gamma, vibrancy, contrast, the background
+and the curves only change the tone mapping, so a job of `key` — running (it is pre-empted: paused with its histogram,
+like any urgent work), paused, or *retained* after finishing (`submit(..., retain=True)`, the viewport's renders; one
+retained job at a time) — is tone-mapped again with the new colouring and the picture arrives as an ordinary
+`pass_done` of that key, with no new samples; the job then carries on refining. When no such job exists,
+`retone_missed(key)` says so and the caller renders afresh.
+
 The engine is pluggable: an `EngineFactory` creates it on the worker thread (and names a
 fallback for payloads it rejects). The default factory is the flame renderer (GPU, then the
 CPU); the Fragments window runs a second service with its fragment-shader engine. A payload
@@ -91,6 +98,7 @@ class _Request:
     key: object = field(compare=False)
     payload: object = field(compare=False)
     settings: object = field(compare=False)
+    retain: bool = field(default=False, compare=False)
 
 
 class RenderService(QThread):
@@ -103,12 +111,14 @@ class RenderService(QThread):
         job_failed(object, str): (key, message) when a render could not be set up.
         job_error(object, object): (key, exception) — the same failure with the exception itself, for engines whose
             errors carry more than a message (the fragment engine's diagnostics).
+        retone_missed(object): (key) `retone` found no job of that key to re-colour.
     """
     engine_ready = Signal(str)
     pass_done = Signal(object, object, object)
     job_finished = Signal(object, object)
     job_failed = Signal(object, str)
     job_error = Signal(object, object)
+    retone_missed = Signal(object)
 
     def __init__(self, parent: QObject | None = None, prefer_gpu: bool = True, factory: EngineFactory | None = None):
         """Args:
@@ -126,26 +136,39 @@ class RenderService(QThread):
         self._running_key: object = None
         self._superseded = False
         self._paused: dict[object, tuple] = {}   # key -> (job, request) pre-empted mid-way (worker thread only)
+        self._retained: dict[object, object] = {}   # key -> a finished job kept for re-colouring (worker thread only)
+        self._retones: dict[object, object] = {}    # key -> the colouring to re-tone it with (GUI → worker)
+        self._drop: set = set()                     # keys whose retained job the worker should close
         self.engine_name = ""
         self.engine = None
 
     # --- API (GUI thread) ---------------------------------------------------
-    def submit(self, key: object, payload, settings, priority: int = PRIORITY_VIEWPORT) -> None:
+    def submit(self, key: object, payload, settings, priority: int = PRIORITY_VIEWPORT, retain: bool = False) -> None:
         """Queue a render of `payload` (copied; a `Flame` for the flame engines) for `key`, replacing any queued or
-        running render with the same key."""
+        running render with the same key. With `retain` the finished job is kept for `retone` (see the module docstring)."""
         with self._cond:
             self._queue = [r for r in self._queue if r.key != key]
-            self._queue.append(_Request(priority, next(self._seq), key, payload.copy(), settings))
+            self._retones.pop(key, None)
+            self._queue.append(_Request(priority, next(self._seq), key, payload.copy(), settings, retain))
             if self._running_key == key:
                 self._superseded = True
             self._cond.notify()
 
     def cancel(self, key: object) -> None:
-        """Drop any queued render for `key` and stop it if it is running."""
+        """Drop any queued render for `key` and stop it if it is running (a retained job of `key` is released too)."""
         with self._cond:
             self._queue = [r for r in self._queue if r.key != key]
+            self._retones.pop(key, None)
+            self._drop.add(key)
             if self._running_key == key:
                 self._superseded = True
+            self._cond.notify()
+
+    def retone(self, key: object, coloring) -> None:
+        """Re-colour `key`'s job with `coloring` without new samples (see the module docstring)."""
+        with self._cond:
+            self._retones[key] = coloring.copy()
+            self._cond.notify()
 
     def cancel_where(self, predicate) -> None:
         """Drop queued renders whose key satisfies `predicate`."""
@@ -179,14 +202,32 @@ class RenderService(QThread):
             for job, _request in self._paused.values():
                 job.close()
             self._paused.clear()
+            for job in self._retained.values():
+                job.close()
+            self._retained.clear()
             self.engine.close()
             if self._fallback is not None and self._fallback is not self.engine:
                 self._fallback.close()
 
     def _next(self) -> _Request | None:
+        while True:
+            with self._cond:
+                while not self._queue and not self._retones and not self._drop and not self._stop:
+                    self._cond.wait()
+                if self._stop:
+                    return None
+                drop, self._drop = self._drop, set()
+                retones, self._retones = self._retones, {}
+            for key in drop:                                  # released retained jobs (GL objects: closed on this thread)
+                job = self._retained.pop(key, None)
+                if job is not None:
+                    job.close()
+            for key, coloring in retones.items():
+                self._retone(key, coloring)
+            with self._cond:
+                if self._queue or self._stop:
+                    break
         with self._cond:
-            while not self._queue and not self._stop:
-                self._cond.wait()
             if self._stop:
                 return None
             request = min(self._queue)
@@ -200,7 +241,18 @@ class RenderService(QThread):
 
     def _urgent_pending(self, priority: int) -> bool:
         with self._cond:
-            return any(r.priority < priority for r in self._queue)
+            return bool(self._retones) or any(r.priority < priority for r in self._queue)
+
+    def _retone(self, key: object, coloring) -> None:
+        """Re-colour the paused or retained job of `key` (worker thread)."""
+        paused = self._paused.get(key)
+        job = paused[0] if paused is not None else self._retained.get(key)
+        if job is None or not hasattr(job, "retone"):
+            self.retone_missed.emit(key)
+            return
+        image = job.retone(coloring)
+        if image is not None:
+            self.pass_done.emit(key, image, _snapshot(job.stats))
 
     def _any_pending(self) -> bool:
         with self._cond:
@@ -252,6 +304,14 @@ class RenderService(QThread):
             else:
                 self.job_finished.emit(request.key, _snapshot(job.stats))
                 self._finish(request.key)
+                if request.retain and hasattr(job, "retone"):
+                    for other in list(self._retained):        # one retained job at a time
+                        self._retained.pop(other).close()
+                    with self._cond:
+                        dropped = request.key in self._drop
+                    if not dropped:
+                        self._retained[request.key] = job
+                        keep = True
                 return
             # pre-empted (not superseded): pause the job and queue the request again to resume it later
             # (a refining job goes to the back of the queue, so the work it yielded to really runs first)

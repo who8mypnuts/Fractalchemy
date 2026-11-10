@@ -74,7 +74,8 @@ def param_rows(xform: XForm, show_all: bool) -> list[ValueRow]:
             seen.add(key)
             info = var.param_info.get(key)
             rows.append(ValueRow(key, xform.params.get(key, default), name, _param_tooltip(key, name, default, info), bold=used,
-                                 integer=info is not None and info.type == "int"))
+                                 integer=info is not None and info.type == "int",
+                                 constrain=(lambda value, previous, k=key: V.constrain_param(k, value, previous)) if info is not None else None))
     for key, value in xform.params.items():   # parameters no formula declares (kept for round-tripping)
         if key not in seen:
             seen.add(key)

@@ -99,13 +99,13 @@ AFFINE_NOTE = ("Affine coefficients follow the flame-file / Apophysis script ord
                "X = (a, b), Y = (c, d) and O = (e, f) are the triangle's vectors; y points down on screen.")
 COLOR_NOTE = "A colour is (r, g, b) with 0..255 or a '#rrggbb' string."
 XFORM_FIELDS = ("a", "b", "c", "d", "e", "f", "weight", "color", "color_speed", "symmetry", "opacity", "var_color", "name", "coefs",
-                "post", "variations", "params", "xaos")
+                "pre", "post", "variations", "params", "xaos")
 
 _TRANSFORM_FIELD_PARAMS = (
     P("weight", NUM, "Relative probability (default 0.5).", True), P("color", NUM, "Palette position 0..1.", True),
     P("color_speed", NUM, "0..1, how strongly the point colour moves to `color`.", True), P("opacity", NUM, "0..1.", True),
     P("a", NUM, "", True), P("b", NUM, "", True), P("c", NUM, "", True), P("d", NUM, "", True), P("e", NUM, "", True), P("f", NUM, "", True),
-    P("coefs", "tuple", "(a, b, c, d, e, f).", True), P("post", "tuple", "Post affine (a, b, c, d, e, f).", True),
+    P("coefs", "tuple", "(a, b, c, d, e, f).", True), P("pre", "tuple", "Pre affine (a, b, c, d, e, f).", True), P("post", "tuple", "Post affine (a, b, c, d, e, f).", True),
     P("variations", "dict", "{'name': weight, …} — replaces the default linear.", True), P("params", "dict", "{'julian_power': 4, …}.", True),
     P("name", "str", "", True), P("xaos", "list", "Chaos row.", True),
 )
@@ -127,6 +127,7 @@ TYPES: dict[str, TypeDoc] = {
             "e": prop(NUM, "Affine e (origin x)."), "f": prop(NUM, "Affine f (origin y)."),
             "coefs": prop("tuple", "All six coefficients (a, b, c, d, e, f) — get or assign."),
             "post": prop("Affine", "The post-variation affine: `t.post.a`, `t.post.coefs`, `t.post.reset()`."),
+            "pre": prop("Affine", "The pre affine, applied to the point before the normal triangle: `t.pre.coefs`, `t.pre.reset()`."),
             "origin": prop("tuple", "(e, f): where the O point sits — get or assign."),
             "determinant": prop(NUM, "a·d − b·c: the triangle's signed area factor.", readonly=True),
             "variations": prop("VariationMap", "Variation name → weight (live): `t.variations['julian'] = 1`; 0 removes."),
@@ -139,6 +140,7 @@ TYPES: dict[str, TypeDoc] = {
             "set_affine": meth("Set all six coefficients.", P("a", NUM), P("b", NUM), P("c", NUM), P("d", NUM), P("e", NUM), P("f", NUM), returns="Transform"),
             "reset_affine": meth("Identity affine.", returns="Transform"),
             "reset_post": meth("Identity post affine.", returns="Transform"),
+            "reset_pre": meth("Identity pre affine.", returns="Transform"),
             "rotate": meth("Turn the triangle about its own origin.", P("degrees", NUM, "Positive = counter-clockwise on screen."),
                            returns="Transform", example="transform.rotate(45)"),
             "rotate_around": meth("Turn the whole triangle (origin included) about a point.", P("degrees", NUM), P("x", NUM, "Pivot x (default 0).", True),
@@ -200,7 +202,12 @@ TYPES: dict[str, TypeDoc] = {
         "background": prop("color", "Background colour — (r, g, b) or '#rrggbb'."),
         "background_hex": prop("str", "The background as '#rrggbb'.", readonly=True),
         "reset": meth("Apophysis defaults.", returns="Coloring"),
-        "reset_curves": meth("Straighten the tone curves.", P("channel", "str", "One channel, or all when omitted.", True, options=CURVE_CHANNELS), returns="Coloring")}),
+        "reset_curves": meth("Straighten the tone curves.", P("channel", "str", "One channel, or all when omitted.", True, options=CURVE_CHANNELS), returns="Coloring"),
+        "curve": meth("One tone curve's control points [(x, y), …].", P("channel", "str", "overall / red / green / blue / alpha.", True,
+                                                                                      options=CURVE_CHANNELS), returns="list"),
+        "set_curve": meth("Replace one tone curve's control points.", P("channel", "str", "", options=CURVE_CHANNELS),
+                          P("points", "list", "[(x, y), …] with x and y in 0..1."), returns="Coloring",
+                          example="coloring.set_curve('overall', [(0, 0), (0.5, 0.62), (1, 1)])")}),
     "Gradient": TypeDoc("The flame's palette (256 colours) plus the Gradient Library's node operations. " + COLOR_NOTE, {
         "colors": prop("list", "All 256 palette colours (a copy; assign a list of colours to replace the palette)."),
         "stops": prop("NodeGradient", "The palette as a simplified node gradient (a copy, like the Gradient Library shows).", readonly=True),
@@ -225,7 +232,14 @@ TYPES: dict[str, TypeDoc] = {
         "blend": meth("Mix with another palette.", P("other", "list", "A list of colours, a Gradient or another gradient helper."),
                       P("amount", NUM, "0..1 (default 0.5).", True), returns="Gradient"),
         "load": meth("Load a gradient from any file the Gradient Library reads.", P("path", "str", ".ugr, .map, .flame, .chaos, .fa, an image …"),
-                     P("index", "int", "Entry in a multi-gradient file (default 0).", True), returns="Gradient")}),
+                     P("index", "int", "Entry in a multi-gradient file (default 0).", True), returns="Gradient"),
+        "preset": meth("Use one of the bundled gradients (`list_gradient_presets()`).", P("name", "str"), returns="Gradient",
+                       example="gradient.preset('Fire')"),
+        "adjust_stops": meth("The Gradient Library's sliders exactly as it applies them (on the nodes, then re-sampled).",
+                             P("hue", NUM, "Degrees.", True), P("saturation", NUM, "Percent.", True), P("luminance", NUM, "Percent.", True),
+                             returns="Gradient"),
+        "rotate_stops": meth("The Gradient Library's Position slider: move the nodes by this share of the gradient.",
+                             P("amount", NUM, "−0.5 .. 0.5 (a full turn is 1)."), returns="Gradient")}),
     "Xaos": TypeDoc("The chaos matrix: matrix[from][to] is the relative weight of transform `to` following transform `from` "
                     "(1 = normal, 0 = never). Indices or Transform objects may be given.", {
         "matrix": prop("list", "The full matrix as nested lists (a copy).", readonly=True),
@@ -257,7 +271,8 @@ TYPES: dict[str, TypeDoc] = {
         "copy": meth("An independent copy.", returns="Flame"), "to_dict": meth("JSON-ready data.", returns="dict")}),
     "XForm": TypeDoc("The raw transform dataclass (weight, color, color_speed, opacity, coefs, post, variations, params, chaos, name, var_color).", {
         "weight": prop(NUM, ""), "color": prop(NUM, ""), "color_speed": prop(NUM, ""), "opacity": prop(NUM, ""), "coefs": prop("tuple", ""),
-        "post": prop("tuple", ""), "variations": prop("dict", ""), "params": prop("dict", ""), "chaos": prop("list|None", ""), "name": prop("str", ""),
+        "pre": prop("tuple", ""), "post": prop("tuple", ""), "variations": prop("dict", ""), "params": prop("dict", ""), "chaos": prop("list|None", ""),
+        "name": prop("str", ""),
         "var_color": prop(NUM, ""), "copy": meth("Deep copy.", returns="XForm")}),
     "RawCamera": TypeDoc("fractalchemy.fractal.scene.Camera: center (x, y), scale, zoom, rotate (degrees), width, height, pitch / yaw / pitch_y "
                          "(radians), perspective, zpos, dof.", {
@@ -319,6 +334,9 @@ GLOBALS: dict[str, Entry] = {
     "for_each_transform": func("Call fn(transform, index) for every transform.", P("fn", "callable"),
                                example="for_each_transform(lambda t, i: t.set_variation('linear', 1))"),
     "normalize_weights": func("Scale the weights so they add up to 1."),
+    "add_symmetry": func("Add flam3-style symmetry transforms (linear, weight 1, colour speed 0): order ≥ 2 gives rotational "
+                         "symmetry, −1 a mirror, ≤ −2 dihedral symmetry (mirror + rotations).", P("order", "int"), returns="int",
+                         example="add_symmetry(5)     # five-fold\nadd_symmetry(-1)    # left-right mirror"),
     "total_weight": func("Sum of the transform weights.", returns=NUM),
     "final_transform": func("The final transform as a Transform, or None.", returns="Transform|None"),
     "set_final_transform": func("Create or replace the final transform (keyword arguments as for add_transform); "
@@ -349,6 +367,7 @@ GLOBALS: dict[str, Entry] = {
     "variation_info": func("Facts about a formula: kind, parameters with defaults, origin, note.", P("name", "str", options=VARIATIONS), returns="dict"),
     "variation_params": func("Parameter names of a formula.", P("name", "str", options=VARIATIONS), returns="list[str]"),
     "random_variation": func("A random formula name.", P("exclude", "list[str]", "Names to skip (default ['pre_blur']).", True), returns="str"),
+    "list_gradient_presets": func("The names of the bundled gradient presets (for `gradient.preset(name)`).", returns="list[str]"),
     # --- randomness ---------------------------------------------------------------------------------------------------------------------
     "random": func("random() → 0..1, random(n) → 0..n, random(a, b) → a..b.", P("a", NUM, "", True), P("b", NUM, "", True), returns=NUM),
     "random_int": func("A random integer a..b (both included), or 0..a.", P("a", "int"), P("b", "int", "", True), returns="int"),
@@ -380,6 +399,16 @@ GLOBALS: dict[str, Entry] = {
     "sleep": func("Pause for a while (Stop still works).", P("seconds", NUM)),
     "progress": func("Show progress 0..1 in the status bar.", P("fraction", NUM)),
     "stop": func("End the script here; what it changed so far is kept.", P("reason", "str", "", True)),
+    "param": func("A tunable input: a control in the Script Editor's Parameters tab. Returns the value set there, else the "
+                  "default; moving the control re-runs the script live (from the fractal as it was before the run, with the "
+                  "same random numbers). The kind follows the default: a number (a slider when min and max are given), an "
+                  "integer, True / False (a check box), text, or one of `choices` (a list).",
+                  P("name", "str", "The label, and the key of the value."), P("default", "any", "The value used when none is set."),
+                  P("min", NUM, "Lowest value (a number's slider needs min and max).", True), P("max", NUM, "Highest value.", True),
+                  P("step", NUM, "Increment of the spin box / slider.", True), P("choices", "list", "The options of a dropdown.", True),
+                  P("decimals", "int", "Decimals shown for a number.", True), P("help", "str", "Tooltip of the control.", True),
+                  returns="any", example="angle = param('Angle', 30, min=-180, max=180)\ncopies = param('Copies', 3, min=1, max=12)\n"
+                                         "keep = param('Keep colours', True)\nfor t in transforms:\n    t.rotate(angle)"),
     # --- Apophysis compatibility ---------------------------------------------------------------------------------------------------------------
     "Transform": obj("Transform", "Apophysis alias of `transform` (the active transform).", compat=True),
     "AddTransform": func("Apophysis alias of add_transform().", returns="Transform", compat=True),
@@ -406,12 +435,13 @@ CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Objects", ("flame", "transforms", "transform", "camera", "gradient", "xaos", "coloring")),
     ("Transforms", ("add_transform", "add_random_transform", "insert_transform", "remove_transform", "copy_transform", "clear_transforms",
                     "get_transform", "set_active_transform", "move_transform", "swap_transforms", "for_each_transform", "normalize_weights",
-                    "total_weight", "final_transform", "set_final_transform", "remove_final_transform", "new_transform")),
+                    "total_weight", "add_symmetry", "final_transform", "set_final_transform", "remove_final_transform", "new_transform")),
     ("Flame", ("new_flame", "random_flame", "load_flame", "save_flame", "set_flame", "copy_flame", "flame_text", "flame_xml", "from_text",
                "snapshot", "restore", "validate")),
-    ("Variations", ("list_variations", "variation_info", "variation_params", "random_variation")),
+    ("Variations", ("list_variations", "variation_info", "variation_params", "random_variation", "list_gradient_presets")),
     ("Randomness", ("random", "random_int", "random_choice", "random_gauss", "random_bool", "random_color", "seed")),
     ("Maths helpers", ("clamp", "lerp", "deg2rad", "rad2deg", "dist", "hex_to_rgb", "rgb_to_hex", "math", "PI", "TAU")),
+    ("Parameters", ("param",)),
     ("Output & interaction", ("print", "clear", "message", "input_text", "input_number", "confirm", "update", "sleep", "progress", "stop")),
     ("Classes", ("Flame", "XForm", "Gradient", "ColorStop")),
     ("Apophysis compatibility", ("Transform", "AddTransform", "DeleteTransform", "CopyTransform", "SetActiveTransform", "Rotate", "Scale",
@@ -543,7 +573,38 @@ for i in range(20):              # a preview animation
     sleep(0.1)
 ```
 
-## 7. Script metadata
+## 7. Parameters: scripts as live tools
+
+Declare the inputs a script should expose instead of asking for them:
+
+```python
+angle = param('Angle', 30, min=-180, max=180)       # a slider
+copies = param('Copies', 3, min=1, max=12)          # an integer slider
+palette = param('Palette', 'Fire', choices=list_gradient_presets())   # a dropdown
+keep = param('Keep colours', True)                  # a check box
+```
+
+Run it once and the *Parameters* tab shows one control per declaration. Moving a control runs the script again
+from the fractal as it was before the run, with the same random numbers, so only the value you move changes the
+picture — and the whole session is still one undo step. `param()` returns the default when nothing is set, so the
+script behaves the same everywhere else. *Set as defaults in script* writes the current values into the code.
+
+Controls update the fractal live only while the script has no side effects: a script that asks questions, shows
+messages, calls `update()` / `sleep()`, saves files, or imports anything but the harmless modules (`math`,
+`colorsys`, `random`, …) still takes its values from the controls, but applies them when you press **Run**.
+Changing the fractal in another way ends the live session (the values stay; press Run to apply them again).
+
+## 8. Recording
+
+**Record** (on the toolbar) writes code while you work in the rest of Fractalchemy: every edit — camera drags and
+zooms, the Image tab, the 3D camera, colouring and curves, the Gradient Library, the Transform Editor, Paste
+Parameters — appends the statements that reproduce it at the cursor (`camera.zoom = 1.25`, `coloring.gamma = 3.5`,
+`gradient.set_stops([...])`). A slider drag becomes one statement; undoing in the main window removes the statement
+it had just written. Recording stops when you press Run. *Record ▾ Changes* writes changes instead of values
+(`camera.zoom += 0.25`), so the recording works as a filter on any fractal. Replace a recorded number by a `param()`
+call and the recording becomes a tool.
+
+## 9. Script metadata
 
 Comment lines at the top are shown in the *Info* tab and name the script when it is saved as a template:
 
@@ -553,7 +614,7 @@ Comment lines at the top are shown in the *Info* tab and name the script when it
 # @description Rotates every transform by a random angle.
 ```
 
-## 8. Tips
+## 10. Tips
 
 * **Tab** completes names; **Ctrl+Space** opens the list anywhere. Inside `set_variation('…')`,
   `variations['…']` and `params['…']` the list holds the valid names.

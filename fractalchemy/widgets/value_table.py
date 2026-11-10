@@ -12,6 +12,7 @@ a model itself. `set_rows` keeps the scroll position and the current row when th
 from __future__ import annotations
 
 import math
+from typing import Callable
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, Signal
@@ -35,6 +36,7 @@ class ValueRow:
     integer: bool = False
     color: QColor | None = None          # the text colour of the whole row (None: the palette's)
     background: QColor | None = None     # a row tint (the formula lists colour rows by origin)
+    constrain: Callable[[float, float], tuple[float, str]] | None = None   # (value, previous) → (allowed value, note)
 
 
 def drag_step(modifiers) -> float:
@@ -64,11 +66,13 @@ class ValueTable(QTableWidget):
         drag_finished(str): A value drag ended (the owner may close an undo step).
         name_double_clicked(str): A name cell was double-clicked.
         current_changed(str): The current row changed (empty string for none).
+        note(str): A typed or dragged value was changed to what the row allows (its `constrain`), and why.
     """
     value_edited = Signal(str, float)
     drag_finished = Signal(str)
     name_double_clicked = Signal(str)
     current_changed = Signal(str)
+    note = Signal(str)
 
     def __init__(self, parent: QWidget | None = None, headers: tuple[str, ...] = ("Name", "Value")):
         super().__init__(0, len(headers), parent)
@@ -215,10 +219,20 @@ class ValueTable(QTableWidget):
             return
         if row.integer:
             value = float(int(round(value)))
+        value = self._constrained(row, value)
         if value != row.value:
             row.value = value
             self.value_edited.emit(name, value)
         self.update_value(name, value)
+
+    def _constrained(self, row: ValueRow, value: float) -> float:
+        """`value` as the row allows it (announcing the change through `note`)."""
+        if row.constrain is None:
+            return value
+        allowed, note = row.constrain(value, row.value)
+        if note:
+            self.note.emit(note)
+        return allowed
 
     def _on_double_clicked(self, item: QTableWidgetItem) -> None:
         if item.column() == 0:
@@ -255,6 +269,7 @@ class ValueTable(QTableWidget):
         else:
             value = round(start + dx * step, 6)
         self._drag = (name, x0, start, True)
+        value = self._constrained(row, value)
         if value != row.value:
             row.value = value
             self.update_value(name, value)

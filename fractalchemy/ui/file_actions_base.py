@@ -71,6 +71,10 @@ class FileActionsBase(QObject):
             return self.save()
         return answer == buttons.Discard
 
+    def note_write(self, path: Path) -> None:
+        """`path` is being written by us (another window's job): the library's watcher ignores it for a moment."""
+        self._written[Path(path)] = time.monotonic()
+
     def wrote_recently(self, path: Path) -> bool:
         """True if we wrote `path` within the last few seconds (to ignore our own watcher events)."""
         return time.monotonic() - self._written.get(path, -1e9) < RECENT_WRITE_SECONDS
